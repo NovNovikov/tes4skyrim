@@ -34,7 +34,8 @@ import os
 import sys
 import time
 
-from core.plugin_masters import masters_from_export_header
+from core.plugin_masters import (master_dir, master_dirs,
+                                 masters_from_export_header)
 from core.worldspace_names import set_worldspace_plugins
 from asset_convert.game_paths import namespace_for, set_namespace
 from .registry import IMPORT_DISPATCH, RUNTIME_ONLY_TYPES, SKIP_TYPES
@@ -210,29 +211,9 @@ def _build_assoc_item_index(by_type: dict, ctx=None) -> tuple:
 
 
 def master_export_dirs(ctx) -> list:
-    """The export directory of each TES4 master, in _HEADER.txt order.
-
-    `load_master_export` resolves masters exactly this way (sibling directories
-    of the plugin's own export, named after the master file). Both the master's
-    VTYP creation and this plugin's adoption of it must read the SAME RACE.txt,
-    so the derivation is shared rather than reproduced.
-    """
+    """The export directory of each TES4 master of `ctx`'s plugin, in header order."""
     export_dir = getattr(ctx, 'export_dir', None)
-    if not export_dir:
-        return []
-    header = os.path.join(export_dir, '_HEADER.txt')
-    if not os.path.isfile(header):
-        return []
-    from .overrides.nested import export_root, master_export_dir
-    root = export_root(export_dir)
-    try:
-        with open(header, 'r', encoding='utf-8') as f:
-            names = [line.partition('=')[2].strip() for line in f
-                     if line.startswith('Master[')]
-    except OSError:
-        return []
-    dirs = [master_export_dir(root, n) for n in names]
-    return [d for d in dirs if os.path.isdir(d)]
+    return master_dirs(export_dir) if export_dir else []
 
 
 def _reconcile_masters(masters: list, tes4_master_names: list) -> list:
@@ -766,19 +747,8 @@ def _refresh_master_mesh_caches(export_dir: str) -> None:
     See: docs/commentary/tes5_import_pipeline.md#stale-master-asset-caches
     """
     from output_layout import paths as plugin_paths
-    from .overrides.nested import export_root, master_export_dir
-    header = os.path.join(export_dir, '_HEADER.txt')
-    if not os.path.isfile(header):
-        return
-    try:
-        with open(header, 'r', encoding='utf-8') as fh:
-            names = [line.partition('=')[2].strip() for line in fh
-                     if line.startswith('Master[')]
-    except OSError:
-        return
-    root = export_root(export_dir)
-    for name in names:
-        mdir = master_export_dir(root, name)
+    for name in masters_from_export_header(export_dir):
+        mdir = master_dir(export_dir, name)
         if os.path.isdir(mdir):
             rescan_mesh_caches(
                 mdir, os.path.join(str(plugin_paths(name).out), 'meshes'))

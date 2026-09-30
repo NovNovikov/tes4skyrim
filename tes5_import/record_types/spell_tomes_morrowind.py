@@ -14,11 +14,12 @@ import struct
 
 import numpy as np
 
+from core.plugin_masters import export_root
 from tes4_export.tes3_reader import (get_all_subrecords, get_string,
                                        get_subrecord, read_file)
 
 from ..dialogue.morrowind_autocalc import parse_class, parse_race, parse_skill
-from ..dialogue.morrowind_sidecar import export_root, is_tes3_export
+from ..dialogue.morrowind_sidecar import is_tes3_export
 from ..dialogue.morrowind_sidecar_source import (aidt_services, npc_is_autocalc,
                                                  npc_services, npc_stats,
                                                  plugin_chain)

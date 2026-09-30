@@ -6,10 +6,9 @@ plugin's own plus every master's, keyed on the model folder's leaf name.
 
 import os
 
+from core.plugin_masters import master_dir, masters_from_export_header
 from ..base.artifact_schema import read_artifact
 from ..base.text_reader import get_int, get_str
-from ..overrides.nested import (export_master_names, export_root,
-                                master_export_dir)
 
 
 def _usable(proj) -> bool:
@@ -35,11 +34,10 @@ def load_projects(export_dir: str) -> tuple:
         own = read_artifact(
             own_path, os.path.basename(os.path.normpath(export_dir)))
 
-    names = export_master_names(export_dir)
-    root = export_root(export_dir)
+    names = masters_from_export_header(export_dir)
     merged, owner_slot, rescued = {}, {}, []
     for slot, name in enumerate(names):
-        mpath = os.path.join(master_export_dir(root, name),
+        mpath = os.path.join(master_dir(export_dir, name),
                              'creature_projects.json')
         if not os.path.exists(mpath):
             continue

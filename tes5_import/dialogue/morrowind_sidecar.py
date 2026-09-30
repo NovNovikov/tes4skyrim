@@ -23,7 +23,8 @@ import struct
 
 from asset_convert.sources import source_registry
 from output_layout import plugin_esm
-from core.plugin_masters import (export_source, get_masters_from_binary,
+from core.plugin_masters import (export_root, export_source,
+                                 get_masters_from_binary,
                                  masters_from_export_header)
 from tes4_export.morrowind_ids import encode_editor_id, load_index
 from tes4_export.morrowind_patch import PATCH_NAME, START_SCRIPTS_SIG
@@ -156,9 +157,6 @@ _SCRIPT_EXPORT = 'SCPT.txt'
 _CELL_EXPORT = 'CELL.txt'
 _RECORD_MARK = '---RECORD_BEGIN---'
 
-#: What marks the export ROOT, as opposed to a record dir beneath it.
-_REGISTRY_FILE = 'sources.json'
-
 #: A local declaration in MWScript source: `short name`, `long name`, `float name`.
 _DECLARATION = re.compile(r'^\s*(short|long|float)\s+([A-Za-z_][A-Za-z0-9_]*)',
                           re.IGNORECASE)
@@ -210,17 +208,6 @@ def _actor_index(export_dir: str) -> str:
                                        ('FormID', 'EditorID'))
              if rec.get('FormID') and rec.get('EditorID')]
     return '\n'.join(lines) + ('\n' if lines else '')
-
-
-def export_root(export_dir: str) -> str:
-    """The folder holding the source registry, at or above `export_dir`."""
-    path = os.path.abspath(export_dir)
-    while not os.path.isfile(os.path.join(path, _REGISTRY_FILE)):
-        parent = os.path.dirname(path)
-        if parent == path:
-            return os.path.dirname(os.path.abspath(export_dir))
-        path = parent
-    return path
 
 
 def table_dirs(export_dir: str, plugin_name: str) -> list:

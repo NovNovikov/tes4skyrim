@@ -20,6 +20,8 @@ import os
 import struct
 from collections import Counter, namedtuple
 
+from core.plugin_masters import (export_root, master_dir,
+                                 master_index_map, masters_from_export_header)
 from .diff import diff_records
 from .manifest import load_master_manifests
 from .builder import (RECONVERT_KEYS, apply_changes, join_subrecords,
@@ -69,55 +71,6 @@ DELETED_FLAG = 0x20
 Override = namedtuple('Override', ['status', 'out_fid', 'record_bytes'])
 
 
-def export_master_names(export_dir: str) -> list:
-    """This plugin's TES4 master names, in load order, from its export header."""
-    header = os.path.join(export_dir, '_HEADER.txt')
-    if not os.path.isfile(header):
-        return []
-    names = []
-    with open(header, 'r', encoding='utf-8') as f:
-        for line in f:
-            if line.startswith('Master['):
-                _, _, val = line.partition('=')
-                names.append(val.strip())
-    return names
-
-
-def export_root(export_dir: str) -> str:
-    """The `export/` root, given any plugin's record folder.
-
-    A game-Data plugin sits directly under it (`export/Oblivion.esm/`), but an
-    imported mod's plugins are nested inside their mod's shared folder
-    (`export/<Mod>/<plugin>/`), so the parent of a record dir is not reliably
-    the root. The registry file marks the real one.
-    """
-    d = os.path.dirname(os.path.normpath(export_dir))
-    # At most two levels: <root>/<mod>/<plugin> is the deepest shape there is.
-    for cand in (d, os.path.dirname(d)):
-        if cand and os.path.isfile(os.path.join(cand, 'sources.json')):
-            return cand
-    return d
-
-
-def master_export_dir(root: str, name: str) -> str:
-    """Where master `name`'s records live under `root`.
-
-    Masters resolve as sibling directories, EXCEPT that an imported mod's
-    plugins live inside their mod's folder. Consulting the registry is what
-    lets a plugin master a resource pack's ESM after that pack moved into a
-    group folder; without it the master silently reads as missing and every
-    override is diffed against nothing.
-    """
-    try:
-        from output_layout import record_dir
-        got = record_dir(root, name)
-        if os.path.isdir(got):
-            return str(got)
-    except ImportError:
-        pass
-    return os.path.join(root, name)
-
-
 def load_master_export(export_dir: str) -> dict:
     """The masters' export records, keyed by the TES4 FormID THIS PLUGIN uses.
 
@@ -132,25 +85,15 @@ def load_master_export(export_dir: str) -> dict:
 
     See: docs/commentary/tes5_import_override.md#re-keying-the-masters-ids
     """
-    names = export_master_names(export_dir)
-    if not names:
-        return {}
-    slot_of = {n.lower(): i for i, n in enumerate(names)}
-
-    root = export_root(export_dir)
+    names = masters_from_export_header(export_dir)
     out = {}
     for slot, name in enumerate(names):
-        mdir = master_export_dir(root, name)
+        mdir = master_dir(export_dir, name)
         if not os.path.isdir(mdir):
             print(f"  WARNING: master export not found ({mdir}); "
                   f"overrides cannot be diffed against it")
             continue
-        own = export_master_names(mdir)
-        remap = {len(own): slot}
-        for k, sub in enumerate(own):
-            target = slot_of.get(sub.lower())
-            if target is not None:
-                remap[k] = target
+        remap = master_index_map(mdir, slot, names)
         for rec in parse_export_directory(mdir):
             fid = rec.get('FormID')
             if not fid:

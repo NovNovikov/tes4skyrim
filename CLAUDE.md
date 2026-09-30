@@ -349,7 +349,10 @@ comes from what actually solved 46 recent bugs
   change that removes lines, or adds only a few, beats one that adds many. Keep
   cyclomatic complexity low.
 - **No duplicated code.** Check whether it's already built; point to it or pull
-  it into a shared function.
+  it into a shared function. **De-duplicating code that can drift is a
+  priority:** when a fix touches one of several copies of the same rule (path
+  resolution, header parsing, naming), fold them into one function in the same
+  change — the unfixed copy is the next silent bug.
 - **Use the vendored OpenMW (`external/openmw`) instead of hand-rolling what it
   already does** (e.g. `ESM::InfoOrder` for dialogue order), so our behavior
   can't drift from OpenMW's. Hand-roll only when calling it would make the code
