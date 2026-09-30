@@ -350,6 +350,10 @@ comes from what actually solved 46 recent bugs
   cyclomatic complexity low.
 - **No duplicated code.** Check whether it's already built; point to it or pull
   it into a shared function.
+- **Use the vendored OpenMW (`external/openmw`) instead of hand-rolling what it
+  already does** (e.g. `ESM::InfoOrder` for dialogue order), so our behavior
+  can't drift from OpenMW's. Hand-roll only when calling it would make the code
+  more complex; vendor a missing header from `references/openmw` first.
 - Don't preserve backwards compatibility in code — delete what is no longer used.
   (Save-game compatibility is different: see [FormID drift](#formid-drift).)
 - <a id="end-user-state"></a>**Except what end users already have installed.**
