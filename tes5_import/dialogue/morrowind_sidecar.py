@@ -22,13 +22,14 @@ import shutil
 import struct
 
 from asset_convert.sources import source_registry
+from output_layout import plugin_esm
 from core.plugin_masters import (export_source, get_masters_from_binary,
                                  masters_from_export_header)
 from tes4_export.morrowind_ids import encode_editor_id, load_index
 from tes4_export.morrowind_patch import PATCH_NAME, START_SCRIPTS_SIG
 
-from .morrowind_sidecar_source import (gather, plugin_chain,
-                                       write_merged_dialogue)
+from .morrowind_sidecar_source import (gather, own_dialogue_blocks,
+                                       source_chain)
 from .morrowind_temples import skyrim_rows
 from ..record_types.magic_morrowind import effect_form_rows
 from .morrowind_teleport import (ANCHORS_TABLE, EFFECT_FORMS_TABLE, MARKERS_TABLE,
@@ -450,8 +451,8 @@ def _object_script_lines(export_dir: str, by_formid: dict) -> list:
 
 def _loaded_dirs(root: str, own_dir: str, plugin: str) -> list:
     """`(record_dir, plugin, own index byte)` for this plugin and each
-    `_HEADER.txt` master that has an export: the files the GAME loads, in
-    the order it resolves them.
+    `_HEADER.txt` master that has an export: the files the GAME loads,
+    NEAREST first, as a later plugin's record of an id overrides an earlier's.
 
     A table keyed by TES3 id has to point at THESE, not at the TES3 masters:
     in Morroblivion mode the game never loads a converted Morrowind.esm, and
@@ -461,7 +462,7 @@ def _loaded_dirs(root: str, own_dir: str, plugin: str) -> list:
     """
     loaded = [(own_dir, plugin)] + [
         (str(source_registry.record_dir(root, master)), master)
-        for master in masters_from_export_header(own_dir)]
+        for master in reversed(masters_from_export_header(own_dir))]
     return [(folder, name, len(masters_from_export_header(folder)))
             for folder, name in loaded if os.path.isdir(folder)]
 
@@ -548,6 +549,12 @@ def _effect_lines(dirs: list) -> list:
                 continue
             seen.setdefault(index, f'{index}={plugin}|{formid}|{name}')
     return [seen[key] for key in sorted(seen, key=int)]
+
+
+def _kept_dirs(loaded: list, export_dir: str, plugin_name: str) -> list:
+    """The `loaded` dirs whose records this sidecar stages, by `_row_keeper`."""
+    keeps = _row_keeper(export_dir, plugin_name)
+    return [entry for entry in loaded if keeps(entry[1])]
 
 
 def _soul_lines(dirs: list, raw: dict) -> list:
@@ -653,29 +660,52 @@ def _ref_lines(dirs: list, root: str, ids: dict) -> list:
     return list(seen.values())
 
 
-def _cell_lines(export_dir: str, plugin_name: str) -> list:
-    """`cell name=Plugin|FormID` for each cell this plugin defines: the CELL
-    of an interior, the WORLDSPACE of an exterior, attributed to the loaded
-    plugin its index byte names.
+def _cell_rows(folder: str, plugin: str) -> set:
+    """`cell name=Plugin|FormID` for each cell the export at `folder` names:
+    the CELL of an interior, the WORLDSPACE of an exterior, attributed to the
+    loaded plugin its index byte names.
 
     Both names a cell carries are keyed, because a script may write either:
     the export keeps the cell's own name as its `EditorID`, while `FULL`
     repeats that for an interior and names the REGION for an exterior.
     See: docs/commentary/morrowind_runtime.md#positioncell-moves-into-the-cell
     """
-    masters = masters_from_export_header(export_dir)
-    lines = []
-    for rec in export_records(os.path.join(export_dir, _CELL_EXPORT),
+    masters = masters_from_export_header(folder)
+    rows = set()
+    for rec in export_records(os.path.join(folder, _CELL_EXPORT),
                               ('FormID', 'EditorID', 'FULL', 'ParentWRLD')):
         place = rec.get('ParentWRLD') or rec.get('FormID', '')
         if not place:
             continue
         index = int(place[:2], 16)
-        owner = masters[index] if index < len(masters) else plugin_name
-        for key in ('EditorID', 'FULL'):
-            if rec.get(key):
-                lines.append(f'{rec[key]}={owner}|{place}')
-    return sorted(set(lines))
+        owner = masters[index] if index < len(masters) else plugin
+        rows.update(f'{rec[key]}={owner}|{place}'
+                    for key in ('EditorID', 'FULL') if rec.get(key))
+    return rows
+
+
+def _cell_names(gathered: dict) -> set:
+    """The lowercased cell ids and region names the TES3 chain authors."""
+    return gathered.get('cells', set()) | {
+        name.lower() for name in gathered.get('regions', {}).values()}
+
+
+def _cell_lines(loaded: list, keeps, names: set) -> list:
+    """This plugin's cell rows that no master's export repeats -- a renamed
+    override is its own -- plus the rows naming a TES3 cell or region in
+    `names` of each master it `keeps`, which has no sidecar to stage them.
+
+    See: docs/plans/morrowind_object_scripts.md#cumulative-gather-must-go
+    """
+    lines = _cell_rows(*loaded[0][:2])
+    for folder, plugin, _own in loaded[1:]:
+        rows = _cell_rows(folder, plugin)
+        if keeps(plugin):
+            lines |= {row for row in rows
+                      if row.partition('=')[0].lower() in names}
+        else:
+            lines -= rows
+    return sorted(lines)
 
 
 def _write_lines(path: str, lines: list) -> int:
@@ -718,7 +748,9 @@ def write_script_tables(export_dir: str, out_dir: str, plugin_name: str,
             + _write_lines(os.path.join(out_dir, SOULGEMS_TABLE),
                            _soulgem_lines(loaded))
             + _write_lines(os.path.join(out_dir, SOULS_TABLE),
-                           _soul_lines(loaded, ids.get('objects', {})))
+                           _soul_lines(_kept_dirs(loaded, export_dir,
+                                                  plugin_name),
+                                       ids.get('objects', {})))
             + _write_lines(os.path.join(out_dir, GLOBALS_TABLE),
                            _global_lines(dirs[:1]))
             + _write_lines(os.path.join(out_dir, STATE_TABLE),
@@ -745,19 +777,39 @@ def write_script_tables(export_dir: str, out_dir: str, plugin_name: str,
             + _write_lines(os.path.join(out_dir, BASES_TABLE),
                            _base_lines(dirs, root, ids.get('objects', {})))
             + _write_lines(os.path.join(out_dir, CELLS_TABLE),
-                           _cell_lines(export_dir, plugin_name)))
+                           _cell_lines(loaded,
+                                       _row_keeper(export_dir, plugin_name),
+                                       _cell_names(ids))))
+
+
+def _export_starts(export_dir: str) -> dict:
+    """`{lower id: 'id=1'}` for each start script this export authors."""
+    rows = export_records(
+        os.path.join(export_dir, f'{START_SCRIPTS_SIG}.txt'), ('EditorID',))
+    return {rec['EditorID'].lower(): f"{rec['EditorID']}=1"
+            for rec in rows if rec.get('EditorID')}
+
+
+def _gathered(export_dir: str, plugin_name: str, chain: list) -> dict:
+    """What `gather` reads from `chain`: the Morroblivion patch keeps every
+    vanilla plugin's own records and its export's start scripts.
+
+    See: docs/plans/morrowind_object_scripts.md#cumulative-gather-must-go
+    """
+    if not chain:
+        return {}
+    if os.path.basename(plugin_name) != PATCH_NAME:
+        return gather(chain)
+    whole = gather(chain, whole=True)
+    whole['start_scripts'] = _export_starts(export_dir)
+    return whole
 
 
 def _stage_dialogue(export_dir: str, out_dir: str, present: list,
-                    chain: list, gathered: dict) -> int:
-    """The dialogue and the actor table, MERGED over the plugin's TES3 masters
-    when its binary can be found; else this plugin's own export, copied.
+                    chain: list, gathered: dict, plugin_name: str) -> int:
+    """The plugin's OWN dialogue and actor tables, read from its binary with
+    the links the runtime merges by; else its own export, copied unlinked.
 
-    🛑 TODO: this merge DUPLICATES every master's dialogue into each dependent
-    -- 76 MB against TR_Mainland's own 51 MB -- and must move to per-owner
-    staging. It cannot just be deleted: `Ordinal` is the only order the runtime
-    has and it is only meaningful across a merged chain, so PNAM/NNAM must be
-    exported and merged at load FIRST.
     See: docs/plans/morrowind_object_scripts.md#cumulative-gather-must-go
     """
     if not chain:
@@ -765,21 +817,22 @@ def _stage_dialogue(export_dir: str, out_dir: str, present: list,
             staged_as = DIALOGUE_FILES[_EXPORT_DIALOGUE.index(name)]
             shutil.copyfile(os.path.join(export_dir, name),
                             os.path.join(out_dir, staged_as))
-        starts = [f"{rec['EditorID']}=1" for rec in export_records(
-            os.path.join(export_dir, f'{START_SCRIPTS_SIG}.txt'), ('EditorID',))
-                  if rec.get('EditorID')]
         return len(present) + _write_lines(
-            os.path.join(out_dir, START_SCRIPTS_TABLE), starts)
-    topics, infos = write_merged_dialogue(gathered, out_dir)
+            os.path.join(out_dir, START_SCRIPTS_TABLE),
+            list(_export_starts(export_dir).values()))
+    dial_blocks, info_blocks = own_dialogue_blocks(gathered)
+    for name, blocks in zip(DIALOGUE_FILES, (dial_blocks, info_blocks)):
+        _write_lines(os.path.join(out_dir, name),
+                     ['\n\n'.join(blocks)] if blocks else [])
     folders = [(folder, plugin) for folder, plugin, _own in _loaded_dirs(
-        export_root(export_dir), export_dir, chain[-1][0])]
+        export_root(export_dir), export_dir, plugin_name)]
     gathered['travel'] = travel_lines(gathered,
                                       marker_index(folders, export_records))
-    print(f'    sidecar: {topics} topics, {infos} responses merged over '
-          f'{", ".join(name for name, _path in chain)}')
+    print(f'    sidecar: {len(dial_blocks)} topics, {len(info_blocks)} '
+          f'responses of its own')
     staged = len(DIALOGUE_FILES)
-    for name, key in ((ACTORS_TABLE, 'actors'), (FACTIONS_TABLE, 'factions'),
-                      (GMST_TABLE, 'gmsts'), (SKILLS_TABLE, 'skills'),
+    for name, key in ((ACTORS_TABLE, 'actors'), (FACTIONS_TABLE, 'own_factions'),
+                      (GMST_TABLE, 'own_gmsts'), (SKILLS_TABLE, 'skills'),
                       (START_SCRIPTS_TABLE, 'start_scripts'),
                       (TRAVEL_TABLE, 'travel')):
         staged += _write_lines(os.path.join(out_dir, name),
@@ -787,7 +840,20 @@ def _stage_dialogue(export_dir: str, out_dir: str, present: list,
     return staged
 
 
-def _journal_quests(writer, out_dir: str, plugin_name: str) -> int:
+def _master_sidecars(export_dir: str, output_path: str) -> list:
+    """`(plugin, sidecar dir)` for each export-header master with a staged
+    sidecar, in load order."""
+    root = export_root(export_dir)
+    output_root = os.path.dirname(os.path.dirname(output_path))
+    found = [(master, sidecar_dir(str(plugin_esm(output_root, master, root)),
+                                  master))
+             for master in masters_from_export_header(export_dir)]
+    return [(master, folder) for master, folder in found
+            if os.path.isdir(folder)]
+
+
+def _journal_quests(writer, out_dir: str, plugin_name: str,
+                    masters: list) -> int:
     """The journal QUSTs and their id table, when there is a `writer` to add
     records to; a restage with no import leaves the existing table alone.
 
@@ -797,7 +863,7 @@ def _journal_quests(writer, out_dir: str, plugin_name: str) -> int:
     if writer is None:
         return 0
     from .quest_morrowind import write_journal_quests
-    quests = write_journal_quests(writer, out_dir, plugin_name)
+    quests = write_journal_quests(writer, out_dir, plugin_name, masters)
     print(f'    sidecar: {quests} journal quest(s) written as QUST')
     from .ai_packages_morrowind import write_ai_packages
     packages = write_ai_packages(writer, out_dir, plugin_name)
@@ -810,8 +876,9 @@ def is_tes3_export(export_dir: str) -> bool:
     return export_source(export_dir) == 'TES3'
 
 
-def _converted_sounds(esm_path: str) -> dict:
-    """`lowercased EditorID -> SNDR FormID` for every SOUN in a converted plugin.
+def _converted_sounds(esm_path: str, own_only: bool = False) -> dict:
+    """`lowercased EditorID -> SNDR FormID` for every SOUN in a converted
+    plugin, or with `own_only` those it defines itself, as authored.
 
     Case-folded because Morrowind ids are case-insensitive while the records
     keep their authored spelling. The SNDR is the SDSC the SOUN names, READ
@@ -822,41 +889,44 @@ def _converted_sounds(esm_path: str) -> dict:
     out = {}
     index = MasterIndex(esm_path)
     for formid in index.formids():
-        if index.signature(formid) != b'SOUN':
+        if index.signature(formid) != b'SOUN' or (
+                own_only and formid >> 24 != index.own_index):
             continue
         body = index.record(formid)[_TES5_HEADER]
         edid = first_sub(body, b'EDID')
         sdsc = first_sub(body, b'SDSC')
         if edid is None or sdsc is None or len(sdsc) < 4:
             continue
-        key = edid.rstrip(b'\0').decode('ascii', 'replace').lower()
-        out.setdefault(key, struct.unpack_from('<I', sdsc, 0)[0])
+        key = edid.rstrip(b'\0').decode('ascii', 'replace')
+        out.setdefault(key if own_only else key.lower(),
+                       struct.unpack_from('<I', sdsc, 0)[0])
     return out
 
 
-def _sound_owners(export_dir: str, output_root: str) -> list:
-    """`(plugin, {edid: SNDR})` for each converted master, nearest first.
+def _sound_owners(export_dir: str, output_root: str, keeps) -> list:
+    """`(plugin, {edid: SNDR})` for each converted master whose rows this
+    sidecar `keeps`, nearest first.
 
     The chain comes from the EXPORT header, not the source binary: in
     Morroblivion mode the binary still names Morrowind/Tribunal/Bloodmoon while
     the conversion actually resolves against Morrowind_ob and the gap patch.
     See: docs/commentary/tes4_export_morrowind.md#masters
     """
-    from output_layout import plugin_esm
     root = export_root(export_dir)
     owners = []
-    for master in masters_from_export_header(export_dir):
+    for master in reversed(masters_from_export_header(export_dir)):
         esm = str(plugin_esm(output_root, master, root))
-        if os.path.isfile(esm):
+        if keeps(master) and os.path.isfile(esm):
             owners.append((master, _converted_sounds(esm)))
     return owners
 
 
 def stage_sound_table(export_dir: str, output_path: str, plugin_name: str,
-                      own: dict) -> int:
+                      own: dict = None) -> int:
     """Write the TES3 sound table for the runtime; how many rows it holds.
 
-    `own` is `{EditorID: SNDR}` for the SOUNs this import converted. Every
+    `own` is `{EditorID: SNDR}` for the SOUNs this import converted, else
+    read from the converted plugin at `output_path` (a restage). Every
     other authored sound id of the TES3 chain is looked for in each converted
     master, by the raw id AND by its Morroblivion escape -- a Morroblivion-mode
     master spells `Door Stone Open` `0DoorSStoneSOpen`, so a raw comparison
@@ -864,15 +934,19 @@ def stage_sound_table(export_dir: str, output_path: str, plugin_name: str,
 
     See: docs/commentary/tes5_import_sound.md#the-runtime-sound-table
     """
-    if not is_tes3_export(export_dir):
-        return 0
     plugin = os.path.basename(plugin_name)
-    chain = plugin_chain(export_root(export_dir), plugin)
+    if not (is_tes3_export(export_dir) or plugin == PATCH_NAME):
+        return 0
+    chain = source_chain(export_root(export_dir), plugin)
     ids = gather(chain)['sounds'] if chain else {}
+    if own is None:
+        own = (_converted_sounds(output_path, own_only=True)
+               if os.path.isfile(output_path) else {})
     rows = {edid.lower(): f'{edid}={plugin}|{sndr:08X}'
             for edid, sndr in own.items() if edid and sndr}
     output_root = os.path.dirname(os.path.dirname(output_path))
-    for master, sounds in _sound_owners(export_dir, output_root):
+    keeps = _row_keeper(export_dir, plugin_name)
+    for master, sounds in _sound_owners(export_dir, output_root, keeps):
         for key, tes3 in ids.items():
             if key in rows:
                 continue
@@ -898,6 +972,65 @@ def _stages_base_game(loaded: list) -> bool:
     """Whether no loaded master is a TES3 plugin or the patch, staging Skyrim's."""
     return not any(is_tes3_export(folder) or plugin == PATCH_NAME
                    for folder, plugin, _own in loaded[1:])
+
+
+#: The tables whose rows name their record's plugin, `...Plugin.esm|FormID`.
+_OWNED_TABLES = (GLOBALS_TABLE, STATE_TABLE, FACTION_FORMS_TABLE, ITEMS_TABLE,
+                 REFS_TABLE, BASES_TABLE, SOUNDS_TABLE,
+                 SPELLS_TABLE, EFFECTS_TABLE, SOULGEMS_TABLE, CRIME_TABLE,
+                 SAY_TABLE, ANCHORS_TABLE, MARKERS_TABLE, WORLDS_TABLE,
+                 TELEPORTS_TABLE, EFFECT_FORMS_TABLE)
+
+
+def _row_owner(line: str) -> str:
+    """The plugin a table row names: before the `|` of its key when the key
+    has one, else of its value, after any `,`. '' when it names none."""
+    key, _, value = line.partition('=')
+    text = key if '|' in key else value
+    bar = text.find('|')
+    return text[:bar].rsplit(',', 1)[-1] if bar >= 0 else ''
+
+
+def _row_keeper(export_dir: str, plugin_name: str):
+    """`keeps(owner)`: whether a row naming `owner` belongs in this sidecar.
+    Its own plugin's rows do; a plugin that stages a sidecar stages its own;
+    and the rest (Morrowind_ob's, Skyrim's) go in the sidecar no master's
+    sidecar sits under -- the Morroblivion patch, or a root TES3 master.
+
+    See: docs/plans/morrowind_object_scripts.md#cumulative-gather-must-go
+    """
+    root = export_root(export_dir)
+    base = _stages_base_game(_loaded_dirs(root, export_dir, plugin_name))
+    own = os.path.basename(plugin_name).lower()
+    known = {}
+
+    def keeps(owner: str) -> bool:
+        """This sidecar's row, by the rule above."""
+        if not owner or owner.lower() == own:
+            return True
+        if owner not in known:
+            folder = str(source_registry.record_dir(root, owner))
+            known[owner] = owner == PATCH_NAME or (
+                os.path.isdir(folder) and is_tes3_export(folder))
+        return base and not known[owner]
+    return keeps
+
+
+def _drop_foreign_rows(out_dir: str, export_dir: str, plugin_name: str) -> int:
+    """Remove every row of `_OWNED_TABLES` another sidecar stages; returns the
+    tables that emptied, which are deleted."""
+    keeps = _row_keeper(export_dir, plugin_name)
+    emptied = 0
+    for name in _OWNED_TABLES:
+        path = os.path.join(out_dir, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding='utf-8') as handle:
+            lines = handle.read().splitlines()
+        kept = [line for line in lines if keeps(_row_owner(line))]
+        if len(kept) != len(lines):
+            emptied += 1 - _write_lines(path, kept)
+    return emptied
 
 
 def _markers(loaded: list, writer, master_index) -> tuple:
@@ -970,10 +1103,11 @@ def write_morrowind_sidecar(export_dir: str, output_path: str,
                if os.path.isfile(os.path.join(export_dir, name))]
     out_dir = sidecar_dir(output_path, plugin_name)
     os.makedirs(out_dir, exist_ok=True)
-    chain = plugin_chain(export_root(export_dir), plugin_name)
-    gathered = gather(chain) if chain else {}
+    chain = source_chain(export_root(export_dir), plugin_name)
+    gathered = _gathered(export_dir, plugin_name, chain)
     staged = (_apparatus(export_dir, output_path, plugin_name, gathered)
-              + _stage_dialogue(export_dir, out_dir, present, chain, gathered)
+              + _stage_dialogue(export_dir, out_dir, present, chain, gathered,
+                                plugin_name)
               + write_script_tables(export_dir, out_dir, plugin_name,
                                     gathered)
               + _write_lines(os.path.join(out_dir, SAY_TABLE),
@@ -982,7 +1116,9 @@ def write_morrowind_sidecar(export_dir: str, output_path: str,
               + _write_lines(os.path.join(out_dir, CRIME_TABLE), _crime_lines())
               + _teleport_tables(export_dir, output_path, plugin_name, out_dir,
                                  writer, master_index)
-              + _journal_quests(writer, out_dir, plugin_name))
+              + _journal_quests(writer, out_dir, plugin_name,
+                                _master_sidecars(export_dir, output_path)))
+    staged -= _drop_foreign_rows(out_dir, export_dir, plugin_name)
     index = _actor_index(export_dir)
     if not index:
         return staged

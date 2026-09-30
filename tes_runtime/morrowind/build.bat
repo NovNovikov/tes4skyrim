@@ -126,13 +126,14 @@ if errorlevel 1 (
     exit /b 1
 )
 link /nologo /OUT:store_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
-     objt\script_tables.obj objt\store_test.obj kernel32.lib user32.lib shell32.lib ole32.lib
+     objt\script_tables.obj objt\store_test.obj obj\mw\*.obj ^
+     kernel32.lib user32.lib shell32.lib ole32.lib
 if errorlevel 1 (
     echo [build] ERROR: store_test link failed
     exit /b 1
 )
 link /nologo /OUT:filter_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
-     objt\script_tables.obj objt\filter.obj objt\filter_test.obj ^
+     objt\script_tables.obj objt\filter.obj objt\filter_test.obj obj\mw\*.obj ^
      kernel32.lib user32.lib shell32.lib ole32.lib
 if errorlevel 1 (
     echo [build] ERROR: filter_test link failed

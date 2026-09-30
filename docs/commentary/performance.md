@@ -610,6 +610,15 @@ properly parallel. Two findings:
   `configure_multiprocessing()` therefore defaults `OPENBLAS_NUM_THREADS` to 1
   before anything imports numpy. The pool gives the parallelism, and 29
   processes × 32 BLAS threads would only oversubscribe the cores anyway.
+- <a id="venv-pool-workers"></a>**In a venv, workers run the BASE `pythonw.exe`.**
+  A venv's `Scripts\pythonw.exe` is a redirector stub that re-launches the base
+  interpreter as a second process, and the pool's inherited handles do not
+  survive it: every worker died at start, surfacing as `BrokenProcessPool` from
+  `parse_export_directory` on the first `--import-only` under the repo's
+  `.venv` (no worker traceback, as `pythonw` has no stderr). CPython's own
+  spawner bypasses the stub only when the executable IS `sys.executable`, by
+  launching `sys._base_executable` with `__PYVENV_LAUNCHER__` set, so
+  `subprocess_flags._worker_executable` does the same for the console-less one.
 
 ## FormID determinism — the save-game contract (rewritten 2026-08-17)
 <a id="formid-determinism-save-game-contract"></a>

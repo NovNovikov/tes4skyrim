@@ -172,7 +172,7 @@ backwards:
 
 | Rule | Behaviour |
 |---|---|
-| order | **First match wins**, never best match. `Ordinal` is precedence. |
+| order | **First match wins**, never best match. OpenMW's `InfoOrder` over PNAM is precedence. |
 | creature | Answers only topics naming it directly; a generic topic is rejected. |
 | gender | `mGender` is `0` male / `1` female and the test is for the **opposite**. |
 | cell | Matches as a **prefix**: `Balmora` catches `Balmora, Guild of Fighters`. |
@@ -1125,12 +1125,12 @@ Reach of the commands the content calls most: `AddItem` 4,492, `RemoveItem`
 
 ### 🛑 Dialogue is cumulative, and the filter compares NAMES
 
-`tes5_import/dialogue/morrowind_sidecar_source.py` builds the sidecar's
-dialogue and actor table from the TES3 BINARIES of the plugin and every master
-it can find, merged as OpenMW's `InfoOrder` merges them (replace in place, else
-after `PNAM`, else before `NNAM`, else first when it names no predecessor).
+`tes5_import/dialogue/morrowind_sidecar_source.py` builds each sidecar's
+dialogue and actor table from the plugin's own TES3 BINARY; the runtime merges
+every loaded plugin's responses with the vendored OpenMW `InfoOrder`
+([per-owner staging](../plans/morrowind_object_scripts.md#cumulative-gather-must-go)).
 Measured on TR_Mainland: 69,270 responses alone, **106,958** merged over
-Morrowind, Tribunal, Bloodmoon and Tamriel_Data, in 15 s. "join the Fighters
+Morrowind, Tribunal, Bloodmoon and Tamriel_Data. "join the Fighters
 Guild" went from 2 responses to 29 — and still needed the speaker's faction,
 which the text export holds only as a minted FormID. `NPC_.txt` carries each
 NPC's race, class, faction, rank, base disposition, gender and name as authored.
@@ -2709,8 +2709,10 @@ spawned body running through exactly that lookup.
 Each TES3 Journal topic becomes one QUST: a stage per journal index, the page
 as the stage's log entry, the `QuestStatus=Name` page as FULL, `Finished` as
 the completes-quest bit, and an objective per page (see
-[objectives-must-be-displayed](#objectives-must-be-displayed)). `quests_formid.txt` maps the authored id to
-`Plugin|FormID`; `Journal` and `SetJournalIndex` call the
+[objectives-must-be-displayed](#objectives-must-be-displayed)). The QUST is the originating plugin's; a
+dependent that adds pages overrides it with the chain's pages
+([per-owner staging](../plans/morrowind_object_scripts.md#cumulative-gather-must-go)).
+The owner's `quests_formid.txt` maps the authored id to `Plugin|FormID`; `Journal` and `SetJournalIndex` call the
 `Quest.SetCurrentStageID` native. `AddJournalEntry` stages the ENTRY's index
 even when the quest's own index does not rise — a lower page added late is
 still a new page.
