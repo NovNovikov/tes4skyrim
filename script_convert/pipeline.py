@@ -42,9 +42,8 @@ from tes5_import.base.text_reader import info_result_script
 from tes5_import.dialogue.conversations import (build_conversation_plan,
                                                 build_script_chain_map,
                                                 generate_driver_psc)
-from tes5_import.dialogue.converter import (DIAL_TYPE_SERVICE,
-                                            SERVICE_MENU_TOPICS)
 from tes5_import.dialogue.say_topics import build_force_greet_slots
+from tes5_import.dialogue.say_topics import build_force_flee_slots
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 
@@ -128,7 +127,8 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
                         chargen_menus=None, say_topics=None,
                         music_cues=None, namespace=None,
                         quest_delays=None, quest_objectives=None,
-                        conversation_chains=None, force_greet_slots=None):
+                        conversation_chains=None, force_greet_slots=None,
+                        force_flee_slots=None):
     """Seed one worker with the parent state that spawning does not carry.
 
     `namespace` is installed FIRST: the generated-script prefix derives from
@@ -170,6 +170,7 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
     ScriptConverter.topic_unlock_globals = topic_unlock_globals or {}
     ScriptConverter.conversation_chains = conversation_chains or {}
     ScriptConverter.force_greet_slots = force_greet_slots or {}
+    ScriptConverter.force_flee_slots = force_flee_slots or {}
     # script EditorID -> button-MessageBox MESG plan; the importer writes the
     # records this makes the converter reference (message_menus.py).
     ScriptConverter.message_menus = message_menus or {}
@@ -257,8 +258,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
         print(f'    Button menus: {sum(len(v) for v in message_menus.values())} '
               f'MessageBox sites in {len(message_menus)} scripts')
     initargs = (xref, output_dir, unlock_plan['info_reveals'],
-                service_menu_topics(by_type, SERVICE_MENU_TOPICS,
-                                    DIAL_TYPE_SERVICE),
+                service_menu_topics(by_type),
                 unlock_plan['stage_reveals'], say_durations,
                 quest_script_vars, quest_edids_by_fid(by_type),
                 topic_unlock_globals(by_type, unlock_plan), message_menus,
@@ -267,7 +267,8 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 quest_script_delays(by_type),
                 quest_objective_indices(by_type),
                 build_script_chain_map(by_type),
-                build_force_greet_slots(by_type))
+                build_force_greet_slots(by_type),
+                build_force_flee_slots(by_type))
     return {'initargs': initargs, 'scpt_work': scpt_work,
             'info_work': info_work, 'qust_work': qust_work, 'stats': stats}
 
