@@ -594,36 +594,15 @@ def _reference_script_bases(by_type: dict, master_export: dict = None) -> set:
     return event_bases
 
 
-def _base_placement_counts(by_type: dict) -> dict:
-    """How many ACHR/ACRE placements each base actor (raw low-24) has.
-
-    A script may be moved OFF the base only when that base has a single
-    placement, else siblings would lose it.
-
-    See: docs/commentary/tes5_import_quest.md#actor-script-relocation
-    """
-    placements: dict[int, int] = {}
-    for sig in ('ACHR', 'ACRE'):
-        for rec in by_type.get(sig, []):
-            base_str = rec.get('NAME', '')
-            if base_str:
-                try:
-                    placements[int(base_str, 16) & 0x00FFFFFF] = \
-                        placements.get(int(base_str, 16) & 0x00FFFFFF, 0) + 1
-                except ValueError:
-                    pass
-    return placements
-
-
 def _relocate_actor_scripts_to_refs(by_type: dict, offset: int,
                                     master_export: dict = None) -> int:
-    """Move an actor's script VMAD from the base NPC_/CREA to its placed ACHR.
+    """Copy an actor's script VMAD from the base NPC_/CREA onto its placed ACHR.
 
     Qualifies a placement by EITHER trigger: a package condition reads this
     ref's script variables, or the base's script handles a reference-only event
-    / makes a bare self-reference call.  The script is MOVED (base entry
-    removed) rather than duplicated when the base has a single placement, so
-    exactly one instance carries it.  Returns the number relocated.
+    / makes a bare self-reference call.  The base keeps its entry, since actors
+    spawned from it at runtime (PlaceAtMe, leveled lists) need the script too.
+    Returns the number relocated.
 
     See: docs/commentary/tes5_import_quest.md#actor-script-relocation
     """
@@ -631,8 +610,6 @@ def _relocate_actor_scripts_to_refs(by_type: dict, offset: int,
     event_bases = _reference_script_bases(by_type, master_export)
     if not wanted_low and not event_bases:
         return 0
-
-    placements = _base_placement_counts(by_type)
 
     moved = 0
     for sig in ('ACHR', 'ACRE'):
@@ -658,10 +635,7 @@ def _relocate_actor_scripts_to_refs(by_type: dict, offset: int,
             vmad = _OBJECT_VMAD.get(base_out)
             if not vmad:
                 continue
-            ref_out = _remap(ref_raw, offset)
-            _OBJECT_VMAD[ref_out] = vmad
-            if placements.get(base_raw & 0x00FFFFFF, 0) <= 1:
-                _OBJECT_VMAD.pop(base_out, None)
+            _OBJECT_VMAD[_remap(ref_raw, offset)] = vmad
             moved += 1
     return moved
 

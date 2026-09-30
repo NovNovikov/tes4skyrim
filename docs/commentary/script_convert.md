@@ -6133,6 +6133,16 @@ Actor script `TES4_FGC01QuillweaveScript`). The same rule holds in
 `scro_refs._add_scro_ref`: an `ActorBase` typing already set is never
 overwritten by the SCRO's record type.
 
+`PlaceAtMe` is the same kind of base-semantics call: its argument is always a
+base form, so the handler types it `ActorBase` for an NPC_/CREA and the record's
+own base type otherwise (`Form` where the map only has the `ObjectReference`
+fallback). Nehrim's rat-hole spawners (`NQ00RattenSpawn01-03`) had
+`NEHRIM_NQ00Ratte0NScript Property NQRatte0N` — the SCRO gave the CREA its
+attached Actor script's type — so every spawn logged "cannot be bound" and
+`Cannot place a None object`. A spawned actor also needs the script on its
+BASE record; see
+[tes5_import_quest.md](tes5_import_quest.md#actor-script-relocation).
+
 ### <a id="unlock-globals-declared-once"></a>Unlock globals are declared once
 
 The stage-reveal unlock globals are declared from `stage_reveals`. The
