@@ -2126,7 +2126,11 @@ class TestServiceConversion:
                   'EditorID': 'Barter', 'DATA.Type': '5'}
         refusal = {'Signature': 'DIAL', 'FormID': '0000010E',
                    'EditorID': 'ServiceRefusal', 'DATA.Type': '5'}
+        renamed = dict(barter, EditorID='BarterStart')
+        plugin_own = dict(barter, FormID='0100010F')
         assert service_menu_kind(barter) == 'barter'
+        assert service_menu_kind(renamed) == 'barter'
+        assert service_menu_kind(plugin_own) == ''
         assert not should_skip_dial(barter)
         assert service_menu_kind(refusal) == ''
         assert should_skip_dial(refusal)

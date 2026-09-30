@@ -333,33 +333,27 @@ _SKIP_EDIDS = frozenset({
     'Question',
 })
 
-# Oblivion Service-type topics that become real Skyrim service dialogue.
-# 'Barter'/'Training' hold the voiced lines NPCs speak as those menus open in
-# Oblivion; they convert to player-selectable Custom topics whose INFOs open
-# the corresponding Skyrim menu via a Papyrus fragment (ShowBarterMenu /
-# ShowTrainingMenu). Every other Service topic (BarterExit, ServiceRefusal,
-# Repair, Recharge, Travel, ...) stays skipped.
-#
-# Skyrim's engine does define the whole Service subtype family -- SERU, REPA,
-# TRAV, TRAI, BAEX, REEX, RECH, RCEX, TREX, all present in its subtype table --
-# so these are not unrepresentable. They are skipped because vanilla Skyrim
-# uses NONE of them: zero DIAL records in Skyrim.esm carry a Service subtype,
-# because services are driven entirely from Papyrus menus rather than from
-# subtype-tagged dialogue. Converting them would produce topics the engine
-# never asks for.
-# Maps EditorID -> (service kind, player prompt used as the DIAL FULL).
+#: Engine-fixed raw DIAL FormID -> (service kind, player prompt used as the DIAL FULL).
 SERVICE_MENU_TOPICS = {
-    'Barter':   ('barter', 'What have you got for sale?'),
-    'Training': ('training', 'I would like some training.'),
+    0x0000010F: ('barter', 'What have you got for sale?'),
+    0x00000113: ('training', 'I would like some training.'),
 }
+
+
+def service_menu_entry(rec: dict) -> tuple:
+    """(kind, prompt) for the two Service topics that open a menu, else ('', '').
+
+    See: docs/commentary/tes5_import_dialogue.md#service-topics-by-formid
+    """
+    if get_int(rec, 'DATA.Type') != DIAL_TYPE_SERVICE:
+        return ('', '')
+    return SERVICE_MENU_TOPICS.get(int(get_str(rec, 'FormID', '0'), 16),
+                                   ('', ''))
 
 
 def service_menu_kind(rec: dict) -> str:
     """'barter' / 'training' for the two convertible Service topics, else ''."""
-    if get_int(rec, 'DATA.Type') != DIAL_TYPE_SERVICE:
-        return ''
-    info = SERVICE_MENU_TOPICS.get(get_str(rec, 'EditorID', ''))
-    return info[0] if info else ''
+    return service_menu_entry(rec)[0]
 
 
 #: Type-1 topics that are NOT NPC-to-NPC chatter, so they survive the drop.

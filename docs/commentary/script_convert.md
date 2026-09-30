@@ -6059,6 +6059,12 @@ anything present IS something this run produced. Both source and compiled
 output are cleared: a stale `.pex` is worse than a stale `.psc`, because the VM
 loads it whether or not the source is still there.
 
+A directory another process holds open (an Explorer window or a shell sitting
+in `scripts/source`) empties but cannot be removed: Windows refuses the final
+`rmdir` with WinError 32. The wipe keeps that empty directory rather than
+aborting the stage, because the guarantee is about files, and every file in it
+is already gone. Any other failure still raises.
+
 ### <a id="bounds-cache-schema"></a>The mesh-bounds cache must be current
 
 A cache from before the HELD bit existed loads fine and answers 0 for every
