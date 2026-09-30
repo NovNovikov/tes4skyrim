@@ -7103,6 +7103,33 @@ class TestAggressionTierTargeting:
         assert self._aggr(106, 50) == 3
 
 
+class TestEvilFactions:
+    """A TES4 Evil faction's members are no crime victims (DATA.Flags bit 1).
+
+    See: docs/commentary/tes5_import_actors.md#evil-factions
+    """
+
+    @staticmethod
+    def _member(fid):
+        """An NPC_ export record in the one faction `fid`."""
+        return {'FactionCount': '1', 'Faction[0].FormID': fid}
+
+    def test_own_and_master_evil_factions(self):
+        """Nehrim's AbtruennigeMagier (flags 3) and a master's Evil faction both count."""
+        from tes5_import.record_types.actor_common import (
+            in_evil_faction, load_faction_player_reactions)
+        load_faction_player_reactions(
+            {'FACT': [{'FormID': '001A23B7', 'DATA.Flags': '3'},
+                      {'FormID': '001A23B8', 'DATA.Flags': '1'}]},
+            {'0000AAAA': {'Signature': 'FACT', 'DATA.Flags': '2'},
+             '0000BBBB': {'Signature': 'NPC_', 'DATA.Flags': '2'}})
+        assert in_evil_faction(self._member('001A23B7'))
+        assert in_evil_faction(self._member('0000AAAA'))
+        assert not in_evil_faction(self._member('001A23B8'))
+        assert not in_evil_faction(self._member('0000BBBB'))
+        assert not in_evil_faction({'FactionCount': '0'})
+
+
 class TestFactionRelationReaction:
     """XNAM Group Combat Reaction: 0 Neutral, 1 Enemy, 2 ALLY, 3 FRIEND.
 

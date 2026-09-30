@@ -11,6 +11,7 @@ them does.
 - [ACBS flags: the same bit means three different things](#acbs-flag-collision)
 - [NAM5 and NAM8: widths taken from the binary](#nam5-nam8-widths)
 - [Crime factions are derived from the scripts](#crime-factions-derived)
+  - [Members of an Evil faction are no crime victims](#evil-factions)
 - [Faction reactions and player disposition](#faction-player-disposition)
 - [Aggression and confidence are TIERS, not scalars](#aggression-tiers)
 - [Confidence: only Cowardly or Foolhardy, plus an own-health threshold](#confidence-tiers)
@@ -88,6 +89,20 @@ and its first argument, so no unescaping is needed.
 These are the GUILD factions a script asks about. The bounty guards act on is
 a separate crime faction per realm, which every NPC reports to through `CRIF`;
 see [tes_runtime_crime.md](tes_runtime_crime.md#bounty-realms).
+
+### <a id="evil-factions"></a>Members of an Evil faction are no crime victims
+
+TES4, FO3 and FNV FACT `DATA.Flags` bit 1 is Evil (xEdit `wbDefinitionsTES4`,
+`wbDefinitionsFO3`): any crime against a member carries no bounty (UESP
+Oblivion talk:Factions). Skyrim has no such flag; an actor is a crime victim
+exactly when it has a crime faction. So an NPC in any Evil faction, this
+plugin's or a master's, gets no `CRIF` and no crime-faction membership, the
+same treatment as one that attacks on sight. Guard classes keep theirs.
+
+Aggression alone cannot catch this: Nehrim's `AbtruennigeMagier` mages in
+`NQ00Karick` have Aggression 5, so they were written as crime victims and the
+player got a bounty for the hit the quest asks for. Census: 117 Evil factions
+in Oblivion.esm, 25 in Nehrim.esm, 44 in FalloutNV.esm, none in Morrowind.esm.
 
 ## <a id="faction-player-disposition"></a>Faction reactions and player disposition
 

@@ -22,7 +22,7 @@ from ..packages.actor_wiring import (CSTY_DEFAULT, DPLT_NPC_LIST, authored_packa
 from ..base.equivalents import map_hair_color
 from ..base.race_factions import race_faction
 from .actor_common import (GOLD001_FID, NAM5_UNKNOWN, SOUND_LEVEL_NORMAL,
-                           attacks_player_on_sight,
+                           attacks_player_on_sight, in_evil_faction,
                            build_aidt, build_outfit, origin_memberships,
                            get_trainer_class_fid, get_trainer_faction_fid,
                            get_vendor_faction_fids_for_actor, read_items,
@@ -182,11 +182,11 @@ def _npc_snams(rec: dict, vendor_fids: list, trainer_clas_fid: int) -> bytes:
 
 
 def _crime_faction_of(rec: dict) -> int:
-    """The crime faction this NPC reports to, or 0 for one that hunts the player.
+    """The crime faction this NPC reports to; 0 for one that hunts the player or is Evil.
 
-    See: docs/commentary/tes5_import_actors.md#crime-factions-derived
+    See: docs/commentary/tes5_import_actors.md#evil-factions
     """
-    if attacks_player_on_sight(rec) and \
+    if (attacks_player_on_sight(rec) or in_evil_faction(rec)) and \
             not is_guard_class(get_formid(rec, 'CNAM.Class')):
         return 0
     return crime_faction(get_formid(rec, 'FormID'))

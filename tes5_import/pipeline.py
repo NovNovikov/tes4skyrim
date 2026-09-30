@@ -914,7 +914,7 @@ def _prescan_outfits_hair_skin(by_type: dict, ctx, export_dir: str, writer):
     load_item_index(by_type, ctx.master_export if ctx else None)
 
     from .record_types.actor_common import load_faction_player_reactions
-    load_faction_player_reactions(by_type)
+    load_faction_player_reactions(by_type, ctx.master_export if ctx else None)
 
     try:
         from .actors import hair_variants
