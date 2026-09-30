@@ -139,31 +139,49 @@ def create_chargen_menu_records(writer: PluginWriter, plan: dict) -> dict:
     return name_to_fid
 
 
-def create_force_combat_factions(writer: PluginWriter) -> dict:
+#: The ForceCombat faction pair's EditorIDs: (attackers, victims).
+_FORCE_COMBAT_EDIDS = ('TES4ForceCombatAttackers', 'TES4ForceCombatVictims')
+
+
+def _adopted(master_index, sig: bytes, edids: tuple) -> dict:
+    """{edid: FormID} when the masters define every one of `edids`, else {}."""
+    found = {edid: master_index.find_by_edid(sig, edid) for edid in edids
+             } if master_index is not None else {}
+    return found if found and all(found.values()) else {}
+
+
+def create_force_combat_factions(writer: PluginWriter, master_index=None) -> dict:
     """The conversion-owned enemy-faction pair TES4Polyfill.ForceCombat uses.
 
     ForceCombat puts the attacker in one and the victim in the other; the
-    mutual XNAM Enemy reaction is what makes StartCombat stick. Fixed ids.
+    mutual XNAM Enemy reaction is what makes StartCombat stick. Fixed ids;
+    a master's pair is adopted whole, since each names the other.
 
     See: docs/commentary/tes5_import_dialogue.md#synthesized-menus-factions-and-formlists
     """
+    adopted = _adopted(master_index, b'FACT', _FORCE_COMBAT_EDIDS)
+    if adopted:
+        return adopted
     atk_fid = writer.chargen_fid_base + 0x42
     vic_fid = writer.chargen_fid_base + 0x43
-    for fid, edid, other in ((atk_fid, 'TES4ForceCombatAttackers', vic_fid),
-                             (vic_fid, 'TES4ForceCombatVictims', atk_fid)):
+    attackers, victims = _FORCE_COMBAT_EDIDS
+    for fid, edid, other in ((atk_fid, attackers, vic_fid),
+                             (vic_fid, victims, atk_fid)):
         subs = pack_string_subrecord('EDID', edid)
         subs += pack_subrecord('XNAM', struct.pack('<IiI', other, 0, 1))
         subs += pack_subrecord('DATA', struct.pack('<I', 0x1))
         writer.add_record('FACT', pack_record('FACT', fid, 0, subs))
-    return {'TES4ForceCombatAttackers': atk_fid,
-            'TES4ForceCombatVictims': vic_fid}
+    return {attackers: atk_fid, victims: vic_fid}
 
 
-def create_destroyed_formlist(writer: PluginWriter) -> dict:
-    """The FormList backing TES4 GetDestroyed, which Skyrim has no reader for.
+def create_destroyed_formlist(writer: PluginWriter, master_index=None) -> dict:
+    """The FormList backing TES4 GetDestroyed, which Skyrim has no reader for; a master's is adopted.
 
     See: docs/commentary/tes5_import_dialogue.md#synthesized-menus-factions-and-formlists
     """
+    adopted = _adopted(master_index, b'FLST', ('TES4DestroyedRefs',))
+    if adopted:
+        return adopted
     fid = writer.chargen_fid_base + 0x44
     subs = pack_string_subrecord('EDID', 'TES4DestroyedRefs')
     writer.add_record('FLST', pack_record('FLST', fid, 0, subs))

@@ -2409,6 +2409,11 @@ Vanilla does this at scale — measured over `references/Skyrim.esm`: **365 of
 1,811 quests carry alias packages, 4,125 `ALPC` entries in total**, and **585
 of 6,838 `PLDT` locations are alias-typed** (type 8).
 
+A plugin authoring no SCPT, DIAL, INFO, NPC_ or CREA (a grass or landscape
+plugin) mints no pool and deletes any `ai_aliases.txt` an older build left: no
+script of its layer can call an AI command, and in the merged view its pool,
+being the deepest, would otherwise shadow the one a real master owns.
+
 So the import mints one quest per plugin, with two aliases per package kind
 (the actor running it, and what it aims at) and one `PACK` instance per kind
 hung off the actor's alias. Every package's location and target are

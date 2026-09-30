@@ -18,9 +18,12 @@ conversion runs (see export_diff for why that distinction is load-bearing).
 
 import os
 import struct
+import time
 from collections import Counter, namedtuple
 
-from core.plugin_masters import (export_root, master_dir,
+from output_layout import paths
+
+from core.plugin_masters import (export_root, master_chain, master_dir,
                                  master_index_map, masters_from_export_header)
 from .diff import diff_records
 from .manifest import load_master_manifests
@@ -69,6 +72,61 @@ DELETED_FLAG = 0x20
 
 #: status is 'emitted'|'deleted'|'unchanged'|'no-base'|'no-path'|'reconvert'.
 Override = namedtuple('Override', ['status', 'out_fid', 'record_bytes'])
+
+
+def inherited_masters(export_dir: str, output_root: str) -> list:
+    """The converted masters of this plugin's masters, at any depth, that its
+    header omits, deepest first.
+
+    A support record a deeper master owns is adoptable only through a slot in
+    this plugin's own master list, so these are listed too.
+    See: docs/commentary/tes5_import_pipeline.md#phase-0-dependent-skips-support-records
+    """
+    listed = {name.lower() for name in masters_from_export_header(export_dir)}
+    return [name for name in master_chain(export_dir)
+            if name.lower() not in listed
+            and os.path.isfile(paths(name, out_root=output_root).esm)]
+
+
+def reconcile_masters(masters: list, header: list, inherited: list) -> list:
+    """`masters` as Skyrim.esm, then `inherited`, then the export `header`'s.
+
+    The header is the authority on what this plugin was BUILT against; the
+    caller's binary-derived list can name files the conversion replaced.
+    `inherited` goes ahead of the header so every export index shifts by one
+    amount; the engine resolves a master by name, not by its place in the list.
+    See: docs/commentary/tes4_export_morrowind.md#masters
+    See: docs/commentary/tes5_import_pipeline.md#phase-0-dependent-skips-support-records
+    """
+    if not header:
+        return masters
+    lowered = [name.lower() for name in masters]
+    kept = [] if lowered == [name.lower() for name in header] else [
+        name for name in masters if name.lower() == 'skyrim.esm']
+    merged = kept + inherited + header
+    if merged != masters:
+        print(f"  Masters (from export header): {', '.join(merged)}")
+    return merged
+
+
+def open_masters(export_dir: str, masters: list, output_root: str) -> tuple:
+    """(TES5 masters, header master count, OverrideContext or None) for an import."""
+    header = masters_from_export_header(export_dir)
+    inherited = inherited_masters(export_dir, output_root) if header else []
+    masters = reconcile_masters(masters, header, inherited)
+    if not header:
+        return masters, 0, None
+    print(f"  TES4 masters: {len(header)} "
+          f"(records below index {len(header):02X} are overrides)")
+    if inherited:
+        print(f"  Inherited masters (adopted from): {', '.join(inherited)}")
+    started = time.time()
+    ctx = OverrideContext(export_dir, masters, len(header), output_root,
+                          len(inherited))
+    print(f"  Master: {len(ctx.master_index)} converted records, "
+          f"{len(ctx.master_manifest)} manifest entries, "
+          f"{len(ctx)} exported records ({time.time() - started:.1f}s)")
+    return masters, len(header), ctx if len(ctx) else None
 
 
 def load_master_export(export_dir: str) -> dict:
@@ -233,10 +291,15 @@ class OverrideContext:
     """Everything a plugin's import needs to emit overrides of its masters."""
 
     def __init__(self, export_dir: str, masters: list, num_tes4_masters: int,
-                 output_root: str):
+                 output_root: str, inherited: int = 0):
+        """Load the masters' index, manifests and export for `export_dir`.
+
+        `inherited` counts the deeper masters listed just ahead of the header's
+        `num_tes4_masters`: indexed for adoption, never diffed against.
+        """
         self.export_dir = export_dir
         self.master_index = load_master_index(
-            masters, num_tes4_masters, output_root)
+            masters, num_tes4_masters + inherited, output_root)
         self.master_manifest = load_master_manifests(
             masters, num_tes4_masters, output_root,
             export_root=export_root(export_dir))

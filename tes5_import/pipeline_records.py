@@ -373,7 +373,7 @@ def _phase4a_navmesh(st, export_dir: str, phase_done, skip_types) -> None:
         st.navm_cache, master_index=_mi,
         master_navms=navm_pool.master_navm_grid(
             getattr(st.ctx, 'master_export', None) if st.ctx else None,
-            _mi),
+            _mi) if st.navm_cache else {},
         relinked_masters=_relinked)
     if st.ctx is not None:
         st.ctx.relinked_master_navms = _relinked

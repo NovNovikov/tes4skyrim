@@ -42,7 +42,7 @@ from .registry import IMPORT_DISPATCH, RUNTIME_ONLY_TYPES, SKIP_TYPES
 from .navmesh.pool import collision_cache_chain
 from .overrides.adoption import MasterAdoption
 from .overrides.nested import (DELETED_FLAG as OVERRIDE_DELETED_FLAG,
-                        OverrideContext, detect_injected_records)
+                        detect_injected_records, open_masters)
 from .record_types import magic_art
 from .record_types.crime import plan_crime
 from .record_types.spell_tomes import create_spell_tomes
@@ -101,6 +101,9 @@ from .pipeline_finalize import run_finalize_phases
 
 #: Record types an MGEF Assoc. Item can name; LVLC covers summon indirection.
 _ASSOC_ITEM_SIGS = ('CREA', 'NPC_', 'WEAP', 'ARMO', 'CLOT', 'LIGH', 'LVLC')
+
+#: Record types whose conversion reads the package plan, script vars or quest-package set.
+_PACKAGE_READERS = ('NPC_', 'CREA', 'QUST', 'PACK', 'DIAL', 'INFO')
 
 
 def _begin_worldspace_chain(output_path: str, export_dir: str) -> None:
@@ -216,23 +219,48 @@ def master_export_dirs(ctx) -> list:
     return master_dirs(export_dir) if export_dir else []
 
 
-def _reconcile_masters(masters: list, tes4_master_names: list) -> list:
-    """`masters` reduced to the export header's list, plus Skyrim.esm.
+#: Types converted outside IMPORT_DISPATCH, reported as CONVERT.
+_SPECIAL_TYPES = frozenset({'LTEX', 'SOUN', 'WTHR', 'CELL', 'WRLD', 'REFR',
+                            'ACHR', 'ACRE', 'LAND', 'DIAL', 'INFO'})
 
-    The header is the authority on what this plugin was BUILT against; the
-    caller's binary-derived list can name files the conversion replaced.
-    See: docs/commentary/tes4_export_morrowind.md#masters
+
+def _read_export(export_dir: str, ctx, all_skip) -> tuple:
+    """(records, records by type) of the plugin's export, each type reported."""
+    print(f"Reading exports from: {export_dir}")
+    started = time.time()
+    all_records = drop_author_deleted_records(
+        parse_export_directory(export_dir, exclude=RUNTIME_ONLY_TYPES), ctx)
+    by_type = group_records_by_type(all_records)
+    print(f"  Parsed {len(all_records)} records in {len(by_type)} types "
+          f"({time.time() - started:.2f}s)")
+    for sig in sorted(by_type):
+        status = ("SKIP" if sig in all_skip else "CONVERT"
+                  if sig in IMPORT_DISPATCH or sig in _SPECIAL_TYPES else "UNKNOWN")
+        print(f"  {sig}: {len(by_type[sig])} records [{status}]")
+    return all_records, by_type
+
+
+def _bind_formid_space(all_records: list, by_type: dict, masters: list,
+                       num_tes4_masters: int, ctx, writer) -> int:
+    """Shift export ids into the TES5 master list and reserve our own; the shift.
+
+    Every master ahead of the header's (Skyrim.esm, inherited ones) moves each
+    export index by the same amount.
     """
-    if not tes4_master_names:
-        return masters
-    wanted = {n.lower() for n in tes4_master_names}
-    if [n.lower() for n in masters] == [n.lower() for n in tes4_master_names]:
-        return masters
-    kept = [m for m in masters
-            if m.lower() not in wanted and m.lower() == 'skyrim.esm']
-    merged = kept + tes4_master_names
-    print(f"  Masters (from export header): {', '.join(merged)}")
-    return merged
+    num_new_masters = len(masters) - num_tes4_masters
+    set_formid_index_offset(num_new_masters)
+    max_formid = _reserve_formid_space(all_records, num_tes4_masters,
+                                       len(masters), writer)
+    _repair_null_land_formids(by_type, num_tes4_masters, max_formid)
+    if num_tes4_masters:
+        injected = detect_injected_records(
+            all_records, ctx.master_export if ctx else {},
+            num_tes4_masters, writer)
+        set_injected_formids(injected)
+        if injected:
+            print(f"  Injected records: {len(injected)} moved out of the "
+                  f"master's FormID space into ours")
+    return num_new_masters
 
 
 def _register_run_tables(by_type: dict, ctx, writer) -> None:
@@ -383,8 +411,10 @@ def _prescan_force_greets(by_type: dict, ctx, writer, _SC) -> None:
           f"{sum(n for _f, n in flee_slots.values())} alias slots")
 
 
-def _prescan_menu_records(by_type: dict, writer, _SC, _step_done):
-    """Create the button-menu and chargen-menu MESG records.
+def _prescan_menu_records(by_type: dict, writer, _SC, _step_done,
+                          master_index=None):
+    """Create the button-menu and chargen-menu MESG records, and the ForceCombat
+    factions and destroyed-refs list unless `master_index` supplies them.
 
     Chargen pages live at FIXED ids in the reserved FormID gap because
     the page/button block must be contiguous and ordered.  Chargen
@@ -422,8 +452,8 @@ def _prescan_menu_records(by_type: dict, writer, _SC, _step_done):
             set_chargen_choice(
                 {func_idx: (chargen_mesgs[menu['choice_global']],
                             menu['fid_to_index'])}, merge=True)
-    WELL_KNOWN_PROPERTIES.update(create_force_combat_factions(writer))
-    WELL_KNOWN_PROPERTIES.update(create_destroyed_formlist(writer))
+    WELL_KNOWN_PROPERTIES.update(create_force_combat_factions(writer, master_index))
+    WELL_KNOWN_PROPERTIES.update(create_destroyed_formlist(writer, master_index))
     _step_done('chargen menu MESGs')
 
 
@@ -691,9 +721,14 @@ def _prescan_magic_effects(by_type: dict, ctx, writer, xref, fid_to_edid: dict,
 
 def _prescan_vendor_trainer(by_type: dict, ctx, writer, export_dir: str,
                             plugin: str, _step_done):
-    """Create the vendor factions, the trainer faction + CLAS clones, and the spell tomes."""
+    """Create the vendor factions, the trainer faction + CLAS clones, and the spell tomes.
+
+    The TES3 chain's tables are read only when this plugin has actors: they
+    answer nothing but its own merchants' and trainers' offers.
+    """
     from .record_types.actor_common import create_service_records
-    tes3_tables = chain_tables(export_dir, plugin)
+    has_actors = by_type.get('NPC_') or by_type.get('CREA')
+    tes3_tables = chain_tables(export_dir, plugin) if has_actors else None
     create_service_records(by_type, writer, ctx, export_dir, tes3_tables)
     create_spell_tomes(by_type, writer, ctx, export_dir, tes3_tables)
     _step_done('vendor/trainer records')
@@ -803,10 +838,13 @@ def _prescan_package_plan(by_type: dict, ctx, writer, fid_to_edid: dict, _step_d
 
     The MASTERS' packages, quests, actors and placements are indexed --
     an unresolved one silently drops the actor to its standing Sandbox
-    schedule.  Hunt chains derive their ids from authored ids only.
+    schedule.  Hunt chains derive their ids from authored ids only.  A plugin
+    exporting none of `_PACKAGE_READERS` gets (None, None, {}).
 
     See: docs/commentary/tes5_import_pipeline.md#phase-0-hunt-chains-and-script-packages
     """
+    if not any(by_type.get(sig) for sig in _PACKAGE_READERS):
+        return (None, None, {})
     from .packages.aliases import (PackagePlan, build_script_var_map,
                                build_scriptvar_owner_map,
                                build_assigned_var_names,
@@ -1140,7 +1178,8 @@ def _run_prescans(st: ImportState, all_records: list, num_new_masters: int,
     st.unlock_plan, st.unlock_globals, _SC = _prescan_unlock_plan(
         by_type, writer, st.num_tes4_masters, _step_done)
     _prescan_force_greets(by_type, ctx, writer, _SC)
-    _prescan_menu_records(by_type, writer, _SC, _step_done)
+    _prescan_menu_records(by_type, writer, _SC, _step_done,
+                          getattr(ctx, 'master_index', None))
     st.fid_to_edid = _prescan_fid_to_edid(all_records, ctx, _step_done)
     st.xref = _prescan_cross_ref_graph(all_records, ctx, export_dir,
                                        _step_done)
@@ -1195,60 +1234,16 @@ def import_plugin(export_dir: str, output_path: str, masters: list = None,
             print(f"    Phase: {label} ({now - _step_t:.1f}s)")
         _step_t = now
 
-    tes4_master_names = masters_from_export_header(export_dir)
-    num_tes4_masters = len(tes4_master_names)
-    masters = _reconcile_masters(masters, tes4_master_names)
-    ctx = None
-    if num_tes4_masters:
-        print(f"  TES4 masters: {num_tes4_masters} "
-              f"(records below index {num_tes4_masters:02X} are overrides)")
-        if output_root is None:
-            output_root = os.path.dirname(plugin_out_dir) or '.'
-        _t = time.time()
-        ctx = OverrideContext(export_dir, masters, num_tes4_masters,
-                              output_root)
-        print(f"  Master: {len(ctx.master_index)} converted records, "
-              f"{len(ctx.master_manifest)} manifest entries, "
-              f"{len(ctx)} exported records ({time.time() - _t:.1f}s)")
-        if not len(ctx):
-            ctx = None
-
-    print(f"Reading exports from: {export_dir}")
-    t0 = time.time()
-
-    all_records = parse_export_directory(export_dir,
-                                         exclude=RUNTIME_ONLY_TYPES)
-    all_records = drop_author_deleted_records(all_records, ctx)
-    by_type = group_records_by_type(all_records)
-
-    t1 = time.time()
-    print(f"  Parsed {len(all_records)} records in {len(by_type)} types ({t1-t0:.2f}s)")
+    if output_root is None and masters_from_export_header(export_dir):
+        output_root = os.path.dirname(plugin_out_dir) or '.'
+    masters, num_tes4_masters, ctx = open_masters(export_dir, masters,
+                                                  output_root)
+    all_records, by_type = _read_export(export_dir, ctx, all_skip)
     _phase_done('parse export text')
 
-    for sig in sorted(by_type.keys()):
-        special_types = {'LTEX', 'SOUN', 'WTHR', 'CELL', 'WRLD', 'REFR', 'ACHR', 'ACRE', 'LAND', 'DIAL', 'INFO'}
-        status = "SKIP" if sig in all_skip else ("CONVERT" if sig in IMPORT_DISPATCH or sig in special_types else "UNKNOWN")
-        print(f"  {sig}: {len(by_type[sig])} records [{status}]")
-
     writer = _new_plugin_writer(masters, is_esm, export_dir)
-
-    num_new_masters = len(masters) - num_tes4_masters
-    set_formid_index_offset(num_new_masters)
-
-    file_index = len(masters)
-    max_formid = _reserve_formid_space(all_records, num_tes4_masters,
-                                       file_index, writer)
-
-    _repair_null_land_formids(by_type, num_tes4_masters, max_formid)
-
-    if num_tes4_masters:
-        injected = detect_injected_records(
-            all_records, ctx.master_export if ctx else {},
-            num_tes4_masters, writer)
-        set_injected_formids(injected)
-        if injected:
-            print(f"  Injected records: {len(injected)} moved out of the "
-                  f"master's FormID space into ours")
+    num_new_masters = _bind_formid_space(all_records, by_type, masters,
+                                         num_tes4_masters, ctx, writer)
 
     st = ImportState(all_skip=all_skip, output_path=output_path,
                      plugin_out_dir=plugin_out_dir,

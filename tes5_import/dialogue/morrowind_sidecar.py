@@ -840,7 +840,7 @@ def _master_sidecars(export_dir: str, output_path: str) -> list:
 
 
 def _journal_quests(writer, out_dir: str, plugin_name: str,
-                    masters: list) -> int:
+                    masters: list, export_dir: str) -> int:
     """The journal QUSTs and their id table, when there is a `writer` to add
     records to; a restage with no import leaves the existing table alone.
 
@@ -853,7 +853,7 @@ def _journal_quests(writer, out_dir: str, plugin_name: str,
     quests = write_journal_quests(writer, out_dir, plugin_name, masters)
     print(f'    sidecar: {quests} journal quest(s) written as QUST')
     from .ai_packages_morrowind import write_ai_packages
-    packages = write_ai_packages(writer, out_dir, plugin_name)
+    packages = write_ai_packages(writer, out_dir, plugin_name, export_dir)
     print(f'    sidecar: {packages} AI package(s) written as PACK')
     return 1 if quests else 0
 
@@ -924,16 +924,17 @@ def stage_sound_table(export_dir: str, output_path: str, plugin_name: str,
     plugin = os.path.basename(plugin_name)
     if not (is_tes3_export(export_dir) or plugin == PATCH_NAME):
         return 0
-    chain = source_chain(export_root(export_dir), plugin)
+    output_root = os.path.dirname(os.path.dirname(output_path))
+    owners = _sound_owners(export_dir, output_root,
+                           _row_keeper(export_dir, plugin_name))
+    chain = source_chain(export_root(export_dir), plugin) if owners else []
     ids = gather(chain)['sounds'] if chain else {}
     if own is None:
         own = (_converted_sounds(output_path, own_only=True)
                if os.path.isfile(output_path) else {})
     rows = {edid.lower(): f'{edid}={plugin}|{sndr:08X}'
             for edid, sndr in own.items() if edid and sndr}
-    output_root = os.path.dirname(os.path.dirname(output_path))
-    keeps = _row_keeper(export_dir, plugin_name)
-    for master, sounds in _sound_owners(export_dir, output_root, keeps):
+    for master, sounds in owners:
         for key, tes3 in ids.items():
             if key in rows:
                 continue
@@ -1104,7 +1105,8 @@ def write_morrowind_sidecar(export_dir: str, output_path: str,
               + _teleport_tables(export_dir, output_path, plugin_name, out_dir,
                                  writer, master_index)
               + _journal_quests(writer, out_dir, plugin_name,
-                                _master_sidecars(export_dir, output_path)))
+                                _master_sidecars(export_dir, output_path),
+                                export_dir))
     staged -= _drop_foreign_rows(out_dir, export_dir, plugin_name)
     index = _actor_index(export_dir)
     if not index:
