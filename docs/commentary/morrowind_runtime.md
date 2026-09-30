@@ -3358,8 +3358,8 @@ runtime's apply sink. Adding one takes these steps, in this order:
    by them, so it is dropped with them.
 
    🛑 Rebuild in this order, or nothing flips:
-   `--build-morrowind-patch "<Morrowind>/Data Files"` (it imports the patch
-   too), then `--import-only` for Tamriel_Data.esm and TR_Mainland.esm, and
+   `--build-morrowind-patch "<Morrowind>/Data Files"` (or, once built,
+   `-f Morrowind-Morroblivion-Compatibility.esp --export-only --import-only`), then `--import-only` for Tamriel_Data.esm and TR_Mainland.esm, and
    Morrowind.esm for the authored path. The patch now writes the delivery
    copies its new overrides need, so the dependents adopt them: that moved 23
    of Tamriel_Data's copies and 1 of TR_Mainland's, which a save only feels

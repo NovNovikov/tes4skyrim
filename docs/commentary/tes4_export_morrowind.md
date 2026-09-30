@@ -569,7 +569,7 @@ Morrowind source in the GUI): `vanilla` borrows from the declared masters;
 three vanilla ESMs from the list, so a mod shares Morroblivion's objects
 instead of shipping a second copy of every static. Choosing Morroblivion in
 the GUI builds the [gap patch](#morroblivion-gap-patch) when it is missing,
-and choosing it again while selected rebuilds it; the mode refuses every
+and asks whether to rebuild it when it exists; the mode refuses every
 conversion without the patch, so the two are one choice. Morroblivion's cells and
 worldspace use its own EditorIDs, so in that mode doors into vanilla interiors
 link only where the escaped name matches, and exteriors do not link at all.
@@ -597,7 +597,8 @@ Morroblivion ships no Morrowind skeleton, so the registered install is the only
 source of `base_anim.nif`. A user who built the patch (CLI
 `--build-morrowind-patch <dir>` or the GUI folder picker) but never registered
 that folder got `base_anim.nif not found; N worn meshes skipped` on Tamriel
-Rebuilt. `build_patch` now registers the Data Files folder it was given.
+Rebuilt. `--build-morrowind-patch` now registers the Data Files folder it was
+given (`register_source`), and the patch's Export step reads it back from there.
 
 ### <a id="who-owns-a-mesh"></a>Ownership is asked of the SOURCE, not the extracted tree
 
@@ -836,14 +837,32 @@ BSAs, with no reference to what any record or mesh names.
 
 ### <a id="the-patch-builds-its-own-plugin"></a>The build produces the PLUGIN, not just its export
 
-**Code:** `_import_records` in `tes4_export/morrowind_patch.py`.
+**Code:** `export_patch` / `run_patch_export` / `stage_pair_scripts` in
+`tes4_export/morrowind_patch.py`; the `PATCH_NAME` branches in `convert.py`;
+`PATCH_STEPS` in `convert_cli.py`.
 
-Building the patch is one user action, so it runs the whole chain: export
-records, extract assets, convert assets, and **import the records into the
-plugin itself**. The last step was missing, and its absence was invisible from
+The patch is an ordinary `-f` target. Only its Export step is its own
+(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, and
+the split pairs' child scripts saved to `export/<patch>/pair_scripts/`). Every
+later step is the normal stage: Meshes, Creatures, Import, Sounds (the gap
+SOUNs' files and the barks' recordings, which the Export step only copied raw)
+and Scripts (which copies the saved child scripts to `scripts/source` and
+compiles them). Extract
+does nothing for the patch, because its Export step already pulled what it ships.
+`--build-morrowind-patch <dir>` registers `<dir>` and runs `PATCH_STEPS` in
+order, and each step also runs alone:
+
+```bash
+python convert.py -f Morrowind-Morroblivion-Compatibility.esp --import-only
+python convert.py -f Morrowind-Morroblivion-Compatibility.esp --meshes-only
+```
+
+The GUI menu runs `--build-morrowind-patch` as a run in the main log pane.
+
+The import step was once missing entirely, and its absence was invisible from
 every angle the user could check.
 
-`build_patch` wrote `export/<patch>/` and an asset tree under
+The build then wrote `export/<patch>/` and an asset tree under
 `output/<patch>/`, then reported `records` and `assets` and declared the patch
 "a master of every Morroblivion-mode conversion". No plugin file was ever
 written, because nothing called the import stage for it -- `PATCH_NAME` reached
@@ -855,20 +874,19 @@ Three things hid it:
   on `_HEADER.txt` in the export dir, which `_write_records` does create, so
   Morroblivion-mode exports stopped reporting the patch missing and the build
   looked finished.
-- **`output/<patch>/` existed and was full.** `_convert_assets` populated it
+- **`output/<patch>/` existed and was full.** Mesh conversion populated it
   with meshes and textures, so the folder the user would check was there --
   just with no plugin in it.
 - **The record count was real.** It counts what was written to text.
 
-So `ok` now means the plugin FILE exists: a build that wrote records and assets
-but no plugin reports failure and says the records survived in `export/`. The
-patch declares the converted Morroblivion plugins as its masters
+Import is now its own pipeline step, and a failed Import reports as that step
+failing. The patch declares the converted Morroblivion plugins as its masters
 ([why](#the-patch-masters-morroblivion)), so `_reconcile_masters` builds its
 list from the export header like any other dependent's.
 
 The build has two doors, because the refusal that sends a user to it fires on
 the command line too: the GUI menu, and `convert.py --build-morrowind-patch
-"<Morrowind>/Data Files"`. Both run `build_patch`, so neither can drift.
+"<Morrowind>/Data Files"`. The GUI runs that same command, so neither can drift.
 
 It is written **ESM-flagged**, keeping its `.esp` extension -- the one converted
 plugin that does not wait for `tools/esm/make_master.py`. Every Morroblivion-mode

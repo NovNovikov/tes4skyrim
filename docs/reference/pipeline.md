@@ -239,6 +239,12 @@ picks the Morrowind export mode, so an agent can build Arktwend in authored mode
 and Tamriel Rebuilt in Morroblivion mode back to back without touching the
 saved setting; `--no-engine-branches` forces the Python SpeedTree generator.
 
+**The Morroblivion compatibility patch** is a normal `-f` target once
+`--build-morrowind-patch "<Morrowind>/Data Files"` has registered its source:
+`-f Morrowind-Morroblivion-Compatibility.esp --import-only` (or `--meshes-only`,
+`--creatures-only`, `--sounds-only`, `--scripts-only`, `--export-only`) reruns one step
+([details](../commentary/tes4_export_morrowind.md#the-patch-builds-its-own-plugin)).
+
 <a id="run-logs"></a>
 ### Run logs
 

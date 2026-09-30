@@ -773,8 +773,9 @@ seeing before shipping.
 export's `_HEADER.txt` (`core/plugin_masters.py:is_master_export`), never from
 the file name. It used to test `.endswith('.esm')`, which cleared the flag on
 `Morrowind-Morroblivion-Compatibility.esp` whenever the patch went through a
-normal `-f` import. `build_patch` sets the flag itself, so the patch was a
-master only when that function was the last thing to write it. An ESM-flagged
+normal `-f` import. The patch now builds only through that normal import
+(its export header carries `Flags=1`), so there is one place the flag comes
+from. An ESM-flagged
 `.esp` is legal and loads as a master (see `tools/esm/make_master.py`).
 
 Each exporter writes the real flag:
