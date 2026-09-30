@@ -393,6 +393,12 @@ comes from what actually solved 46 recent bugs
 
 ### Performance and memory
 
+- **Do each piece of work once per run.** Read a file, parse a binary, scan
+  the masters' records or build an index once, and share the result with
+  every step that needs it; never re-derive what an earlier step already
+  computed. Keep it in memory for that run only. A cache between runs is
+  justified only by a huge win (the navmesh cache).
+  ([shared readers](docs/commentary/performance.md#import-once-per-run))
 - Multiprocessing, not threads, for pure-Python work; `ThreadPoolExecutor` only for
   I/O and subprocesses. The output ESM must stay byte-reproducible. Rules and
   measurements: [docs/commentary/performance.md](docs/commentary/performance.md).

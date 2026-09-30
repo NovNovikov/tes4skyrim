@@ -29,8 +29,10 @@ from core.plugin_masters import (export_root, export_source,
 from tes4_export.morrowind_ids import encode_editor_id, load_index
 from tes4_export.morrowind_patch import PATCH_NAME, START_SCRIPTS_SIG
 
-from .morrowind_sidecar_source import (gather, own_dialogue_blocks,
-                                       source_chain)
+from .morrowind_placements import (SCRIPTED_EXPORTS, export_records,
+                                   folder_tables, forget_folder_tables, placement)
+from .morrowind_sidecar_source import (forget_gathered, gather,
+                                       own_dialogue_blocks, source_chain)
 from .morrowind_temples import skyrim_rows
 from ..record_types.magic_morrowind import effect_form_rows
 from .morrowind_teleport import (ANCHORS_TABLE, EFFECT_FORMS_TABLE, MARKERS_TABLE,
@@ -114,15 +116,8 @@ SOULS_TABLE = 'CREA_soul.txt'
 #: A TES5 record's body starts after its 24-byte header.
 _TES5_HEADER = slice(24, None)
 
-#: The exports the tables are built from; `_SCRIPTED_EXPORTS` is every TES3 type that can carry a script.
+#: The export the actor index is built from.
 _NPC_EXPORT = 'NPC_.txt'
-_SCRIPTED_EXPORTS = ('NPC_.txt', 'CREA.txt', 'ACTI.txt', 'ALCH.txt', 'AMMO.txt',
-                     'APPA.txt', 'ARMO.txt', 'BOOK.txt', 'CLOT.txt', 'CONT.txt',
-                     'DOOR.txt', 'INGR.txt', 'KEYM.txt', 'LIGH.txt', 'MISC.txt',
-                     'WEAP.txt')
-
-#: The exports holding PLACED references, which name their base by FormID.
-_PLACEMENT_EXPORTS = ('REFR.txt', 'ACHR.txt', 'ACRE.txt')
 
 #: The exports whose records can sit in an inventory.
 _ITEM_EXPORTS = ('ALCH.txt', 'AMMO.txt', 'APPA.txt', 'ARMO.txt', 'BOOK.txt',
@@ -148,14 +143,11 @@ _MAX_EFFECTS = 8
 
 #: The same types as the index names them.
 _ITEM_TYPES = tuple(name[:-4] for name in _ITEM_EXPORTS)
-_SCRIPTED_TYPES = tuple(name[:-4] for name in _SCRIPTED_EXPORTS)
+_SCRIPTED_TYPES = tuple(name[:-4] for name in SCRIPTED_EXPORTS)
 _SPELL_TYPES = tuple(name[:-4] for name in _SPELL_EXPORTS)
 _FACTION_TYPES = tuple(name[:-4] for name in _FACTION_EXPORTS)
 _GLOBAL_EXPORT = 'GLOB.txt'
 _SCRIPT_EXPORT = 'SCPT.txt'
-#: Where the cell names and their FormIDs come from, for the anchor table.
-_CELL_EXPORT = 'CELL.txt'
-_RECORD_MARK = '---RECORD_BEGIN---'
 
 #: A local declaration in MWScript source: `short name`, `long name`, `float name`.
 _DECLARATION = re.compile(r'^\s*(short|long|float)\s+([A-Za-z_][A-Za-z0-9_]*)',
@@ -176,23 +168,9 @@ def sidecar_dir(output_path: str, plugin_name: str) -> str:
                         plugin_stem(plugin_name))
 
 
-def export_records(path: str, keys: tuple):
-    """Each record in an export file as a dict of just `keys`."""
-    if not os.path.isfile(path):
-        return
-    wanted = tuple(key + '=' for key in keys)
-    record = None
-    with open(path, encoding='utf-8', errors='replace') as handle:
-        for line in handle:
-            if line.startswith(_RECORD_MARK):
-                if record:
-                    yield record
-                record = {}
-            elif record is not None and line.startswith(wanted):
-                key, _, value = line.rstrip('\n').partition('=')
-                record[key] = value
-    if record:
-        yield record
+def _scripted_records(folder: str, name: str) -> list:
+    """The records of one `SCRIPTED_EXPORTS` file at `folder`: FormID, EditorID, SCRI."""
+    return [rec for export, rec in folder_tables(folder)['scripted'] if export == name]
 
 
 def _actor_index(export_dir: str) -> str:
@@ -204,8 +182,7 @@ def _actor_index(export_dir: str) -> str:
     See: docs/commentary/morrowind_runtime.md#activation
     """
     lines = [f"{rec['FormID']}={rec['EditorID']}"
-             for rec in export_records(os.path.join(export_dir, _NPC_EXPORT),
-                                       ('FormID', 'EditorID'))
+             for rec in _scripted_records(export_dir, _NPC_EXPORT)
              if rec.get('FormID') and rec.get('EditorID')]
     return '\n'.join(lines) + ('\n' if lines else '')
 
@@ -373,32 +350,11 @@ def _scripted_bases(export_dir: str, by_formid: dict) -> dict:
     acts on the object running it, which the runtime resolves BY id.
     """
     bases = {}
-    for name in _SCRIPTED_EXPORTS:
-        for rec in export_records(os.path.join(export_dir, name),
-                                  ('FormID', 'EditorID', 'SCRI')):
-            script = by_formid.get(rec.get('SCRI', '').upper())
-            if script and rec.get('FormID'):
-                bases[rec['FormID'].upper()] = (rec.get('EditorID', ''),
-                                                script)
+    for _name, rec in folder_tables(export_dir)['scripted']:
+        script = by_formid.get(rec.get('SCRI', '').upper())
+        if script and rec.get('FormID'):
+            bases[rec['FormID'].upper()] = (rec.get('EditorID', ''), script)
     return bases
-
-
-#: The authored placement `SetAtStart` restores, as the export spells it.
-_PLACEMENT_KEYS = ('PosX', 'PosY', 'PosZ', 'RotX', 'RotY', 'RotZ')
-
-
-def _placement(rec: dict) -> str:
-    """`x,y,z,rx,ry,rz` for a placed ref, the angles in DEGREES.
-
-    The runtime's SetAngle hook takes degrees; the record stores radians.
-    """
-    out = []
-    for key in _PLACEMENT_KEYS:
-        value = float(rec.get(key) or 0.0)
-        if key.startswith('Rot'):
-            value = math.degrees(value)
-        out.append(f'{value:g}')
-    return ','.join(out)
 
 
 def _instance_lines(export_dir: str, bases: dict, plugin_name: str) -> list:
@@ -413,26 +369,22 @@ def _instance_lines(export_dir: str, bases: dict, plugin_name: str) -> list:
     See: docs/plans/morrowind_object_scripts.md#instances
     """
     lines = []
-    for name in _PLACEMENT_EXPORTS:
-        for rec in export_records(os.path.join(export_dir, name),
-                                  ('FormID', 'NAME') + _PLACEMENT_KEYS):
-            found = bases.get(rec.get('NAME', '').upper())
-            if found and rec.get('FormID'):
-                base_id, script = found
-                lines.append(f"{rec['FormID']}={plugin_name}|{base_id}|"
-                             f"{script}|{_placement(rec)}")
+    for rec in folder_tables(export_dir)['instances']:
+        found = bases.get(rec['NAME'].upper())
+        if found:
+            base_id, script = found
+            lines.append(f"{rec['FormID']}={plugin_name}|{base_id}|"
+                         f"{script}|{placement(rec)}")
     return lines
 
 
 def _object_script_lines(export_dir: str, by_formid: dict) -> list:
     """`object=script` for every scripted object whose script was resolved."""
     lines = []
-    for name in _SCRIPTED_EXPORTS:
-        for rec in export_records(os.path.join(export_dir, name),
-                                  ('EditorID', 'SCRI')):
-            script = by_formid.get(rec.get('SCRI', '').upper())
-            if script and rec.get('EditorID'):
-                lines.append(f"{rec['EditorID']}={script}")
+    for _name, rec in folder_tables(export_dir)['scripted']:
+        script = by_formid.get(rec.get('SCRI', '').upper())
+        if script and rec.get('EditorID'):
+            lines.append(f"{rec['EditorID']}={script}")
     return lines
 
 
@@ -460,7 +412,9 @@ def _wanted_ids(dirs: list, ids: dict, exports: tuple) -> dict:
     wanted = dict(ids)
     for folder, _plugin in dirs:
         for name in exports:
-            for rec in export_records(os.path.join(folder, name), ('EditorID',)):
+            records = (_scripted_records(folder, name) if name in SCRIPTED_EXPORTS
+                       else export_records(os.path.join(folder, name), ('EditorID',)))
+            for rec in records:
                 edid = rec.get('EditorID', '')
                 if edid:
                     wanted.setdefault(edid.lower(), edid)
@@ -592,24 +546,6 @@ def _soulgem_lines(dirs: list) -> list:
     return list(seen.values())
 
 
-def _placed_refs(folder: str, owner: str) -> dict:
-    """`base FormID -> placement FormID` for the references `folder` OWNS.
-
-    First placement wins, which is what OpenMW's `searchPtr` does within a
-    cell store.
-    See: docs/commentary/morrowind_runtime.md#placed-references
-    """
-    placed = {}
-    for name in _PLACEMENT_EXPORTS:
-        for rec in export_records(os.path.join(folder, name),
-                                  ('FormID', 'NAME')):
-            base = rec.get('NAME', '')
-            formid = rec.get('FormID', '')
-            if base and formid[:2].upper() == owner and base not in placed:
-                placed[base] = formid
-    return placed
-
-
 def _line_ids(gathered: dict, table: str) -> dict:
     """`{lower id: id}` for a gathered table whose values are `id=...` lines."""
     return {key: line.split('=', 1)[0]
@@ -620,22 +556,23 @@ def _base_lines(dirs: list, root: str, ids: dict) -> list:
     """`id=Plugin|FormID` for each TES3 id's BASE record, never a placement.
     See: docs/plans/morrowind_object_scripts.md#placeatpc
     """
-    return _owned_lines(dirs, root, ids, _SCRIPTED_EXPORTS, _SCRIPTED_TYPES)
+    return _owned_lines(dirs, root, ids, SCRIPTED_EXPORTS, _SCRIPTED_TYPES)
 
 
 def _ref_lines(dirs: list, root: str, ids: dict) -> list:
     """`id=Plugin|FormID` for each TES3 id with a placed reference, resolved
     through the plugins the game loads: a placement counts when the same
-    plugin defines the base it names.
+    plugin defines the base it names, and its FIRST placement wins, as
+    OpenMW's `searchPtr` does within a cell store.
 
     The id is the BASE record's EditorID and the FormID is the PLACEMENT's,
     because `id->Disable` acts on the thing in the world, not its template.
     See: docs/commentary/morrowind_runtime.md#placed-references
     """
-    wanted = _wanted_ids(dirs, ids, _SCRIPTED_EXPORTS)
+    wanted = _wanted_ids(dirs, ids, SCRIPTED_EXPORTS)
     seen = {}
     for folder, plugin, own in _loaded_dirs(root, *dirs[0]):
-        placed = _placed_refs(folder, f'{own:02X}')
+        placed = folder_tables(folder)['first']
         if not placed:
             continue
         index = load_index(folder, _SCRIPTED_TYPES, {own: own})
@@ -659,8 +596,7 @@ def _cell_rows(folder: str, plugin: str) -> set:
     """
     masters = masters_from_export_header(folder)
     rows = set()
-    for rec in export_records(os.path.join(folder, _CELL_EXPORT),
-                              ('FormID', 'EditorID', 'FULL', 'ParentWRLD')):
+    for rec in folder_tables(folder)['cells']:
         place = rec.get('ParentWRLD') or rec.get('FormID', '')
         if not place:
             continue
@@ -813,8 +749,7 @@ def _stage_dialogue(export_dir: str, out_dir: str, present: list,
                      ['\n\n'.join(blocks)] if blocks else [])
     folders = [(folder, plugin) for folder, plugin, _own in _loaded_dirs(
         export_root(export_dir), export_dir, plugin_name)]
-    gathered['travel'] = travel_lines(gathered,
-                                      marker_index(folders, export_records))
+    gathered['travel'] = travel_lines(gathered, marker_index(folders))
     print(f'    sidecar: {len(dial_blocks)} topics, {len(info_blocks)} '
           f'responses of its own')
     staged = len(DIALOGUE_FILES)
@@ -928,7 +863,8 @@ def stage_sound_table(export_dir: str, output_path: str, plugin_name: str,
     owners = _sound_owners(export_dir, output_root,
                            _row_keeper(export_dir, plugin_name))
     chain = source_chain(export_root(export_dir), plugin) if owners else []
-    ids = gather(chain)['sounds'] if chain else {}
+    ids = gather(chain, plugin == PATCH_NAME)['sounds'] if chain else {}
+    forget_gathered()
     if own is None:
         own = (_converted_sounds(output_path, own_only=True)
                if os.path.isfile(output_path) else {})
@@ -1024,11 +960,10 @@ def _drop_foreign_rows(out_dir: str, export_dir: str, plugin_name: str) -> int:
 def _markers(loaded: list, writer, master_index) -> tuple:
     """(marker rows, world rows): the chain's own, each restored Intervention's
     destinations, and Skyrim's when this plugin stages them."""
-    markers = marker_lines(loaded, export_records)
-    worlds = world_lines(loaded, export_records)
+    markers = marker_lines(loaded)
+    worlds = world_lines(loaded)
     if master_index is not None:
-        markers += target_lines(loaded[0][0], export_records, master_index,
-                                writer.masters)
+        markers += target_lines(loaded[0][0], master_index, writer.masters)
     if _stages_base_game(loaded):
         temples, parents = skyrim_rows()
         markers += temples
@@ -1109,6 +1044,8 @@ def write_morrowind_sidecar(export_dir: str, output_path: str,
                                 export_dir))
     staged -= _drop_foreign_rows(out_dir, export_dir, plugin_name)
     index = _actor_index(export_dir)
+    forget_folder_tables()
+    forget_gathered(keep=('sounds',))
     if not index:
         return staged
     with open(os.path.join(out_dir, ACTOR_INDEX), 'w',

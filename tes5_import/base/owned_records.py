@@ -10,6 +10,7 @@ these call nothing else in that file, and only import_plugin calls them.
 
 import struct
 
+from .master_export import values_of
 from ..overrides.adoption import adopted_formid, generated_formid
 from ..packages.escort_when_near import (ESCORT_WHEN_NEAR_EDID,
                                          escort_root_record,
@@ -285,8 +286,7 @@ DAY_CLOCK_GLOBAL, DAY_CLOCK_QUEST, DAY_CLOCK_SCRIPT = (
 def _source_counts_whole_days(by_type: dict, ctx) -> bool:
     """True when the source game declares GameDaysPassed Short (Oblivion), not Float (FO3/FNV)."""
     records = list(by_type.get('GLOB', []))
-    records += [r for r in (getattr(ctx, 'master_export', None) or {}).values()
-                if r.get('Signature') == 'GLOB']
+    records += values_of(getattr(ctx, 'master_export', None), 'GLOB')
     return any(get_str(r, 'EditorID', '').lower() == 'gamedayspassed'
                and get_str(r, 'FNAM.Type') == 's' for r in records)
 

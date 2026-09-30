@@ -338,19 +338,49 @@ def _own_rows(out: dict, table: str) -> dict:
             if key in out['own'][table]}
 
 
+#: Record types `gather` keeps whole in `table_records`, for `read_tables`.
+TABLE_TYPES = frozenset({'SPEL', 'NPC_', 'CREA', 'RACE', 'CLAS', 'GMST',
+                         'SKIL', 'MGEF'})
+
+
+#: `gather`'s one kept answer, `{(chain, whole): tables}`.
+_GATHERED = {}
+
+
 def gather(chain: list, whole: bool = False) -> dict:
+    """`_gather`'s tables, read once per run; each call gets its own copy.
+
+    After `forget_gathered(keep)` only the kept tables remain.
+    """
+    key = (tuple(chain), whole)
+    if key not in _GATHERED:
+        _GATHERED.clear()
+        _GATHERED[key] = _gather(*key)
+    return dict(_GATHERED[key])
+
+
+def forget_gathered(keep: tuple = ()) -> None:
+    """Drop `gather`'s tables but those named in `keep`, once nothing else reads them."""
+    for tables in _GATHERED.values():
+        for name in set(tables) - set(keep):
+            del tables[name]
+    if not keep:
+        _GATHERED.clear()
+
+
+def _gather(chain: tuple, whole: bool) -> dict:
     """The chain's tables, each plugin read ONCE and a later one overriding
     an earlier: `factions` / `gmsts` `{lower id: line}`, `items` / `objects`
     / `sounds` / `spells` `{lower id: id}`, `cells` lower ids. `npcs` /
     `actors`, `own_factions` / `own_gmsts`, `skills` `{index: line}`,
     `own_dialogue` `[(topic, rec)]` and `start_scripts` are the LAST
-    plugin's own alone, since a master stages its own; `whole` keeps every
-    plugin's, for the vanilla chain's stager.
+    plugin's own alone; `whole` keeps every plugin's. `table_records` is
+    the chain's `TABLE_TYPES` records in load order.
     """
     out = {'npcs': {}, 'races': {}, 'classes': {},
            'skills': {}, 'gmsts': {}, 'factions': {}, 'items': {},
            'objects': {}, 'sounds': {}, 'spells': {}, 'exteriors': {},
-           'regions': {}, 'cells': set()}
+           'regions': {}, 'cells': set(), 'table_records': []}
     _reset_own(out)
     for _name, path in chain:
         topic = ''
@@ -358,6 +388,8 @@ def gather(chain: list, whole: bool = False) -> dict:
             _reset_own(out)
         for rec in read_file(path)[1]:
             topic = _take(out, rec, topic)
+            if rec.type in TABLE_TYPES:
+                out['table_records'].append(rec)
     out['npcs'] = _own_rows(out, 'npcs')
     out['actors'] = {key: _actor_line(rec, out)
                      for key, rec in out['npcs'].items()}

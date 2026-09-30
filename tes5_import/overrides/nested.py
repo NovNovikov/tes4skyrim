@@ -36,6 +36,7 @@ from ..dialogue.converter import convert_INFO
 from ..record_types.actor_common import origin_gate, read_items
 from ..record_types.magic_variants import copy_editor_ids
 from ..record_types.world import convert_ACHR, convert_REFR, restamp_wrld_mnam
+from ..base.master_export import MasterExport
 from ..base.text_reader import (get_formid, get_int, get_str,
                                 parse_export_directory, remap_formid)
 from ..base.writer import (PluginWriter, RECORD_HEADER_SIZE, pack_group,
@@ -144,7 +145,7 @@ def load_master_export(export_dir: str) -> dict:
     See: docs/commentary/tes5_import_override.md#re-keying-the-masters-ids
     """
     names = masters_from_export_header(export_dir)
-    out = {}
+    out = MasterExport()
     for slot, name in enumerate(names):
         mdir = master_dir(export_dir, name)
         if not os.path.isdir(mdir):

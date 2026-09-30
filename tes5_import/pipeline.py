@@ -40,6 +40,7 @@ from core.worldspace_names import set_worldspace_plugins
 from asset_convert.game_paths import namespace_for, set_namespace
 from .registry import IMPORT_DISPATCH, RUNTIME_ONLY_TYPES, SKIP_TYPES
 from .navmesh.pool import collision_cache_chain
+from .base.master_export import values_of
 from .overrides.adoption import MasterAdoption
 from .overrides.nested import (DELETED_FLAG as OVERRIDE_DELETED_FLAG,
                         detect_injected_records, open_masters)
@@ -142,8 +143,7 @@ def _mgef_records_with_masters(by_type: dict, ctx) -> list:
     own = by_type.get('MGEF', [])
     if not ctx or not getattr(ctx, 'master_export', None):
         return own
-    from_master = [rec for rec in ctx.master_export.values()
-                   if rec.get('Signature') == 'MGEF']
+    from_master = values_of(ctx.master_export, 'MGEF')
     own_codes = {rec.get('EditorID') for rec in own}
     return [r for r in from_master
             if r.get('EditorID') not in own_codes] + own
@@ -170,10 +170,7 @@ def _build_assoc_item_index(by_type: dict, ctx=None) -> tuple:
     sigs = {}
     lvlc_recs = []
 
-    sources = []
-    if ctx and getattr(ctx, 'master_export', None):
-        sources.append(r for r in ctx.master_export.values()
-                       if r.get('Signature') in _ASSOC_ITEM_SIGS)
+    sources = [values_of(getattr(ctx, 'master_export', None), *_ASSOC_ITEM_SIGS)]
     sources.append(r for sig in _ASSOC_ITEM_SIGS for r in by_type.get(sig, []))
 
     for source in sources:
@@ -265,8 +262,7 @@ def _bind_formid_space(all_records: list, by_type: dict, masters: list,
 
 def _register_run_tables(by_type: dict, ctx, writer) -> None:
     """Register the tables record conversion reads: races, cell families, adoptable master records."""
-    master_races = [r for r in ((ctx.master_export or {}).values() if ctx else ())
-                    if r.get('Signature') == 'RACE']
+    master_races = values_of(getattr(ctx, 'master_export', None), 'RACE')
     register_races(master_races + list(by_type.get('RACE', ())))
     if ctx:
         writer.adoption = MasterAdoption(ctx.master_index)
@@ -319,12 +315,10 @@ def _prescan_npc_voice_map(by_type: dict, ctx, writer, num_new_masters: int, _st
     See: docs/commentary/tes5_import_pipeline.md#phase-0-voice-map-reads-masters
     """
     _vtyp_by_type = by_type
-    if ctx and getattr(ctx, 'master_export', None):
-        _master_races = [r for r in ctx.master_export.values()
-                         if r.get('Signature') == 'RACE']
-        if _master_races:
-            _vtyp_by_type = dict(by_type)
-            _vtyp_by_type['RACE'] = _master_races + by_type.get('RACE', [])
+    _master_races = values_of(getattr(ctx, 'master_export', None), 'RACE')
+    if _master_races:
+        _vtyp_by_type = dict(by_type)
+        _vtyp_by_type['RACE'] = _master_races + by_type.get('RACE', [])
     npc_to_vtyp = build_npc_to_vtyp_map(_vtyp_by_type, num_new_masters,
                                         ctx.master_export if ctx else None)
     from .record_types.actor_common import set_npc_voice_map
@@ -707,10 +701,8 @@ def _prescan_magic_effects(by_type: dict, ctx, writer, xref, fid_to_edid: dict,
     n_seff = build_seff_variants(_mgefs, _effect_recs, writer,
                                  {f'{k:08X}': v for k, v in fid_to_edid.items()})
     from .record_types.equipment import set_ench_index
-    _enchs = list(by_type.get('ENCH', []))
-    if ctx and getattr(ctx, 'master_export', None):
-        _enchs = [r for r in ctx.master_export.values()
-                  if r.get('Signature') == 'ENCH'] + _enchs
+    _enchs = (values_of(getattr(ctx, 'master_export', None), 'ENCH')
+              + list(by_type.get('ENCH', [])))
     set_ench_index(_enchs)
 
     print(f"  Magic effects: {len(_mgefs)} MGEF + {n_av} per-actor-value "
@@ -946,11 +938,9 @@ def _prescan_outfits_hair_skin(by_type: dict, ctx, export_dir: str, writer):
         if ctx:
             _skin_dirs.extend(master_export_dirs(ctx))
         _skin_by_type = dict(by_type)
-        if ctx and getattr(ctx, 'master_export', None):
-            _m_races = [r for r in ctx.master_export.values()
-                        if r.get('Signature') == 'RACE']
-            if _m_races:
-                _skin_by_type['RACE'] = _m_races + (by_type.get('RACE') or [])
+        _m_races = values_of(getattr(ctx, 'master_export', None), 'RACE')
+        if _m_races:
+            _skin_by_type['RACE'] = _m_races + (by_type.get('RACE') or [])
         load_race_skin_tones(_skin_by_type, _skin_dirs)
         print(f"  Race skin tones: {len(RACE_SKIN_RGB)} races resolved "
               f"from authored textures")

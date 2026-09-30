@@ -32,6 +32,7 @@ from script_convert.cross_ref import is_function_script
 from script_convert.pipeline import (append_vmad_object_script,
                                      build_vmad_object_script,
                                      build_vmad_quest_fragments)
+from .master_export import records_of
 from .text_reader import (get_formid_index_offset,
                           remap_formid, unescape_value)
 from .writer import (pack_record, pack_string_subrecord, pack_subrecord,
@@ -213,10 +214,7 @@ def _collect_scpts(by_type: dict, xref, master_export: dict = None) -> dict:
     See: docs/commentary/script_convert.md#master-scpt-keying
     """
     scpt_by_fid: dict[str, tuple] = {}
-    sources = []
-    if master_export:
-        sources.append((k, r) for k, r in master_export.items()
-                       if r.get('Signature') == 'SCPT')
+    sources = [records_of(master_export, 'SCPT')]
     sources.append((r.get('FormID', ''), r) for r in by_type.get('SCPT', []))
     for fid, rec in (p for src in sources for p in src):
         sctx = rec.get('SCTX', '')
@@ -576,9 +574,7 @@ def _reference_script_bases(by_type: dict, master_export: dict = None) -> set:
     See: docs/commentary/tes5_import_quest.md#actor-script-relocation
     """
     scpt_src = {}
-    if master_export:
-        scpt_src.update({k: r.get('SCTX', '') for k, r in master_export.items()
-                         if r.get('Signature') == 'SCPT'})
+    scpt_src.update({k: r.get('SCTX', '') for k, r in records_of(master_export, 'SCPT')})
     scpt_src.update({r.get('FormID', ''): r.get('SCTX', '')
                      for r in by_type.get('SCPT', [])})
     event_bases = set()
