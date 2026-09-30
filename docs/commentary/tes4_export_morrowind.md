@@ -901,6 +901,7 @@ Morrowind enum translated to the TES4 one where they differ:
 | WPDT type 0-13 | `DATA.Type` | short/long blade 1H -> 0, long blade 2H and spear -> 1, blunt 1H and axe 1H -> 2, blunt 2H and axe 2H -> 3, bow/crossbow -> 5, thrown -> 0; arrow/bolt become **AMMO** |
 | WPDT chop/slash/thrust max | `DATA.Damage` | the largest of the three |
 | WPDT enchant | `ANAM` | Morrowind stores points x10 |
+| WEAP/ARMO/CLOT/BOOK `ENAM` (enchantment id) | `ENAM` | the ENCH FormID. It was written as `EITM` (TES5's name) from the first pass, so every Morrowind-format item lost its enchantment and no enchanted book became a scroll. Fixed, the build gives Tamriel_Data 523 enchanted weapons and 351 armor, TR_Mainland 308 and 431, and turns 131 and 33 of their books into SCRL under the same FormIDs |
 | LHDT color u32 | `DATA.Color.R/G/B` | little-endian RGBA bytes |
 | LHDT flags | `DATA.Flags` | identical bits; 0x10 (Fire) is masked by the importer |
 | CNDT weight, FLAG | `DATA.Weight`, `DATA.Flags` | Respawn 0x02 -> TES4 0x01 |
@@ -2400,7 +2401,11 @@ original's effects, keeping Morroblivion's FormID and EditorID, when four
 conditions hold:
 
 1. The record pairs to vanilla by escaped id and type (`mark` ↔ `0mark`).
-2. It carries a script effect.
+2. It carries a script effect, OR its vanilla original carries an effect only
+   MorrowindRuntime can do. Neither Oblivion nor Skyrim has such an effect, so
+   whatever Morroblivion authored is a stand-in, scripted or not: Buoyancy
+   and Swimmer's Blessing fake SwiftSwim with Water Breathing plus Feather or
+   Fortify Athletics.
 3. Every vanilla effect converts (`mw_converts`). That means a Skyrim archetype,
    with an actor value where one is needed, or an effect the runtime carries.
 4. Each dropped script EITHER does nothing, OR the runtime carries every
@@ -2412,17 +2417,30 @@ conditions hold:
    nowhere else or written somewhere else too. A read counts by name in any
    script or result script, and by FormID in a raw `CTDA`.
 
+   A function script that only dropped scripts `Call` is dropped with them,
+   and its own writes are checked the same way. `JDLevitate` reads the
+   `JDLevitationData` factors the Levitate stand-ins write, and nothing else
+   calls it.
+
 Measured over Morrowind_ob: 52 vanilla records pair to a Morroblivion record
 with a script effect, and **21 are restored**. They are the Mark, Recall and
 Intervention spells, scrolls and potions, plus records whose script effect had
 no script (`rilm's gift`, `corprus`, `panacea`) or a placeholder
 (`mwElothEffectPlaceholderScript`).
 
+Once SwiftSwim, Levitate and SlowFall became runtime-carried, 18 SPEL, 11 ALCH
+and 8 ENCH more flipped: every Levitate spell (Vampire Fly included),
+Slowfall, Buoyancy, Swimmer's Blessing and the Swift Swim and Levitate
+potions and enchantments
+([how](morrowind_runtime.md#adding-a-runtime-effect)).
+
+🛑 **A restored enchantment on a BOOK does not reach its scroll.** The patch
+overrides `0scUreynosfinsUen` with Swift Swim 50, but the SCRL the player
+reads is built from the book when Morrowind_ob.esm converts, and it keeps
+Morroblivion's magnitude-1 effect. Unfixed.
+
 Kept as Morroblivion's, and why:
 
-- **Levitation and Slowfall:** the runtime does not carry them yet. Adding an
-  index to `MW_RUNTIME_EFFECTS` flips them with no patch code
-  ([how](morrowind_runtime.md#adding-a-runtime-effect)).
 - **The blight cures:** `mwSpellBlightCure` stages `fbmwILGnisisBlight`.
 - **The blight resistances:** they write `mwPlayerBlightResistance`, which the
   blight scripts read and nothing else writes.

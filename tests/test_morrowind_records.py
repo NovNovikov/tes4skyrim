@@ -86,6 +86,12 @@ def test_item_exporters_speak_the_tes4_vocabulary():
     assert 'DATA.Weight=12.0' in lines and 'DATA.Health=1800' in lines
     assert tes4_signature(mace) == 'WEAP'
 
+    ctx.register_own('fire bite', 'ENCH')
+    flaming = _rec('WEAP', 'flame mace', _sub('WPDT', wpdt), _text('ENAM', 'fire bite'))
+    shield = _rec('ARMO', 'fins shield', _text('ENAM', 'fire bite'))
+    for item in (export_WEAP(flaming, ctx), export_ARMO(shield, ctx)):
+        assert _value(item, 'ENAM') == ctx.resolve('fire bite', 'ENCH')
+
     arrow = _rec('WEAP', 'iron arrow', _sub('WPDT', struct.pack(
         _WPDT, 0.1, 1, 12, 0, 1.0, 0.0, 0, 1, 3, 1, 3, 1, 3, 0)))
     assert tes4_signature(arrow) == 'AMMO'

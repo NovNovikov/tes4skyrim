@@ -24,6 +24,9 @@ from ..record_types.magic_variants import delivery_editor_ids, known_effects
 #: `plugin|MGEF=TES3 effect index`, every effect record the runtime acts on (the name predates non-teleports).
 TELEPORTS_TABLE = 'teleports_formid.txt'
 
+#: `name=plugin|FormID`, the conversion-owned records runtime effects act through (the Sanctuary faction).
+EFFECT_FORMS_TABLE = 'effects_formid.txt'
+
 #: `plugin|marker=kind|place plugin|place|x|y|z|zRot degrees`, one row per marker.
 MARKERS_TABLE = 'markers_formid.txt'
 

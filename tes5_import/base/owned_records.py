@@ -186,17 +186,27 @@ _MGEF_ARCHETYPE_VALUE_MOD, _AV_HEALTH = 0, 24
 _FIRE_AND_FORGET, _DELIVERY_SELF = 1, 0
 
 
-def _fall_damage_perk(fid: int, edid: str) -> bytes:
-    """Hidden, unconditioned PERK multiplying the owner's falling damage by 0."""
+def multiply_entry(entry_point: bytes, conditions: bytes = b'') -> bytes:
+    """One rank-0 PERK entry multiplying its value by 0 while `conditions` (packed CTDAs) hold."""
+    subs = pack_subrecord('PRKE', bytes((2, 0, 0)))
+    subs += pack_subrecord('DATA', entry_point)
+    if conditions:
+        subs += pack_subrecord('PRKC', bytes((0,))) + conditions
+    subs += pack_subrecord('EPFT', bytes((1,)))
+    subs += pack_subrecord('EPFD', struct.pack('<f', 0.0))
+    return subs + pack_subrecord('PRKF', b'')
+
+
+#: The entry that zeroes all of the owner's falling damage.
+FALL_DAMAGE_ENTRY = multiply_entry(_FALL_ENTRY_POINT)
+
+
+def hidden_perk(fid: int, edid: str, entries: bytes) -> bytes:
+    """Hidden, unplayable one-rank PERK carrying the packed `entries`."""
     subs = pack_string_subrecord('EDID', edid)
     subs += pack_string_subrecord('DESC', '')
     subs += pack_subrecord('DATA', bytes((0, 0, 1, 0, 1)))
-    subs += pack_subrecord('PRKE', bytes((2, 0, 0)))
-    subs += pack_subrecord('DATA', _FALL_ENTRY_POINT)
-    subs += pack_subrecord('EPFT', bytes((1,)))
-    subs += pack_subrecord('EPFD', struct.pack('<f', 0.0))
-    subs += pack_subrecord('PRKF', b'')
-    return pack_record('PERK', fid, 0, subs)
+    return pack_record('PERK', fid, 0, subs + entries)
 
 
 def _fall_damage_effect(fid: int, edid: str, perk: int) -> bytes:
@@ -243,7 +253,7 @@ def create_fall_damage_spell(writer: PluginWriter, master_index=None) -> dict:
         perk = writer.derive_formid('PERK', name + 'Perk')
         mgef = writer.derive_formid('MGEF', name + 'Effect')
         spel = writer.derive_formid('SPEL', name)
-        writer.add_record('PERK', _fall_damage_perk(perk, name + 'Perk'))
+        writer.add_record('PERK', hidden_perk(perk, name + 'Perk', FALL_DAMAGE_ENTRY))
         writer.add_record('MGEF', _fall_damage_effect(mgef, name + 'Effect', perk))
         writer.add_record('SPEL', _fall_damage_spell(spel, name, mgef))
     return {name: spel}

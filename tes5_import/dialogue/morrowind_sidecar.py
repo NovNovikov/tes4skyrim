@@ -30,9 +30,10 @@ from tes4_export.morrowind_patch import PATCH_NAME, START_SCRIPTS_SIG
 from .morrowind_sidecar_source import (gather, plugin_chain,
                                        write_merged_dialogue)
 from .morrowind_temples import skyrim_rows
-from .morrowind_teleport import (ANCHORS_TABLE, MARKERS_TABLE, TELEPORTS_TABLE,
-                                 WORLDS_TABLE, marker_lines, target_lines,
-                                 teleport_lines, world_lines)
+from ..record_types.magic_morrowind import effect_form_rows
+from .morrowind_teleport import (ANCHORS_TABLE, EFFECT_FORMS_TABLE, MARKERS_TABLE,
+                                 TELEPORTS_TABLE, WORLDS_TABLE, marker_lines,
+                                 target_lines, teleport_lines, world_lines)
 from .morrowind_travel import TRAVEL_TABLE, marker_index, travel_lines
 from .say_morrowind import SAY_TABLE, say_rows
 
@@ -935,7 +936,9 @@ def _teleport_tables(export_dir: str, output_path: str, plugin_name: str,
             + _write_lines(os.path.join(out_dir, WORLDS_TABLE), worlds)
             + _write_lines(os.path.join(out_dir, TELEPORTS_TABLE),
                            teleport_lines(_effect_lines(loaded), plugin_name,
-                                          len(writer.masters))))
+                                          len(writer.masters)))
+            + _write_lines(os.path.join(out_dir, EFFECT_FORMS_TABLE),
+                           effect_form_rows(plugin_name, writer.masters)))
 
 
 def _apparatus(export_dir: str, output_path: str, plugin_name: str,

@@ -676,6 +676,7 @@ def _prescan_magic_effects(by_type: dict, ctx, writer, xref, fid_to_edid: dict,
     See: docs/commentary/tes5_import_pipeline.md#phase-0-magic-effect-prerequisites
     """
     from .record_types.magic import set_assoc_item_index
+    from .record_types.magic_morrowind import is_morrowind_effect, register_effect_perks
     from .record_types.magic_variants import build_av_variants, build_seff_variants
     from .base.object_scripts import build_magic_effect_script_plan
 
@@ -683,6 +684,9 @@ def _prescan_magic_effects(by_type: dict, ctx, writer, xref, fid_to_edid: dict,
                     getattr(ctx, 'master_index', None), by_type.get('MGEF', []))
     _mgefs = _mgef_records_with_masters(by_type, ctx)
     set_assoc_item_index(*_build_assoc_item_index(by_type, ctx))
+    if any(is_morrowind_effect(r) for r in _mgefs):
+        n_perks = register_effect_perks(writer, getattr(ctx, 'master_index', None))
+        print(f"  Morrowind effect perks and faction: {n_perks} written")
 
     _effect_recs = [r for sig in ('SPEL', 'ENCH', 'ALCH', 'INGR', 'SGST')
                     for r in by_type.get(sig, [])]

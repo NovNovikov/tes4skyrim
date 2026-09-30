@@ -470,6 +470,8 @@ std::string DialogueState::Serialize() const {
         if (!mControls[i]) out << "W\t" << i << '\n';
     }
     if (!teleporting) out << "T\n";
+    if (!levitation) out << "V\n";
+    for (const std::uint32_t id : sanctuaryHolders) out << "Y\t" << id << '\n';
     if (mark.place) {
         const std::streamsize was = out.precision(9);
         out << "P\t" << mark.place << '\t' << mark.x << '\t' << mark.y << '\t'
@@ -524,6 +526,11 @@ std::size_t DialogueState::Deserialize(const std::string& text) {
             mControls[Int(f[1])] = false;
         }
         else if (kind == "T" && n == 1) teleporting = false;
+        else if (kind == "V" && n == 1) levitation = false;
+        else if (kind == "Y" && n == 2) {
+            sanctuaryHolders.insert(
+                static_cast<std::uint32_t>(std::strtoul(f[1].c_str(), nullptr, 10)));
+        }
         else if (kind == "P" && n == 6) {
             mark = {static_cast<std::uint32_t>(std::strtoul(f[1].c_str(), nullptr, 10)),
                     Float(f[2]), Float(f[3]), Float(f[4]), Float(f[5])};
