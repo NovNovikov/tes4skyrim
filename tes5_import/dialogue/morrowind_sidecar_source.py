@@ -290,6 +290,7 @@ def _take_tables(out: dict, rec) -> None:
     key = rec.record_id.lower()
     if rec.type == 'NPC_':
         out['npcs'][key] = rec
+        out['own_npcs'].add(key)
     elif rec.type in _STAT_TABLES:
         table, parse = _STAT_TABLES[rec.type]
         out[table][key] = parse(rec)
@@ -330,12 +331,11 @@ def _take(out: dict, rec, topic: str) -> str:
 
 def gather(chain: list) -> dict:
     """The chain's tables, each plugin read ONCE and a later one overriding
-    an earlier: `topics` `{lower id: DIAL rec}`, `infos` `{lower id: [entry]}`
-    in merged order, `actors` / `factions` / `gmsts` `{lower id: line}`,
-    `skills` `{index: line}`, `items` / `objects` / `sounds` / `spells`
-    `{lower id: id}`. Actor lines are made LAST, once every race, class and
-    skill is known. `start_scripts` is the LAST plugin's SSCR alone: a master
-    stages, and so starts, its own.
+    an earlier: `topics`, `infos` `{lower id: [entry]}` in merged order,
+    `factions` / `gmsts` `{lower id: line}`, `skills` `{index: line}`, `items` /
+    `objects` / `sounds` / `spells` `{lower id: id}`. `npcs` / `actors` and
+    `start_scripts` are the LAST plugin's own alone: a master stages its own,
+    and a re-staged copy would override it from a partial chain.
     """
     out = {'topics': {}, 'infos': {}, 'npcs': {}, 'races': {}, 'classes': {},
            'skills': {}, 'gmsts': {}, 'factions': {}, 'items': {},
@@ -344,8 +344,11 @@ def gather(chain: list) -> dict:
     for _name, path in chain:
         topic = ''
         out['start_scripts'] = {}
+        out['own_npcs'] = set()
         for rec in read_file(path)[1]:
             topic = _take(out, rec, topic)
+    out['npcs'] = {key: rec for key, rec in out['npcs'].items()
+                   if key in out['own_npcs']}
     out['actors'] = {key: _actor_line(rec, out)
                      for key, rec in out['npcs'].items()}
     out['skills'] = {index: _skill_line(index, skill)
