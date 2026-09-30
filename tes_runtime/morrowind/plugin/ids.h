@@ -48,6 +48,20 @@ constexpr std::uint64_t kGFxLoaderLoadMovie = 82325;
 // it with a plain mov from .data.
 constexpr std::uint64_t kGFxLoaderSingleton = 402775;
 
+// bool MovieFileExists(const char* path) (0xfb49a0): LoadMovie's own check,
+// through the engine's resource locator, before it tries "Interface/%s.swf"
+// and then "Interface/Exported/%s.gfx".
+constexpr std::uint64_t kMovieFileExists = 82411;
+
+// Scaleform's state bag (the GFx loader proper), at +8 in that singleton.
+// Vtable slot 2 is SetState(type, state), slot 3 GetStateAddRef(type); type 4
+// is the log. Layout from skse64 ScaleformState.h, whose bEnableGFXLog logger
+// is installed the same way.
+constexpr std::size_t kOffLoaderStateBag = 0x8;
+constexpr std::size_t kStateBagSetStateSlot = 2;
+constexpr std::size_t kStateBagGetStateSlot = 3;
+constexpr std::uint32_t kGfxStateLog = 4;
+
 // The Scaleform allocator singleton POINTER (0x3292490). Menus are allocated
 // through it, at vtable slot 0x50: Alloc(this, size, 0).
 //
@@ -98,6 +112,7 @@ constexpr std::uint32_t kResultPassOn = 2;
 // up, key down, key up) were seen in game.
 constexpr std::uint32_t kEventMouseMove = 1;
 constexpr std::uint32_t kEventMouseDown = 2;
+constexpr std::uint32_t kEventMouseUp = 3;
 constexpr std::size_t kMouseEventXOffset = 0x4;
 constexpr std::size_t kMouseEventButtonOffset = 0x10;
 

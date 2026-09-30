@@ -64,6 +64,7 @@ REM built only by `build.bat test`.
 echo [build] compiling plugin...
 cl %CXXFLAGS% %INCLUDES% plugin\plugin.cpp plugin\store.cpp plugin\scope.cpp ^
    "%COMMON%\log.cpp" "%COMMON%\paths.cpp" "%COMMON%\addresses.cpp" plugin\menu.cpp ^
+   plugin\menu_widgets.cpp plugin\scaleform_log.cpp ^
    "%COMMON%\ui_message.cpp" "%COMMON%\crafting_client.cpp" ^
    "%COMMON%\glide.cpp" "%COMMON%\main_tick.cpp" ^
    plugin\filter.cpp plugin\session.cpp plugin\activation.cpp ^
