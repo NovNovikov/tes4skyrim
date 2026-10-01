@@ -873,6 +873,13 @@ in `export/Morrowind.esm`, plus 308 only in Bloodmoon.
 `_extract_assets` therefore writes every `textures\` entry of the vanilla
 BSAs, with no reference to what any record or mesh names.
 
+The same pass keeps the bytes of every vanilla mesh Morroblivion replaced
+through its records, from which the Export step proves the
+[Morroblivion texture map](asset_convert_texture.md#morroblivion-texture-substitution).
+The map does not let the patch ship fewer textures: it swaps only mesh diffuse
+slots, while records (landscape textures, inventory icons) and the other slots
+still name the vanilla files.
+
 ### <a id="the-patch-builds-its-own-plugin"></a>The build produces the PLUGIN, not just its export
 
 **Code:** `export_patch` / `run_patch_export` / `stage_pair_scripts` in
@@ -880,8 +887,9 @@ BSAs, with no reference to what any record or mesh names.
 `PATCH_STEPS` in `convert_cli.py`.
 
 The patch is an ordinary `-f` target. Only its Export step is its own
-(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, and
-the split pairs' child scripts saved to `export/<patch>/pair_scripts/`). Every
+(`export_patch`: gap records, BSA assets, gap sounds, split pairs, barks, the
+Morroblivion texture map, and the split pairs' child scripts saved to
+`export/<patch>/pair_scripts/`). Every
 later step is the normal stage: Meshes, Creatures, Import, Sounds (the gap
 SOUNs' files and the barks' recordings, which the Export step only copied raw)
 and Scripts (which copies the saved child scripts to `scripts/source` and

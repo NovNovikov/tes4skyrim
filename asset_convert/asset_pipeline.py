@@ -24,6 +24,7 @@ from asset_convert.game_paths import (namespace_for, owns_namespace,
                                        set_namespace)
 from asset_convert.sources import bsa_extract
 from asset_convert.nif import grass_profile
+from asset_convert.nif import morroblivion_textures
 from asset_convert.character import hair_pipeline
 from asset_convert.texture import landscape_normals
 from asset_convert.texture import image_transcode
@@ -126,10 +127,14 @@ def _write_parallax_notice(plugin_dir):
 def _activate_namespace(rec_dir) -> str:
     """Install this plugin's asset namespace before any path is rewritten.
 
+    The Morroblivion texture map is armed here too: it rewrites the same paths,
+    and like the namespace it must reach every spawned worker.
     See: docs/commentary/asset_convert_texture.md#per-game-asset-namespace
+    See: docs/commentary/asset_convert_texture.md#morroblivion-texture-substitution
     """
     ns = namespace_for(rec_dir)
     set_namespace(ns)
+    morroblivion_textures.activate(rec_dir)
     return ns
 
 
