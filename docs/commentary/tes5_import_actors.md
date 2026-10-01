@@ -594,6 +594,17 @@ TR_Mainland, 0 of 9,264 NPCs carried the compatibility patch's origin faction
 while 4,322 of the patch's 4,647 voiced barks were gated on it, so nearly every
 vanilla Morrowind bark was silent on every Tamriel Rebuilt actor.
 
+🛑 **Only the masters the plugin's own header lists count, never the inherited
+ones.** A plugin also indexes its masters' masters so it can adopt their support
+records (see [phase 0](tes5_import_pipeline.md#phase-0-dependent-skips-support-records)).
+Those inherited masters sit below the header's first slot (`get_formid_index_offset`),
+and `reset_origin_faction` skips their factions. When they were joined, every
+Tamriel_Data, TR_Mainland and Sky_Main NPC (633, 9,243 and 950) became a member
+of Oblivion.esm's faction. Oblivion's greetings then passed for them, since they
+share Oblivion's voice types. Those greetings sit in quests up to priority 90 and
+the Morrowind barks in `TES4GenericHELO` at 0, so the Oblivion line won and the
+Morrowind ones went unheard.
+
 Dependents used to stay ungated, so a DLC could hand the master's NPCs new
 generic lines. Measured on the Morroblivion build before the change: 95 new
 lines were scoped only by an Oblivion.esm class or faction, 624 only by a voice
