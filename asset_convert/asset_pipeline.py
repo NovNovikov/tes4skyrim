@@ -245,8 +245,11 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     if mesh_subdirs:
         return stats
 
+    if not textures_only:
+        _profile_hair_and_grass(
+            rec_dir, plugin_dir, stats, skip_hair or not mesh_src.exists(),
+            _master_meshes(rec_dir, output_dir, extract_dir))
     if mesh_src.exists() and not textures_only:
-        _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair)
         _split_magic_art(rec_dir, mesh_src, plugin_dir / 'meshes' / ns, stats)
 
     # -----------------------------------------------------------------------
@@ -265,12 +268,22 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     return stats
 
 
-def _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair):
-    """Run the hair (unless `skip_hair`) and grass post-passes over the converted mesh tree."""
+def _master_meshes(rec_dir, output_dir, extract_dir) -> list:
+    """Each direct master's converted meshes root, in header order."""
+    return [_out_root(output_dir, name, extract_dir) / 'meshes'
+            for name in masters_from_export_header(str(rec_dir))]
+
+
+def _profile_hair_and_grass(rec_dir, plugin_dir, stats, skip_hair,
+                            master_meshes=()):
+    """Run the hair (unless `skip_hair`) and grass post-passes over the converted mesh tree.
+
+    A grass model may be a master's converted mesh, found under `master_meshes`.
+    """
     if not skip_hair:
         stats['hair'] = hair_pipeline.run(rec_dir, plugin_dir / 'meshes')
     processed, modified, missing = grass_profile.run(
-        rec_dir, plugin_dir / 'meshes')
+        rec_dir, plugin_dir / 'meshes', master_meshes)
     stats['grass_profile'] = {
         'processed': processed, 'modified': modified, 'missing': missing}
     print(f"  Grass models: {processed} placed under landscape\\grass"
