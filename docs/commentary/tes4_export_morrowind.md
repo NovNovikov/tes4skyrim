@@ -1586,6 +1586,13 @@ Morrowind's `Place, Sub` convention collapses the group: the ~40 interiors of
 markers against Morroblivion's 483, **351 of them name-matching (73%)**, and
 95% of generated places correspond to a real Morroblivion marker.
 
+`place_name` splits on **comma or colon**. Tamriel Rebuilt separates a ship's
+rooms with a colon (`TEM Princess Morgiah: Hold`, `: Cabin`), which a
+comma-only split leaves whole, so every room became its own place: 47 such
+cells in TR_Mainland cover 21 real places, 16 of them multi-room (five
+`Grand Hlaalu Ancestral Tomb` rooms, and the boardable galleons). The symptom
+is one map marker and one LCTN per cabin instead of one per ship.
+
 ### Classification
 
 Two independent signals, and they must be applied in that order:
