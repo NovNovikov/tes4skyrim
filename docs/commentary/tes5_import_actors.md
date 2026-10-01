@@ -95,9 +95,17 @@ see [tes_runtime_crime.md](tes_runtime_crime.md#bounty-realms).
 TES4, FO3 and FNV FACT `DATA.Flags` bit 1 is Evil (xEdit `wbDefinitionsTES4`,
 `wbDefinitionsFO3`): any crime against a member carries no bounty (UESP
 Oblivion talk:Factions). Skyrim has no such flag; an actor is a crime victim
-exactly when it has a crime faction. So an NPC in any Evil faction, this
-plugin's or a master's, gets no `CRIF` and no crime-faction membership, the
-same treatment as one that attacks on sight. Guard classes keep theirs.
+exactly when it has a crime faction. So an NPC whose factions, this plugin's
+or a master's, are ALL Evil gets no `CRIF` and no crime-faction membership,
+the same treatment as one that attacks on sight. Guard classes keep theirs.
+
+🛑 **One non-Evil faction makes the actor a victim again** (same UESP page:
+"as soon as they are in a single non-evil faction they cause a bounty").
+Morroblivion puts nearly every actor in `0factMorrowind` (Hidden + Evil) beside
+its town or guild faction. Testing ANY Evil faction stripped crime status from
+3,120 of Morrowind_ob's 3,146 NPCs; only 749 are in Evil factions alone. In
+Oblivion.esm the two readings give 886 and 770, and in Nehrim.esm 325 and 269.
+All of `AbtruennigeMagier`'s members are in that faction alone.
 
 Aggression alone cannot catch this: Nehrim's `AbtruennigeMagier` mages in
 `NQ00Karick` have Aggression 5, so they were written as crime victims and the

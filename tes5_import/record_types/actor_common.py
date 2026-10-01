@@ -143,12 +143,13 @@ def _load_evil_factions(by_type: dict, master_export: dict) -> None:
 
 
 def in_evil_faction(rec: dict) -> bool:
-    """Whether this actor belongs to an Evil faction: no victim of a crime.
+    """Whether every faction this actor belongs to is Evil: no victim of a crime.
 
     See: docs/commentary/tes5_import_actors.md#evil-factions
     """
-    return any(int(rec.get(f'Faction[{i}].FormID') or '0', 16) in _EVIL_FACTIONS
-               for i in range(get_int(rec, 'FactionCount')))
+    factions = [int(rec.get(f'Faction[{i}].FormID') or '0', 16)
+                for i in range(get_int(rec, 'FactionCount'))]
+    return bool(factions) and all(f in _EVIL_FACTIONS for f in factions)
 
 
 def load_faction_player_reactions(by_type: dict, master_export: dict = None) -> None:

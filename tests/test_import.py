@@ -7129,6 +7129,17 @@ class TestEvilFactions:
         assert not in_evil_faction(self._member('0000BBBB'))
         assert not in_evil_faction({'FactionCount': '0'})
 
+    def test_one_non_evil_faction_makes_a_victim(self):
+        """Morroblivion's Evil `0factMorrowind` plus a town faction: still a crime victim."""
+        from tes5_import.record_types.actor_common import (
+            in_evil_faction, load_faction_player_reactions)
+        load_faction_player_reactions(
+            {'FACT': [{'FormID': '0122001B', 'DATA.Flags': '3'},
+                      {'FormID': '01220020', 'DATA.Flags': '0'}]})
+        assert not in_evil_faction({'FactionCount': '2',
+                                    'Faction[0].FormID': '0122001B',
+                                    'Faction[1].FormID': '01220020'})
+
 
 class TestFactionRelationReaction:
     """XNAM Group Combat Reaction: 0 Neutral, 1 Enemy, 2 ALLY, 3 FRIEND.
