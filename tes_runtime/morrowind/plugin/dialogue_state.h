@@ -163,6 +163,12 @@ struct GameHooks {
     int   (*playerLevel)() = nullptr;
     float (*actorValue)(const std::string& actor, const char* name) = nullptr;
     float (*statPercent)(const std::string& actor, const char* name) = nullptr;
+    // The BASE of that value, which a skill increase, a trainer or a book
+    // moves and a fortify never does.
+    float (*baseActorValue)(const std::string& actor, const char* name) = nullptr;
+    // The actor's race form, only ever compared: a change of race moves the
+    // skills for a reason that is not an increase.
+    const void* (*race)(const std::string& actor) = nullptr;
     void  (*advanceSkill)(const char* skill, float amount) = nullptr;
     void  (*showBarterMenu)(const std::string& actor) = nullptr;
     void  (*showTrainingMenu)(const std::string& actor) = nullptr;
@@ -404,6 +410,10 @@ public:
 
     // --- the player's factions ---------------------------------------------
     const Membership& Faction(const std::string& faction) const;
+    // Every faction the player has a row for, member or not, by its id.
+    const std::map<std::string, Membership>& Factions() const {
+        return mFactions;
+    }
     // PCJoinFaction: rank 0 unless already a member.
     void JoinFaction(const std::string& faction);
     // PCRaiseRank joins at rank 0 first; PCLowerRank leaves below rank 0.

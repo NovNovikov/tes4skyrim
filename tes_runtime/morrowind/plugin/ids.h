@@ -579,6 +579,16 @@ constexpr std::uint64_t kActorGetLevel = 54927;
 constexpr std::uint64_t kActorGetValuePercent = 54677;
 constexpr std::uint64_t kGameAdvanceSkill = 55449;
 
+// What the character sheet reads to count skill increases, on 1.6.1170:
+//   float Actor.GetBaseActorValue(BSFixedString* name)  0x9e8460, the r9 of
+//         its registration, as GetActorValue (54675) and the percentage
+//         (54677) beside it are
+//   Race  Actor.GetRace()  0x9f5340, `mov rax,[r8+0x1f8]; ret`, stored at
+//         +0x50 of the native object its registration builds inline
+// See: docs/commentary/morrowind_runtime.md#leveling
+constexpr std::uint64_t kActorGetBaseValue = 54678;
+constexpr std::uint64_t kActorGetRace = 54930;
+
 // Game.ShowTrainingMenu(Actor) (0xa127a0 on 1.6.1170, 0x9b3af0 on 1.6.659),
 // the r9 of its registration beside 'ShowTrainingMenu' under 'Game'. GLOBAL:
 // the self slot is a tag, and the callback hands its fourth argument, the

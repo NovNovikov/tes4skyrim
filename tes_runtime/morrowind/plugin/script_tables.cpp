@@ -655,7 +655,9 @@ void LoadWorldRows(int layer, const std::string& pluginDir) {
                });
     ForEachRow(pluginDir + kFileFactions,
                [layer](const std::string& faction, const std::string& value) {
-                   g_factions.Add(layer, Lower(faction), ParseFaction(value));
+                   FactionDef def = ParseFaction(value);
+                   def.id = faction;
+                   g_factions.Add(layer, Lower(faction), std::move(def));
                });
     ForEachRow(pluginDir + kFileFactionForms,
                [layer](const std::string& faction, const std::string& value) {

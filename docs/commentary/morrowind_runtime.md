@@ -3644,3 +3644,104 @@ The boundary runs one way only. MorrowindRuntime compiles the MIT sources in
 every other runtime: MIT code may be distributed inside a GPL binary, and those
 files stay MIT in the source tree. What must never happen is the reverse, a
 `common/` file including anything under `external/openmw/`.
+
+## <a id="character-sheet"></a>The character sheet: stats window and level-up dialog (2026-09-29, unconfirmed in game)
+
+**Code:** `plugin/stats_sheet.cpp`, `plugin/levelup_menu.cpp`,
+`plugin/leveling.cpp`, `plugin/menu.cpp` (`CustomMenu`),
+`plugin/menu_widgets.cpp`; the movies and `plugin/stats_layout.h` from
+`tools/generators/gen_morrowind_stats_swf.py`. The Morrowind-only first step of
+[the character sheet plan](../plans/character_sheet.md).
+
+Two more windows, built and registered exactly as the dialogue window is:
+
+| Menu name | Movie | Layout |
+|---|---|---|
+| `MorrowindStatsMenu` | `Interface/morrowind_stats.swf` | `openmw_stats_window.layout`, 500 x 342 |
+| `MorrowindLevelUpMenu` | `Interface/morrowind_levelup.swf` | `openmw_levelup_dialog.layout`, 440 x 496 |
+
+**More than one menu.** `menu.cpp` now keeps each window's state in a
+`CustomMenu` (up to four). MenuManager calls a creator with no argument, so each
+slot has its own creator function; every window's engine object carries one
+vtable, and the object keeps a pointer to its window at `+0x40`, past the base
+`IMenu` (0x30) in the part of the 0xa8 allocation only a MessageBoxMenu's own
+code would touch. The dialogue window's free functions (`OpenMenu`,
+`SetMenuText`, ...) are its `CustomMenu`'s, unchanged.
+
+**Only with Morrowind content.** `plugin.cpp` installs the sheet only when the
+store loaded a sidecar, so an Oblivion or Fallout game never sees the key or
+the level-up step.
+
+**Off by default.** Both windows, and the skill sampling behind the level-up
+step, stay unregistered unless `[CharacterSheet] Enabled=1` in
+`SKSE\Plugins\MorrowindRuntime\MorrowindRuntime.ini`. The ini ships in
+`TESRuntime.zip` with `Enabled=0` (source `tes_runtime/morrowind/MorrowindRuntime.ini`,
+packaged by `package_runtime_dll.py` as `HavokWorldSize.ini` is); a missing ini
+or key also means off. `Hotkey` is a decimal virtual-key code, as
+`FalloutRuntime.ini`'s keys are, 75 (K) when absent.
+
+**The default hotkey is K.** A census of Skyrim's own `interface/controls/pc/controlmap.txt`
+(read through `skyrim_assets.get_asset_bytes`): the letters it binds to nothing
+are G, H, K, U, Y, B and N (1-8 are the favorites hotkeys, which the file does
+not list). The key is read with `GetAsyncKeyState` on the shared fixed tick
+(`main_tick`, every 33 ms, paused or not): only while this process owns the
+foreground window, no menu pauses the game and no conversation is open; K again
+or Escape closes the window. Unverified in game: whether Skyrim's DirectInput
+keyboard leaves the async key state alone.
+
+**What the stats window shows.** Health, Magicka and Fatigue (Skyrim's Stamina)
+as `current/maximum`, the maximum being the current value over
+`GetActorValuePercentage`, drawn as `menu_bar_gray` tinted with
+`Morrowind.ini`'s `color_health`, `color_magic` and `color_fatigue` and covered
+past the value as the disposition bar is. Then Level, Reputation and Bounty; the
+eight attributes and 27 skills from the stat store (`ActorAttribute`,
+`ActorSkill`), so what the window shows is what persuasion, the filter and
+scripts read; the skills under their specialization, by name; and the player's
+factions with the rank name. Every label is a GMST (`sHealth`, `sSkillLongblade`,
+`sSpecializationCombat`, ...).
+
+**Rows are fields the plugin places.** A list's rows are single-line fields at
+18 px, OpenMW's row, moved by `_y` as the dialogue window's topic list is. The
+embedded face's own line pitch is 16-17.4 px, so a multi-line field would drift
+from the layout.
+
+**The level-up dialog** is OpenMW's `LevelupDialog`: the class image for the
+level's combat/magic/stealth increases (`getLevelupClassImage`, all 21
+`textures\levelup` images in the movie, one shown), `sLevelUpMenu1` with the
+level, `sLevelUpMenu2`, three gold coins (`icons\tx_goldicon.dds`), and the eight
+attributes in two columns with `xN` beside any that would rise by more than 1.
+A click spends a coin (the last one moves once all are spent), the value shows
+the result, and OK stays disabled until the coins are spent. It has no cancel,
+as Morrowind's own has none.
+
+### <a id="leveling"></a>Leveling: Skyrim levels, Morrowind raises the attributes
+
+Skyrim keeps its skills and decides when the player levels (the skills menu,
++10 Health/Magicka/Stamina, a perk). The runtime adds Morrowind's step:
+
+- **Skill increases.** Every ~330 ms out in the world, `SampleLeveling` reads
+  the BASE of Skyrim's 18 skills (`Actor.GetBaseActorValue`, id 54678). A rise
+  is credited to the governing attribute and specialization of the skill's
+  namesake Morrowind skill, read from the SKIL table: One- and Two-Handed are
+  Long Blade (Strength), Archery Marksman, Pickpocket and Sneak Sneak
+  (Agility), Speech Speechcraft (Personality), Smithing Armorer, and so on
+  (`kTracked` in `leveling.cpp`). A fortify never moves a base, so it is never
+  counted.
+- **What is not an increase.** The first read of a game only records. A change
+  of race (`Actor.GetRace`, id 54930, compared by pointer) re-records without
+  crediting, because the race menu's skill bonuses move bases. A skill that
+  drops (Legendary) is followed from its new value.
+- **Level-ups.** A level gained is a pending step. Once the skills menu and
+  everything else is closed, the dialog opens for the oldest pending level.
+- **Gains.** `iLevelUpNNMult` for the attribute's increases, at most 10
+  counted (Morrowind.esm: 2, 2, 2, 2, 3, 3, 3, 4, 4, 5), 1 with none, never
+  past 100: OpenMW's `getLevelupAttributeMultiplier` and `onOkButtonClicked`.
+  Luck governs nothing, so it always rises by 1. Taking the step resets the
+  credits, as `NpcStats::levelUp` clears `mSkillIncreases`.
+- **Storage.** DialogueState variables under `leveling|player`, so the progress
+  rides the co-save; the attributes are the stat store's, which `SetStrength`
+  and its kin already write.
+
+Not yet decided or known: a trainer, a skill book or a script's
+`SetLongBlade` in Skyrim moves a base too, so it counts as an increase; and the
+player's attributes start at the `player` record's, whatever race was chosen.
