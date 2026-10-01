@@ -42,8 +42,9 @@ from asset_convert.nif.geometry_sanitize import sanitize_geometry_data
 from asset_convert.nif.nif_materials_morrowind import carry_havok_material
 from asset_convert.nif.nif_converter_morrowind import (
     animate_doors, attach_morrowind_collision, build_skin_partitions,
-    disable_specular, is_morrowind, latch_root_flags,
-    run_morrowind_fixups, strip_collision_nodes, strip_spinning_doors)
+    disable_specular, is_marker_shape, is_morrowind, latch_root_flags,
+    run_morrowind_fixups, source_root_flags, strip_collision_nodes,
+    strip_spinning_doors)
 from asset_convert.nif.tex_paths import rewrite_tex_path
 from asset_convert.nif.shaders import (ALPHA_BLEND_ENABLED,
                                        ALPHA_DST_ONE, ALPHA_DST_SHIFT,
@@ -384,13 +385,15 @@ def _is_stripped_node(node):
 
     SecretBigger* are tiny triangles parked far below the origin to inflate
     the bounding sphere; EditorMarker* are hidden in Oblivion by a flag our
-    conversion overwrites.  Both render as stray geometry in Skyrim.
+    conversion overwrites, and Morrowind's MRK-marked shapes by the engine.
+    All render as stray geometry in Skyrim.
     See: docs/commentary/asset_convert_nif.md#nodes-stripped-by-name
     """
     name = getattr(node, 'name', b'') or b''
     if not name:
         return False
-    return any(name.startswith(p) for p in _STRIPPED_NODE_PREFIXES)
+    return (any(name.startswith(p) for p in _STRIPPED_NODE_PREFIXES)
+            or is_marker_shape(node, source_root_flags()))
 
 
 def _walk_geometry(node, fix_textures, stats):

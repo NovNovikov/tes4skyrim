@@ -135,6 +135,16 @@ def source_root_flags() -> list:
     return _FLAG_LATCH[0]
 
 
+def is_marker_shape(node, flags) -> bool:
+    """Whether `node` is a marker shape hidden by an MRK in root `flags`.
+
+    See: docs/commentary/asset_convert_nif.md#nodes-stripped-by-name
+    """
+    return (_MARKER_EXTRA in flags
+            and isinstance(node, NifFormat.NiTriBasedGeom)
+            and _text(node.name).startswith(_MARKER_SHAPE_PREFIX))
+
+
 def source_children_owner(root):
     """The node that holds the SOURCE root's children.
 
@@ -178,7 +188,7 @@ def _box_holds_items(node, root) -> bool:
     the render geometry replaces it.
     See: docs/commentary/asset_convert_collision.md#morrowind-stand-in-boxes
     """
-    shapes = list(_collision_shapes(node, False))
+    shapes = list(_collision_shapes(node, ()))
     if len(shapes) != 1 or shapes[0].data is None:
         return False
     data = shapes[0].data
@@ -189,7 +199,7 @@ def _box_holds_items(node, root) -> bool:
     return len(tris) == 12 and len(corners) == 8 and items_rest_inside(tris)
 
 
-def _collision_shapes(node, skip_markers: bool):
+def _collision_shapes(node, flags):
     """The render shapes under `node` the engine builds collision from.
 
     AvoidNode subtrees are AI hints, skinned shapes are actors, a node an
@@ -200,9 +210,7 @@ def _collision_shapes(node, skip_markers: bool):
     if type_name in _HELPER_TYPES or getattr(node, '_mw_no_collision', False):
         return
     if isinstance(node, NifFormat.NiTriBasedGeom):
-        marker = skip_markers and _text(node.name).startswith(
-            _MARKER_SHAPE_PREFIX)
-        if node.skin_instance is None and not marker:
+        if node.skin_instance is None and not is_marker_shape(node, flags):
             yield node
         return
     children = [c for c in (getattr(node, 'children', None) or [])
@@ -210,7 +218,7 @@ def _collision_shapes(node, skip_markers: bool):
     if type_name in _FIRST_CHILD_ONLY:
         children = children[:1]
     for child in children:
-        yield from _collision_shapes(child, skip_markers)
+        yield from _collision_shapes(child, flags)
 
 
 def collision_triangles(node, root=None, scale: float = _HAVOK_SCALE) -> list:
@@ -220,10 +228,9 @@ def collision_triangles(node, root=None, scale: float = _HAVOK_SCALE) -> list:
     `_MAX_COLLISION_TRIS`, which is treated as no collision.
     """
     root = node if root is None else root
-    skip_markers = _MARKER_EXTRA in (source_root_flags()
-                                     or root_flag_extras(root))
+    flags = source_root_flags() or root_flag_extras(root)
     out = []
-    for block in _collision_shapes(node, skip_markers):
+    for block in _collision_shapes(node, flags):
         data = block.data
         if data is None:
             continue
@@ -479,6 +486,7 @@ def _as_ni_node(block):
     node.scale = block.scale
     node.collision_object = block.collision_object
     node.controller = block.controller
+    node.extra_data = block.extra_data
     for count, array in (('num_children', 'children'),
                          ('num_extra_data_list', 'extra_data_list'),
                          ('num_properties', 'properties'),

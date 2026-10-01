@@ -1372,6 +1372,19 @@ flags with `NIF_FLAGS` (visible), so the marker would show in game as an
 untextured black shape. Vanilla Skyrim NIFs carry no editor markers in these
 objects.
 
+**Morrowind's `Tri EditorMarker*`, only under an `MRK` root.** Morrowind
+spells its marker shapes `Tri EditorMarker*`, which the Oblivion prefix above
+never matches, so they shipped visible (Tamriel Data's `tr_note_pin.nif`, the
+developer notes pinned around TR dungeons, rendered as white slabs). The engine
+hides them only when the root carries an `MRK` string extra
+(`openmw/components/nifosg/nifloader.cpp`, `mHasMarkers`); without it the shape
+renders and collides. `is_marker_shape` (`nif_converter_morrowind.py`) is that
+one rule, read from the latched source-root flags, and both the render walk and
+the collision walker call it. Of the 100 Tamriel Data NIFs with a
+`Tri EditorMarker` shape, 99 carry `MRK`; the one that doesn't,
+`tr_f_ushukur_mummy_uni.nif`, uses the shape as its `RootCollisionNode` box —
+stripping it unconditionally deleted the mummy's collision.
+
 **Every `NiDynamicEffect` subtype.** `NiTextureEffect` (projected-texture
 environment mapping) has a completely different rendering path in Skyrim, and
 `Ni*Light` blocks — Ambient, Directional, Point, Spot — are 3ds Max export
@@ -2659,6 +2672,17 @@ form leaves that ref unwritten, and there are **0** `NiLODData` blocks in
 vanilla Skyrim, so the ref can never be satisfied. The authored children are
 the LOD levels — `tr_flora_sh_bush_06.nif` carries `blend` over 0–500 and
 `test` over 500–∞ — so keeping child 0 keeps the level that renders nearest.
+
+"Lossless" includes the extras, which a 4.0.0.2 file chains through the single
+`Extra Data` ref (`until="4.2.2.0"`), not `Extra Data List` (`since="10.0.1.0"`).
+The rewrite once copied only the list, so every rewritten node lost its extras:
+788 of 39,049 Tamriel Data + Morrowind source NIFs. On a root that erased the
+flags the converter reads — `MRK` on 3 (`pi_cont_fschool_*`, whose
+`Tri EditorMarker` then rendered) and `NC`/`NCO` on 23 (waterfalls, lava, a
+geyser, which then collided) — and 2 roots' text keys. The rest were 3ds Max
+leftovers (`sgoKeep`, `Clamp =`) on inner nodes; carried now, they reach the
+header string table as unreferenced strings, the state ordinary nodes already
+ship in (`tr_dremora.nif`).
 
 ### The `RootCollisionNode` strip missed nested nodes
 
