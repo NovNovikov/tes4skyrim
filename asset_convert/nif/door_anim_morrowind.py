@@ -17,6 +17,7 @@ import math
 from pyffi.formats.nif import NifFormat
 
 from asset_convert.nif.nif_passes import add_bsx_flags
+from asset_convert.nif.object_anim_morrowind import start_end_keys
 from asset_convert.nif.sequences import (MANAGED_CONTROLLER_FLAGS, palette_bytes,
                                          palette_lookup, transform_manager)
 
@@ -108,17 +109,6 @@ def _interpolator(start: float, stop: float):
     return interp
 
 
-def _text_keys():
-    """The `start`/`end` pair every vanilla door sequence carries."""
-    block = NifFormat.NiTextKeyExtraData()
-    block.num_text_keys = 2
-    block.text_keys.update_size()
-    block.text_keys[0].time, block.text_keys[0].value = 0.0, b'start'
-    block.text_keys[1].time = SWING_SECONDS
-    block.text_keys[1].value = b'end'
-    return block
-
-
 def _sequence(name: str, hinge, manager, controller, start: float,
               stop: float):
     """One named NiControllerSequence swinging `hinge` from `start` to `stop`."""
@@ -130,7 +120,7 @@ def _sequence(name: str, hinge, manager, controller, start: float,
     seq.frequency = 1.0
     seq.weight = 1.0
     seq.manager = manager
-    seq.text_keys = _text_keys()
+    seq.text_keys = start_end_keys(SWING_SECONDS)
     seq.num_controlled_blocks = 1
     seq.controlled_blocks.update_size()
     block = seq.controlled_blocks[0]

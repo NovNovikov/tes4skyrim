@@ -180,6 +180,7 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
     print(f"  Door animation plan: {len(doors)} door models")
     fixtures = fixture_plan.build_fixture_models(rec_dir)
     plan[fixture_plan.FIXTURE_KEY] = fixtures
+    plan[fixture_plan.ANIMATED_KEY] = fixture_plan.build_animated_models(rec_dir)
     print(f"  Placed fixture plan: {len(fixtures)} scenery models")
     resting, stocked = resting_items_plan.write_index(export_root, plugin)
     plan[resting_items_plan.RESTING_KEY] = resting
