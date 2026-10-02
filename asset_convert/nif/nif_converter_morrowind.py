@@ -24,9 +24,13 @@ from asset_convert.collision.cms_builder import GAME_UNITS_PER_HAVOK, build_cms_
 from asset_convert.collision.collision_hulls import build_clutter_hull, set_box_inertia
 from asset_convert.collision.clutter_plan import mesh_clutter_mass
 from asset_convert.collision.resting_items_plan import items_rest_inside
-from asset_convert.nif.door_anim_morrowind import (animate_morrowind_door,
-                                                   strip_hingeless_swing)
-from asset_convert.nif.door_plan import mesh_is_door
+from asset_convert.nif.door_anim_morrowind import (LOAD_DOOR_REACH,
+                                                   animate_morrowind_door,
+                                                   give_door_reach,
+                                                   source_had_hinge,
+                                                   strip_hingeless_swing,
+                                                   widen_load_door)
+from asset_convert.nif.door_plan import door_needs_reach, mesh_is_door
 from asset_convert.nif.fixture_plan import mesh_is_fixture, mesh_uses_anim
 from asset_convert.havok.hkx_ragdoll_morrowind import attach_synthetic_bodies
 from asset_convert.nif.nif_materials_morrowind import (
@@ -379,6 +383,8 @@ def attach_morrowind_collision(root, stats=None) -> bool:
     """
     node, generated = collision_source(root)
     tris = collision_triangles(node, root) if node is not None else []
+    if door_needs_reach() and not source_had_hinge():
+        tris = give_door_reach(tris, LOAD_DOOR_REACH * _HAVOK_SCALE)
     built = False
     if tris and getattr(root, 'collision_object', None) is None:
         obj = build_collision(root, tris, _loose_item_mass(root))
@@ -400,16 +406,22 @@ def strip_spinning_doors(data, stats=None) -> int:
     """Drop any authored swing whose panel has no hinge; how many.
 
     Morroblivion baked a 92 degree rotation onto Morrowind's centred load
-    doors, which spins them through their own frame.
+    doors, which spins them through their own frame. A Morrowind-placed door
+    left without a swing gains the reach Skyrim's activation pick needs.
     See: docs/commentary/asset_convert_nif.md#a-door-turns-about-its-edge
     """
     if not mesh_is_door():
         return 0
-    stripped = 0
+    stripped = widened = 0
     for root in data.roots:
-        if root is not None and strip_hingeless_swing(root):
+        if root is None:
+            continue
+        if strip_hingeless_swing(root):
             stripped += 1
+        if door_needs_reach() and widen_load_door(root):
+            widened += 1
     _count(stats, 'mw_doors_unspun', stripped)
+    _count(stats, 'mw_load_doors_widened', widened)
     return stripped
 
 

@@ -182,7 +182,9 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
     print(f"  Dynamic clutter plan: {len(masses)} item models")
     doors = door_plan.build_door_models(rec_dir)
     plan[door_plan.DOOR_KEY] = doors
-    print(f"  Door animation plan: {len(doors)} door models")
+    plan[door_plan.REACH_KEY] = door_plan.places_morrowind_doors(rec_dir)
+    print(f"  Door animation plan: {len(doors)} door models"
+          f"{', Morrowind-placed' if plan[door_plan.REACH_KEY] else ''}")
     fixtures = fixture_plan.build_fixture_models(rec_dir)
     plan[fixture_plan.FIXTURE_KEY] = fixtures
     plan[fixture_plan.ANIMATED_KEY] = fixture_plan.build_animated_models(rec_dir)

@@ -2465,6 +2465,73 @@ teleport swing, as are 16 teleport-only and 18 mixed bases, with durations from
 1.43s to 5.67s, multi-node drives, overshoot and settle, and double doors
 turning opposite ways (`CDoor03`: −86.7 and +91.9 degrees).
 
+<a id="a-load-door-needs-reach"></a>
+
+### A load door needs reach, because Skyrim's pick is less forgiving
+
+**Code:** `door_anim_morrowind.py:widen_load_door` / `give_door_reach`,
+`door_plan.py:places_morrowind_doors`
+
+Morrowind content sets its non-swinging exterior load doors at hand-placed depths
+behind the building around them, and a Morrowind building's collision is one
+flat wall across the whole facade with **no doorway cutout**: house base
+`T_Rga_SetReach_X_HouseBase_02` is 13 triangles, its front wall one plane over
+y 41640…41916 with the door at y 41656…41750. Morrowind activates the door
+anyway; Skyrim's activation ray stops on the wall. The door still blocks the
+player, so it reads as solid; noclipping past the wall puts the ray origin in
+front of the panel and it answers at once. Disabling the building fixes the
+door in game (`211693` frees `B0AA0C`, `DF7D4B` frees `496D72`).
+
+Measured with converted collision (`collision_extract`) placed the navmesh's
+way, casting 49 rays from 70 units out on the door's arrival-marker side at eye
+height across the panel. Every reported verdict reproduces. The smallest gap
+between the door's hit and the nearest other hit, at the authored collision:
+
+| Verdict | Doors | Smallest gap |
+|---|---|---|
+| works | TR `ABBA81 D380A2 87CFC2 752640 75BF94` | 4.7, 4.9, 9.3, 9.4, 11.2 |
+| half (metal works, wood does not) | TR `837B0C B3F2A4 4F2666` | 0.8, 1.1, 2.0 |
+| broken | TR `290BBF C92CCA 8A58A3 762C6B 496D72` | −1.7 … −16.2 |
+| broken | Sky_Main `E7E108 E4B069 4FC23E 8180DD B0AA0C` | −6.4 … −12.0 |
+| works | Sky_Main `BC1085`, `757038` (centre) | 6.6, edges only behind the frame |
+
+Being in front is not enough: a door under ~2 units clear only answers where its
+latch box sticks out, so the target is at least 5 units clear. Collision depth
+needed for that: Sky_Main up to 12.0 (`B0AA0C`), TR up to **16.5** (`496D72`).
+`LOAD_DOOR_REACH = 18` leaves every example at least 6.5 clear. A 5-unit reach
+fixes only the three shallowest Sky_Main doors and leaves `B0AA0C`/`8180DD`
+broken, which an earlier build shipped.
+
+The rule is one contract wherever collision enters: the door's collision is at
+least `2 * LOAD_DOOR_REACH` deep along its thinnest axis. Width and height never
+change.
+
+- A Morroblivion door with authored `bhk` boxes: `widen_load_door` grows the
+  broadest box's thin half-extent (the panel, not the latch and handle boxes).
+- A Morroblivion door with triangle collision, already a compressed mesh:
+  decoded with `decode_cms_materials`, swept by `give_door_reach`, rebuilt by
+  `build_cms_collision` with every triangle's material kept. Five Morrowind_ob
+  doors are this shape, `exumhupalaceugate` a flat sheet among them.
+- A true Morrowind door has only `RootCollisionNode` triangles, often one flat
+  sheet (`sky_ex_red_door_01`: four vertices at y = −2.2); `give_door_reach`
+  sweeps them in `attach_morrowind_collision`, before the compressed mesh is
+  built.
+
+Scope, each from an authored source:
+
+- **Never swings.** A door with a `NiControllerManager` anywhere, or whose source
+  has a hinge (`source_had_hinge`), keeps its collision. A slab on a swinging
+  panel would narrow every opened doorway.
+- **Morrowind-placed.** `places_morrowind_doors`: a TES3 export, or the
+  Morroblivion plugin (`MORROBLIVION_PREFIX`, the same test the TES3 exporter
+  picks Morroblivion's master with). Neither hinge nor shape separates them from
+  Oblivion's own static load doors: Oblivion has 46 such door meshes thinner than
+  the reach (34 centred, 12 hinged, the Bruma city gate among them), and they are
+  left as authored.
+- A dependent's DOOR record that names a master's mesh which the master itself
+  does not use as a door (TR: 13, Sky_Main: 2) is not covered; every one measured
+  is a non-panel teleport trigger (steps, bookshelf, skull, platform).
+
 
 ## Morrowind surface materials
 <a id="morrowind-surface-materials"></a>
