@@ -29,6 +29,10 @@ constexpr int kSkillScrollX = 856;
 constexpr int kSkillScrollY = 229;
 constexpr int kSkillScrollW = 14;
 constexpr int kSkillScrollH = 284;
+constexpr int kAttrRowX = 410;
+constexpr int kAttrRowY = 369;
+constexpr int kAttrRowW = 204;
+constexpr int kAttrRowH = 18;
 constexpr int kCaptionPad = 8;
 constexpr int kRowH = 18;
 constexpr int kBarRows = 3;
@@ -56,5 +60,14 @@ constexpr int kCoinSpacing = 33;
 constexpr int kCoins = 3;
 constexpr const char* kClassImages[] = {"acrobat", "agent", "archer", "assassin", "barbarian", "bard", "battlemage", "crusader", "healer", "knight", "mage", "monk", "nightblade", "pilgrim", "rogue", "scout", "sorcerer", "spellsword", "thief", "warrior", "witchhunter"};
 constexpr int kClassImageCount = 21;
+
+constexpr int kStageW = 1280;
+constexpr int kStageH = 720;
+constexpr int kTipW = 320;
+constexpr int kTipPad = 8;
+constexpr int kTipTop = 48;
+constexpr int kTipNameX = 48;
+constexpr int kTipNameDy = 14;
+constexpr int kTipIcons = 8;
 
 }  // namespace tesruntime::mw::stats_layout

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "actor_stats.h"
+#include "attribute_buffs.h"
 #include "dialogue_state.h"
 #include "log.h"
 #include "script_tables.h"
@@ -25,23 +26,25 @@ constexpr const char* kPlayer = "player";
 constexpr int kAttributeMax = 100;
 constexpr int kMaxCountedIncreases = 10;
 
-// A Skyrim skill, and the Morrowind skill whose SKIL record governs it: its
-// namesake, or for a folded skill the one it is named after (One- and
-// Two-Handed are Long Blade, Morrowind's sword skill; Pickpocket is Sneak,
-// which picked pockets in Morrowind).
+// A Skyrim skill, its actor value index (xEdit's TES5 enum, 6..23), and the
+// Morrowind skill whose SKIL record governs it: its namesake, or for a folded
+// skill the one it is named after (One- and Two-Handed are Long Blade,
+// Morrowind's sword skill; Pickpocket is Sneak, which picked pockets in
+// Morrowind).
 // See: docs/commentary/morrowind_runtime.md#leveling
 struct Tracked {
     const char* skyrim;
+    int av;
     int tes3;
 };
 
 constexpr Tracked kTracked[] = {
-    {"OneHanded", 5},    {"TwoHanded", 5},    {"Marksman", 23},
-    {"Block", 0},        {"Smithing", 1},     {"HeavyArmor", 3},
-    {"LightArmor", 21},  {"Pickpocket", 19},  {"Lockpicking", 18},
-    {"Sneak", 19},       {"Alchemy", 16},     {"Speechcraft", 25},
-    {"Alteration", 11},  {"Conjuration", 13}, {"Destruction", 10},
-    {"Illusion", 12},    {"Restoration", 15}, {"Enchanting", 9},
+    {"OneHanded", 6, 5},     {"TwoHanded", 7, 5},     {"Marksman", 8, 23},
+    {"Block", 9, 0},         {"Smithing", 10, 1},     {"HeavyArmor", 11, 3},
+    {"LightArmor", 12, 21},  {"Pickpocket", 13, 19},  {"Lockpicking", 14, 18},
+    {"Sneak", 15, 19},       {"Alchemy", 16, 16},     {"Speechcraft", 17, 25},
+    {"Alteration", 18, 11},  {"Conjuration", 19, 13}, {"Destruction", 20, 10},
+    {"Illusion", 21, 12},    {"Restoration", 22, 15}, {"Enchanting", 23, 9},
 };
 
 // The race the last read saw. In memory only: a load restores the skills and
@@ -112,6 +115,23 @@ void SampleLeveling() {
     const bool first = !State().HasVar(kOwner, kLevelVar);
     SampleSkills(!first && !raceChanged);
     SampleLevel(!first);
+    if (first || raceChanged) RecordPools();
+}
+
+int GoverningAttribute(int skyrimSkill) {
+    for (const Tracked& skill : kTracked) {
+        if (skill.av != skyrimSkill) continue;
+        const SkillDef* def = FindSkill(skill.tes3);
+        return def ? def->attribute : -1;
+    }
+    return -1;
+}
+
+const char* SkillName(int skyrimSkill) {
+    for (const Tracked& skill : kTracked) {
+        if (skill.av == skyrimSkill) return skill.skyrim;
+    }
+    return nullptr;
 }
 
 int PendingLevelUps() { return std::max(0, Counter(kPendingVar)); }
@@ -129,7 +149,7 @@ int SpecializationIncreases(int specialization) {
 }
 
 int AttributeGain(int attribute) {
-    const int current = static_cast<int>(ActorAttribute(kPlayer, attribute));
+    const int current = static_cast<int>(ActorBaseAttribute(kPlayer, attribute));
     const int count = std::min(kMaxCountedIncreases, AttributeIncreases(attribute));
     int gain = 1;
     if (count > 0) {
@@ -143,10 +163,11 @@ int AttributeGain(int attribute) {
 void CompleteLevelUp(const std::vector<int>& attributes) {
     for (int attribute : attributes) {
         const int gain = AttributeGain(attribute);
-        const float now = ActorAttribute(kPlayer, attribute);
+        const float now = ActorBaseAttribute(kPlayer, attribute);
         SetActorAttribute(kPlayer, attribute, now + static_cast<float>(gain));
         Log("leveling: attribute %d %.0f -> %.0f", attribute, now, now + gain);
     }
+    CreditPoolPicks();
     for (int i = 0; i < kAttributeCount; ++i) {
         State().SetVar(kOwner, IncreaseKey(i), 0.0f);
     }

@@ -277,6 +277,11 @@ struct GameHooks {
     void (*setActorValue)(const std::string& actor, const char* name,
                           float value) = nullptr;
     int  (*level)(const std::string& actor) = nullptr;
+    // How far active magic moves one of an actor's attributes, by TES3 id
+    // and index: every Fortify and Absorb it cast, less every Drain, Absorb
+    // and accrued Damage on it.
+    // See: docs/commentary/morrowind_runtime.md#attribute-effects
+    float (*attributeEffect)(const std::string& actor, int tes3Index) = nullptr;
     // The travel service. `followerCount` is how many actors travel WITH
     // the player, which multiplies the fare; `advanceHours` moves the game
     // clock on; `travelTo` puts the player and those followers at the

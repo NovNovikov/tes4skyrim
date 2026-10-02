@@ -347,9 +347,18 @@ std::size_t CellCount();
 // staged it: a dependent re-stages its masters' rows, which repeat harmlessly.
 void ForEachTeleportMarker(const std::function<void(const TeleportMarker&)>& fn);
 void ForEachCellAnchor(const std::function<void(const CellAnchor&)>& fn);
-// Every MGEF a teleport lands as, with its TES3 effect index (60..63):
-// teleports_formid.txt, each delivery clone included.
-void ForEachTeleportEffect(const std::function<void(const FormRef&, int)>& fn);
+// A runtime-carried effect: its TES3 effect index, and for an attribute
+// effect the TES3 attribute its variant targets (-1 for any other).
+struct RuntimeEffect {
+    int index = -1;
+    int attribute = -1;
+};
+
+// Every MGEF a runtime-carried effect lands as: teleports_formid.txt, each
+// delivery clone included. A row's value is `index`, or `index:attribute`
+// for an attribute effect's per-attribute variant.
+void ForEachTeleportEffect(
+    const std::function<void(const FormRef&, const RuntimeEffect&)>& fn);
 // Each child worldspace and its parent: worlds_formid.txt. A walled city
 // shares its parent's coordinates, so an Intervention searches both as one.
 void ForEachWorldParent(

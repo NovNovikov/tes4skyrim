@@ -1070,6 +1070,7 @@ void InstallGameCalls() {
     InstallMessageCalls();
     InstallTeleportCalls();
     InstallFlightCalls(hooks);
+    InstallAttributeCalls(hooks);
     InstallAnimCalls(hooks);
     Log("game: %zu spell(s) and %zu magic effect(s) resolvable by id",
         SpellCount(), EffectCount());

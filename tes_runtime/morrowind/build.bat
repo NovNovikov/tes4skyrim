@@ -63,8 +63,9 @@ REM Named rather than plugin\*.cpp: store_test.cpp carries a main() and is
 REM built only by `build.bat test`.
 echo [build] compiling plugin...
 cl %CXXFLAGS% %INCLUDES% plugin\plugin.cpp plugin\store.cpp plugin\scope.cpp ^
-   "%COMMON%\log.cpp" "%COMMON%\paths.cpp" "%COMMON%\addresses.cpp" plugin\menu.cpp ^
-   plugin\menu_widgets.cpp plugin\leveling.cpp plugin\stats_sheet.cpp ^
+   "%COMMON%\log.cpp" "%COMMON%\paths.cpp" "%COMMON%\addresses.cpp" "%COMMON%\hook.cpp" ^
+   plugin\menu.cpp plugin\menu_widgets.cpp plugin\leveling.cpp plugin\attribute_buffs.cpp ^
+   plugin\attribute_tip.cpp plugin\stats_sheet.cpp ^
    plugin\levelup_menu.cpp plugin\scaleform_log.cpp ^
    "%COMMON%\ui_message.cpp" "%COMMON%\crafting_client.cpp" ^
    "%COMMON%\glide.cpp" "%COMMON%\main_tick.cpp" ^
@@ -87,6 +88,7 @@ cl %CXXFLAGS% %INCLUDES% plugin\plugin.cpp plugin\store.cpp plugin\scope.cpp ^
    plugin\game_calls_state.cpp plugin\game_calls_crime.cpp ^
    plugin\game_calls_teleport.cpp plugin\game_calls_flight.cpp ^
    plugin\game_calls_sanctuary.cpp plugin\game_calls_anim.cpp ^
+   plugin\game_calls_attributes.cpp ^
    "%COMMON%\gamebryo_sequence.cpp" ^
    plugin\cosave.cpp plugin\main_thread.cpp /Fo:obj\
 if errorlevel 1 (
@@ -124,7 +126,7 @@ cl %CXXFLAGS% %INCLUDES% plugin\store.cpp plugin\scope.cpp plugin\filter.cpp ^
    plugin\object_tick.cpp plugin\main_thread.cpp "%COMMON%\main_tick.cpp" ^
    plugin\script_tables.cpp plugin\persuasion.cpp ^
    plugin\travel.cpp plugin\script_test.cpp ^
-   plugin\leveling.cpp plugin\leveling_test.cpp /Fo:objt\
+   plugin\leveling.cpp plugin\attribute_buffs.cpp plugin\leveling_test.cpp /Fo:objt\
 if errorlevel 1 (
     echo [build] ERROR: test compilation failed
     exit /b 1
@@ -188,7 +190,7 @@ link /nologo /OUT:leveling_test.exe objt\store.obj objt\scope.obj objt\log.obj o
      objt\object_script.obj ^
      objt\object_tick.obj objt\main_thread.obj objt\main_tick.obj ^
      objt\script_tables.obj objt\persuasion.obj objt\travel.obj ^
-     objt\leveling.obj objt\leveling_test.obj ^
+     objt\leveling.obj objt\attribute_buffs.obj objt\leveling_test.obj ^
      objt\filter.obj ^
      obj\mw\*.obj ^
      kernel32.lib user32.lib shell32.lib ole32.lib

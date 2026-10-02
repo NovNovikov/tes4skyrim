@@ -19,8 +19,8 @@ from tes4_export.record_types.morrowind_magic import effect_editor_id
 
 from .morrowind_placements import MARKER_KINDS, export_records, folder_tables
 from ..base.tes5_reader import read_record
-from ..record_types.magic_morrowind import MW_RUNTIME_EFFECTS
-from ..record_types.magic_variants import delivery_editor_ids, known_effects
+from ..record_types.magic_morrowind import MW_ATTRIBUTE_EFFECTS, MW_RUNTIME_EFFECTS
+from ..record_types.magic_variants import av_variant_editor_id, copy_editor_ids, known_effects
 
 #: `plugin|MGEF=TES3 effect index`, every effect record the runtime acts on (the name predates non-teleports).
 TELEPORTS_TABLE = 'teleports_formid.txt'
@@ -83,12 +83,28 @@ def _folder_markers(folder: str, plugin: str, own: int) -> list:
     return rows
 
 
-def teleport_lines(effect_lines: list, plugin: str, own: int) -> list:
-    """Every effect record a runtime-carried effect (`MW_RUNTIME_EFFECTS`) lands as.
+def _copy_values() -> dict:
+    """{EditorID, lowercase: table value} of every record a runtime effect is copied to.
 
-    The chain's own TES3 effects come from `effect_lines` (MGEF.txt's
-    `index=plugin|FormID|name` rows); the delivery clones this plugin's
-    conversion made of them, whose index byte is `own`, are added.
+    A runtime effect's delivery and Ability clones are `index`; an attribute
+    effect's per-attribute variant and its clones are `index:attribute`.
+    """
+    values = {name.lower(): str(index) for index in MW_RUNTIME_EFFECTS
+              for name in copy_editor_ids(effect_editor_id(index))}
+    for index in MW_ATTRIBUTE_EFFECTS:
+        for attribute in range(8):
+            edid = av_variant_editor_id(effect_editor_id(index), attribute)
+            values.update({name.lower(): f'{index}:{attribute}'
+                           for name in [edid] + copy_editor_ids(edid)})
+    return values
+
+
+def teleport_lines(effect_lines: list, plugin: str, own: int) -> list:
+    """Every effect record a runtime-carried effect lands as.
+
+    The chain's own `MW_RUNTIME_EFFECTS` come from `effect_lines` (MGEF.txt's
+    `index=plugin|FormID|name` rows); the variants and clones this plugin's
+    conversion made, whose index byte is `own`, are added (`_copy_values`).
     See: docs/commentary/morrowind_runtime.md#adding-a-runtime-effect
     """
     rows = []
@@ -96,11 +112,10 @@ def teleport_lines(effect_lines: list, plugin: str, own: int) -> list:
         index, _, value = line.partition('=')
         if int(index) in MW_RUNTIME_EFFECTS:
             rows.append(f"{'|'.join(value.split('|')[:2])}={index}")
-    clones = {name.lower(): index for index in MW_RUNTIME_EFFECTS
-              for name in delivery_editor_ids(effect_editor_id(index))[1:]}
-    rows += [f'{plugin}|{fid:08X}={clones[edid.lower()]}'
+    copies = _copy_values()
+    rows += [f'{plugin}|{fid:08X}={copies[edid.lower()]}'
              for fid, edid in sorted(known_effects().items())
-             if fid >> 24 == own and edid.lower() in clones]
+             if fid >> 24 == own and edid.lower() in copies]
     return rows
 
 

@@ -186,6 +186,12 @@ MW_SWIFT_SWIM, MW_LEVITATE, MW_SLOW_FALL, MW_SANCTUARY = 1, 10, 11, 42
 #: Every NATIVE_NONE effect MorrowindRuntime carries: add one via morrowind_runtime.md#adding-a-runtime-effect.
 MW_RUNTIME_EFFECTS = frozenset(MW_TELEPORTS + (MW_SWIFT_SWIM, MW_LEVITATE, MW_SLOW_FALL, MW_SANCTUARY))
 
+#: Drain, Damage, Restore, Fortify, Absorb Attribute: script effects MorrowindRuntime sums per attribute.
+MW_ATTRIBUTE_EFFECTS = frozenset((17, 22, 74, 79, 85))
+
+#: TES3 attribute indices 0..7, Oblivion's eight.
+_MW_ATTRIBUTES = range(8)
+
 MW_EFFECT_ARCHETYPES.update(
     {index: (A_SCRIPT, NATIVE_NONE) for index in MW_RUNTIME_EFFECTS})
 MW_EFFECT_ARCHETYPES.update(
@@ -304,8 +310,18 @@ def is_morrowind_effect(rec: dict) -> bool:
 
 def mw_archetype(index: int) -> int:
     """TES5 archetype for one TES3 effect index (Value Modifier if unknown)."""
+    if index in MW_ATTRIBUTE_EFFECTS:
+        return A_SCRIPT
     entry = MW_EFFECT_ARCHETYPES.get(index)
     return entry[0] if entry else A_VALUE_MODIFIER
+
+
+def mw_attribute_variant(index: int, effect_av: int) -> bool:
+    """Whether an effect is a runtime attribute effect: one MGEF per attribute.
+
+    See: docs/commentary/morrowind_runtime.md#attribute-effects
+    """
+    return index in MW_ATTRIBUTE_EFFECTS and effect_av in _MW_ATTRIBUTES
 
 
 def mw_actor_value(index: int, effect_av: int) -> int:
@@ -318,7 +334,7 @@ def mw_actor_value(index: int, effect_av: int) -> int:
     from .magic import ATTRIBUTE_TO_AV, SKILL_TO_AV
 
     entry = MW_EFFECT_ARCHETYPES.get(index)
-    if entry is None:
+    if entry is None or index in MW_ATTRIBUTE_EFFECTS:
         return AV_NONE
     value = entry[1]
     if value == NATIVE_NONE:
@@ -340,13 +356,15 @@ def mw_converts(index: int, effect_av: int) -> bool:
         return False
     if entry[1] == NATIVE_NONE:
         return index in MW_RUNTIME_EFFECTS
+    if index in MW_ATTRIBUTE_EFFECTS:
+        return mw_attribute_variant(index, effect_av)
     return entry[1] != DERIVE_AV or mw_actor_value(index, effect_av) != AV_NONE
 
 
 def mw_needs_runtime(index: int) -> bool:
     """Whether this effect has no Skyrim mechanism and awaits the runtime."""
     entry = MW_EFFECT_ARCHETYPES.get(index)
-    return bool(entry) and entry[1] == NATIVE_NONE
+    return index in MW_ATTRIBUTE_EFFECTS or (bool(entry) and entry[1] == NATIVE_NONE)
 
 
 def mw_tes4_flags(mw_flags: int) -> int:

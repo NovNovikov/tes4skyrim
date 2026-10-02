@@ -3377,7 +3377,8 @@ runtime's apply sink. Adding one takes these steps, in this order:
    `tes5_import/record_types/magic_morrowind.py`. That one set drives
    everything downstream:
    - `teleports_formid.txt` (`teleport_lines`) lists the effect's MGEF and each
-     delivery clone, so the runtime recognizes it. The file keeps its old name.
+     delivery and Ability clone (`copy_editor_ids`), so the runtime recognizes
+     it. The file keeps its old name.
    - `mw_converts` now counts the effect as working, so a record carrying it
      can be restored.
 3. **Morroblivion mode needs no new code, but it needs the patch rebuilt.**
@@ -3744,13 +3745,15 @@ code would touch. The dialogue window's free functions (`OpenMenu`,
 store loaded a sidecar, so an Oblivion or Fallout game never sees the key or
 the level-up step.
 
-**Off by default.** Both windows, and the skill sampling behind the level-up
-step, stay unregistered unless `[CharacterSheet] Enabled=1` in
-`SKSE\Plugins\MorrowindRuntime\MorrowindRuntime.ini`. The ini ships in
-`TESRuntime.zip` with `Enabled=0` (source `tes_runtime/morrowind/MorrowindRuntime.ini`,
-packaged by `package_runtime_dll.py` as `HavokWorldSize.ini` is); a missing ini
-or key also means off. `Hotkey` is a decimal virtual-key code, as
-`FalloutRuntime.ini`'s keys are, 75 (K) when absent.
+**On by default, one switch.** `[CharacterSheet]` in
+`SKSE\Plugins\MorrowindRuntime\MorrowindRuntime.ini` (source
+`tes_runtime/morrowind/MorrowindRuntime.ini`, packaged by
+`package_runtime_dll.py` as `HavokWorldSize.ini` is) ships `Enabled=1` and
+`SkillCap=1`; a missing ini or key also means on. `Enabled=0` turns off the
+windows, the level-up step, the buffs and the cap together
+([sheet off](#sheet-off)); `SkillCap=0` drops only the [cap](#skill-cap).
+`Hotkey` is a decimal virtual-key code, as `FalloutRuntime.ini`'s keys are, 75
+(K) when absent.
 
 **The default hotkey is K.** A census of Skyrim's own `interface/controls/pc/controlmap.txt`
 (read through `skyrim_assets.get_asset_bytes`): the letters it binds to nothing
@@ -3817,3 +3820,125 @@ Skyrim keeps its skills and decides when the player levels (the skills menu,
 Not yet decided or known: a trainer, a skill book or a script's
 `SetLongBlade` in Skyrim moves a base too, so it counts as an increase; and the
 player's attributes start at the `player` record's, whatever race was chosen.
+
+### <a id="attribute-buffs"></a>What the attributes do (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/attribute_buffs.cpp`. One rule: a buff is its normal amount
+times (0.5 + attribute / 100), so 50 plays like vanilla.
+
+| Attribute | Buff | When |
+|---|---|---|
+| Intelligence | Magicka from each Magicka pick | at the step, from the base attribute |
+| Endurance | Health from each Health pick | at the step |
+| Agility | Stamina from each Stamina pick | at the step |
+| Strength | carry weight from each Stamina pick | at the step |
+| Willpower | `MagickaRateMult` + (Willpower − 50) | always |
+| Speed | `StaminaRateMult` + (Speed − 50) | always |
+| Luck | `CritChance` + (Luck − 50) / 10 | always |
+| Personality | nothing: Speech owns prices | |
+
+- **The pick's amount** is Skyrim.esm's: `iAVDhmsLevelUp` 10, and
+  `fLevelUpCarryWeightMod` 5 with Stamina. The step counts a pool's picks as
+  its rise in base since the last step, divided by 10, and pays them at the
+  attributes the step just set: OpenMW's `NpcStats::levelUp` reads the raised
+  base Endurance ("If you increased Endurance this level, the Health increase
+  is calculated from the increased Endurance", `npcstats.cpp:230`). Never
+  retroactive.
+- **The regen values** are the multipliers vanilla's Fortify Regenerate
+  effects move (Skyrim.esm MGEF actor values 156 and 157, 10 effects each).
+  No vanilla MGEF or script writes `CritChance`. **Unverified:** whether the
+  engine's critical roll reads it, and the player's base critical chance.
+- **Magic on a pick buff** lasts as long as the effect: each point is 1/100 of
+  a pick for every pick of that pool, so Fortify Intelligence 10 with 20
+  Magicka picks is +20 Magicka.
+- **Held, not written once.** Each buffed value's base is moved by what its
+  target changed since the last hold, and what is held is kept under
+  `buffs|player`. A pool's raw base (base less what is held) is what picks
+  are counted from, so the buff's own points are never a pick.
+
+### <a id="attribute-tooltips"></a>Attribute tooltips (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/attribute_tip.cpp`; `gen_morrowind_stats_swf.tip_tags`. OpenMW's `AttributeToolTip`
+(`openmw_tooltips.layout`), in both the stats window and the level-up dialog,
+as OpenMW gives both: a `HUD_Box_NoTransp` box, 8 px padding, the attribute's
+`icons\k` icon at 32 px with its name beside it, and the description wrapped
+below. Both movies carry the pieces at the stage origin; the box is three
+sprites (top, a 1 px middle stretched to the description's measured
+`textHeight`, bottom), so it fits the text as OpenMW's auto-sized box does.
+Placement is `ToolTips::position`: 32 px under the pointer, shifted left by the
+pointer's share of the screen width, kept on screen, and above the pointer at
+the bottom edge.
+
+The description is Morrowind's own, cut down to what the attribute does here:
+
+| Attribute | Morrowind | Here |
+|---|---|---|
+| Strength | starting Health, carrying, max Fatigue, melee damage | Affects how much you can carry. |
+| Intelligence | Determines your maximum amount of Magicka. | Affects your maximum amount of Magicka. |
+| Willpower | resist magic, max Fatigue | Affects how quickly your Magicka returns. |
+| Agility | dodge, hit in melee, max Fatigue | Affects your maximum Stamina. |
+| Speed | Determines how fast you can move. | Affects how quickly your Stamina returns. |
+| Endurance | starting Health, Health per level, max Fatigue | Affects your Health gain per level. |
+| Personality | `sPerDesc`, unchanged | |
+| Luck | Affects every action you do in a small way. | Affects your chance of a critical hit, and every other action in a small way. |
+
+Personality reads its GMST, so a translated Morrowind keeps its language; the
+changed lines are English.
+
+### <a id="sheet-off"></a>The sheet off
+
+`Enabled=0`: the player's eight attributes read 100, so no TES3 gate shuts on
+one, and Personality reads Skyrim's Speech, which persuasion and barter weigh
+beside Speechcraft. The tick keeps running only to hand every held buff back,
+so a save made with the sheet on plays as vanilla Skyrim. NPCs keep their
+authored attributes either way.
+
+### <a id="attribute-effects"></a>Attribute effects (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/game_calls_attributes.cpp`; import
+`magic_morrowind.MW_ATTRIBUTE_EFFECTS`, `magic_variants.build_av_variants`,
+`morrowind_teleport.teleport_lines`.
+
+Drain (17), Damage (22), Restore (74), Fortify (79) and Absorb (85) Attribute
+convert as script-less Script effects, still one variant MGEF per attribute
+(`TES4MW079FortifyAttributeLuck`). `teleports_formid.txt` names each variant
+and its delivery and Ability clones as `index:attribute`. Before this they
+landed on stand-in actor values (Fortify Willpower on `MagickaRate`, Fortify
+Endurance on Health), which the buffs would have counted twice.
+
+Each tick every actor's active effects are summed per attribute, as OpenMW's
+`MagicEffects` does: Fortify adds and Drain takes away while they last; Damage
+lowers the attribute by its magnitude every second until Restore gives it back
+(`attrdamage|<id>`, so it survives a save). The stat reads add the result to
+the base, so scripts, dialogue, persuasion and the buffs see it; a `Set`/`Mod`
+writes the base. The player is summed every tick; an NPC from the moment the
+`OnMagicEffectApply` sink sees an attribute effect land on it until nothing is
+left, under its base NPC_'s TES3 id.
+
+**Absorb** takes from its target and gives to its caster while the target
+carries it. The apply event names the caster; the active effect has no caster
+field we read, so the pair is kept by (target, attribute), and two casters
+absorbing the same attribute of one target pay the later one.
+
+The same table change fixed a gap in the older runtime effects: an Ability
+clone (`ability_variant`) of Sanctuary or SwiftSwim was never listed, so a
+constant ability carrying one did nothing.
+
+### <a id="skill-cap"></a>The skill cap (2026-10-02, unconfirmed in game)
+
+Morrowind's trainers refuse a skill at its governing attribute
+(`sNotifyMessage17`, OpenMW `trainingwindow.cpp:186`, which reads the
+fortified attribute). With `SkillCap=1` the runtime extends that to skill use:
+
+- **Use:** PlayerCharacter vtable slot 247 (`AdvanceSkill`, id 40488) is
+  swapped. Every use experience reaches it virtually, and so does
+  `Game.AdvanceSkill`; no direct call to it exists on 1.6.1170. A capped skill
+  gains nothing.
+- **Trainers:** the training menu's train step (id 52667) is reached through
+  its one call in id 52662. A capped skill is refused with Morrowind's line
+  before any gold changes hands.
+- **Books** (id 17842) and `Game.IncrementSkill` (id 55616) increment through
+  other callers and still raise a capped skill, as in Morrowind.
+
+The governing attribute is the namesake skill's, as the level-up credits use
+([leveling](#leveling)).

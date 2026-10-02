@@ -596,6 +596,25 @@ constexpr std::uint64_t kActorGetRace = 54930;
 // See: docs/commentary/morrowind_runtime.md#barter
 constexpr std::uint64_t kGameShowTrainingMenu = 55582;
 
+// The character sheet's skill cap, read on 1.6.1170 and checked on 1.7.104.
+//   PlayerCharacter::AdvanceSkill(av, points, form, unk)   0x736e20, id 40488:
+//        PlayerCharacter vtable slot 247 (byte 0x7b8) on both builds. Every
+//        skill-USE experience arrives here virtually -- no direct call to it
+//        exists -- and so does Game.AdvanceSkill (0xa0baf0, `call [rax+0x7b8]`).
+//        It forwards to PlayerSkills::AdvanceSkill (0x77ae60, id 41561).
+//   TrainingMenu's train step(menu)                        0x96e710, id 52667:
+//        session limit, the trainer's maximum, the gold check, then the gold
+//        is taken and the skill at menu+0x40 incremented. Its one caller is
+//        id 52662 (+0xd8). Books (id 17842) and Game.IncrementSkill (id 55616)
+//        reach the increment by other callers, so the cap leaves them alone.
+// See: docs/commentary/morrowind_runtime.md#skill-cap
+constexpr std::uint64_t kPlayerAdvanceSkill = 40488;
+constexpr std::size_t kAdvanceSkillSlot = 0x7b8;
+constexpr std::uint64_t kTrainingMenuTrain = 52667;
+constexpr std::uint64_t kTrainingMenuTrainCaller = 52662;
+constexpr std::size_t kTrainingCallerScan = 0x200;
+constexpr std::size_t kOffTrainingMenuSkill = 0x40;
+
 // The character-creation and control natives, each the registration callback
 // beside its name string under script `Game` on 1.6.1170:
 //   void Game.ShowRaceMenu()                                      0xa12780

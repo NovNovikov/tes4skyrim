@@ -58,11 +58,11 @@ bool Rank(void* actor, std::uint32_t id, void* faction) {
     return rank > 0;
 }
 
-bool IsActor(void* ref) {
+}  // namespace
+
+bool IsActorRef(void* ref) {
     return ref && At<std::uint8_t>(ref, ids::kOffFormType) == kFormTypeCharacter;
 }
-
-}  // namespace
 
 void WatchSanctuary(std::uint32_t actorId) {
     if (actorId) State().sanctuaryHolders.insert(actorId);
@@ -78,7 +78,7 @@ void TickSanctuary(void* player) {
     std::set<std::uint32_t>& holders = State().sanctuaryHolders;
     for (auto it = holders.begin(); it != holders.end();) {
         void* actor = RefByRuntimeId(*it);
-        if (IsActor(actor) && !Rank(actor, *it, faction)) {
+        if (IsActorRef(actor) && !Rank(actor, *it, faction)) {
             it = holders.erase(it);
         } else {
             ++it;

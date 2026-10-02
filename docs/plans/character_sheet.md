@@ -20,6 +20,12 @@ it already keeps. It uses Morrowind's own governing attributes (each Skyrim skil
 through its namesake Morrowind skill), not the [one table](#governing) below,
 which is for the multi-game sheet. See
 [morrowind_runtime.md](../commentary/morrowind_runtime.md#character-sheet).
+On top of it: the [attribute buffs](../commentary/morrowind_runtime.md#attribute-buffs),
+Morrowind's [attribute effects](../commentary/morrowind_runtime.md#attribute-effects),
+the [skill cap](../commentary/morrowind_runtime.md#skill-cap), and one ini switch,
+on by default, whose off reads every attribute as 100
+([sheet off](../commentary/morrowind_runtime.md#sheet-off)). The four kept
+skills are the next step.
 
 ## <a id="decisions"></a>Settled decisions
 
@@ -32,7 +38,9 @@ which is for the multi-game sheet. See
 | Who has stats | The player **and** NPCs. The Morrowind runtime's NPC stats move under the same store |
 | Generic or not | Not generic. This is a mod, so Nehrim tables are fixed data. Converter bugs found on the way stay generic fixes |
 | Leveling | Skyrim's own level-up in the skills menu, then the sheet opens to choose attributes |
-| Health, Magicka, Stamina | Skyrim's flat +10 choice stays. Attributes never feed the pools |
+| Health, Magicka, Stamina | Skyrim's +10 choice stays, scaled by the governing attribute: normal × (0.5 + attribute / 100). The full chart is in [attribute buffs](../commentary/morrowind_runtime.md#attribute-buffs) |
+| On or off | One ini switch, on by default. Off: attributes read 100 (Personality reads Speech), no buffs, no cap. The skill cap has its own key, on by default |
+| Kept skills when off | Read 100, like the attributes (not yet built) |
 | New-game options | Attribute rules (Standard or Strict), plus a Nehrim-only "slowed skill growth" option |
 | Nehrim's journal settings page | Dropped |
 | Enderal's system | Not ported. Kept as a reference (`ScriptsEnderal.zip` in the Enderal SE install) |

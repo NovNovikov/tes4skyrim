@@ -17,11 +17,25 @@ namespace tesruntime::mw {
 // NPC_.txt stores them in. Skyrim's actor value where the stat has one, else
 // the DLL's own number over what the NPC_ record authored. An index outside
 // its family answers 0.
+//
+// The PLAYER's attributes follow the character sheet: 100 while it is off
+// (Personality is Speech), else the base moved by active magic.
+// See: docs/commentary/morrowind_runtime.md#sheet-off
 float ActorSkill(const std::string& actor, int tes3Index);
 float ActorAttribute(const std::string& actor, int tes3Index);
+
+// An attribute before active magic moves it, which a level-up raises.
+float ActorBaseAttribute(const std::string& actor, int tes3Index);
 
 // Writes an attribute through the same store `SetStrength` and its kin write,
 // so every reader above sees it. An index outside 0..7 does nothing.
 void SetActorAttribute(const std::string& actor, int tes3Index, float value);
+
+// MorrowindRuntime.ini's [CharacterSheet] Enabled and SkillCap; both on until
+// set. The cap only ever applies with the sheet on.
+void SetSheetEnabled(bool on);
+bool SheetEnabled();
+void SetSkillCapEnabled(bool on);
+bool SkillCapEnabled();
 
 }  // namespace tesruntime::mw

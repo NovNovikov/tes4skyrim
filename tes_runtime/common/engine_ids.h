@@ -85,6 +85,15 @@ constexpr std::uint64_t kRefTranslateTo = 56237;
 constexpr std::uint64_t kAddEventSink = 35182;
 
 // ---------------------------------------------------------------------------
+// The player
+// ---------------------------------------------------------------------------
+
+// PlayerCharacter's primary vtable (0x18ab9c0 on 1.6.1170, 0x19296c0 on
+// 1.7.104), which TESRuntime's jail and MorrowindRuntime's skill cap both swap
+// slots of.
+constexpr std::uint64_t kPlayerVtable = 208040;
+
+// ---------------------------------------------------------------------------
 // In-mesh sequences (gamebryo_sequence.cpp)
 // ---------------------------------------------------------------------------
 

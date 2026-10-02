@@ -132,6 +132,23 @@ CHAR_COIN_FIRST = 30
 CHAR_CLASS_FIRST = 60
 CHAR_DIALOG_FIELD_FIRST = 200
 
+#: OpenMW's AttributeToolTip in HUD_Box_NoTransp: our width, its 8 px padding and 32 px icon.
+TIP_W = 320
+TIP_PAD = 8
+TIP_ICON = 32
+#: The box's top piece (padding, icon row, spacing) and the description's tallest field.
+TIP_TOP = TIP_PAD + TIP_ICON + TIP_PAD
+TIP_TEXT_H = 200
+
+#: Store<ESM::Attribute>'s icon per attribute, under icons\k, in TES3 order.
+ATTRIBUTE_ICONS = ('attribute_strength', 'attribute_int', 'attribute_wilpower',
+                   'attribute_agility', 'attribute_speed', 'attribute_endurance',
+                   'attribute_personality', 'attribute_luck')
+
+#: Character ids for the tooltip in either movie: the box's three pieces and the icons (three each), then its fields.
+CHAR_TIP_SPRITE_FIRST = 400
+CHAR_TIP_FIELD_FIRST = 480
+
 
 # ---------------------------------------------------------------------------
 # Shared pieces
@@ -227,6 +244,44 @@ def place_all(parts: list, fields: list, depth: int) -> list:
                                     character_id=tag.character_id, name=name)]
         depth += 1
     return tags
+
+
+def tip_sprites(export_root) -> list:
+    """The tooltip box as top, a 1 px middle the plugin stretches, and bottom; then each icon.
+
+    All at the stage origin: the plugin moves every piece beside the pointer.
+    See: docs/commentary/morrowind_runtime.md#attribute-tooltips
+    """
+    box = compose_box(export_root, TIP_W, TIP_TOP + 1 + TIP_PAD, fill=COLOR_BACKGROUND)
+    pieces = [(box.crop((0, 0, TIP_W, TIP_TOP)), 'TipTop', (0, 0, TIP_W, TIP_TOP)),
+              (box.crop((0, TIP_TOP, TIP_W, TIP_TOP + 1)), 'TipMid', (0, 0, TIP_W, 1)),
+              (box.crop((0, TIP_TOP + 1, TIP_W, TIP_TOP + 1 + TIP_PAD)), 'TipBottom',
+               (0, 0, TIP_W, TIP_PAD))]
+    out = [sprite(CHAR_TIP_SPRITE_FIRST + 3 * i, image, name, rect, (0, 0))
+           for i, (image, name, rect) in enumerate(pieces)]
+    for i, icon in enumerate(ATTRIBUTE_ICONS):
+        image = load(export_root, 'k' + chr(92) + icon, ICONS)
+        out.append(sprite(CHAR_TIP_SPRITE_FIRST + 3 * (len(pieces) + i), image,
+                          f'TipIcon{i}', (0, 0, TIP_ICON, TIP_ICON), (0, 0), image.size))
+    return out
+
+
+def tip_name_x() -> int:
+    """Where the name starts, past the icon, inside the box."""
+    return TIP_PAD + TIP_ICON + TIP_PAD
+
+
+def tip_fields() -> list:
+    """The tooltip's name, beside the icon, and its wrapped description, at the origin."""
+    name_w = TIP_W - tip_name_x() - TIP_PAD
+    return [(field(CHAR_TIP_FIELD_FIRST, (0, 0, name_w, TIP_ICON), (0, 0)), 'TipName'),
+            (field(CHAR_TIP_FIELD_FIRST + 1, (0, 0, TIP_W - 2 * TIP_PAD, TIP_TEXT_H),
+                   (0, 0)), 'TipText')]
+
+
+def tip_tags(export_root, depth: int) -> list:
+    """The tooltip above everything else, from `depth` up."""
+    return place_all(tip_sprites(export_root), tip_fields(), depth)
 
 
 def movie(tags: list) -> Swf:
@@ -347,8 +402,10 @@ def stats_window(export_root) -> Swf:
     for row in range(len(BAR_COLORS)):
         tags += cover(CHAR_BAR_COVER_FIRST + 2 * row, f'BarCover{row}',
                       bar_fill_rect(row), origin, 3 + row)
-    tags += place_all(stats_sprites(export_root), stats_fields(),
-                      3 + len(BAR_COLORS))
+    sprites, fields = stats_sprites(export_root), stats_fields()
+    depth = 3 + len(BAR_COLORS)
+    tags += place_all(sprites, fields, depth)
+    tags += tip_tags(export_root, depth + len(sprites) + len(fields))
     return movie(tags)
 
 
@@ -426,7 +483,9 @@ def levelup_dialog(export_root) -> Swf:
     """
     tags = chrome_tags(CHAR_DIALOG_BMP, compose_dialog(export_root),
                        dialog_origin())
-    tags += place_all(dialog_sprites(export_root), dialog_fields(), 2)
+    sprites, fields = dialog_sprites(export_root), dialog_fields()
+    tags += place_all(sprites, fields, 2)
+    tags += tip_tags(export_root, 2 + len(sprites) + len(fields))
     return movie(tags)
 
 
@@ -448,6 +507,7 @@ def stats_lines() -> list:
         lines += rect_lines(f'BarFill{row}', bar_fill_rect(row), origin)
     lines += rect_lines('SkillView', skill_view(), origin)
     lines += rect_lines('SkillScroll', skill_scroll(), origin)
+    lines += rect_lines('AttrRow', row_rect(ATTRIBUTE_BOX, BOX_PAD), origin)
     return lines + [f'constexpr int kCaptionPad = {CAPTION_PAD};',
                     f'constexpr int kRowH = {ROW_H};',
                     f'constexpr int kBarRows = {len(BAR_COLORS)};',
@@ -477,12 +537,24 @@ def dialog_lines() -> list:
                     f'constexpr int kClassImageCount = {len(CLASSES)};']
 
 
+def tip_lines() -> list:
+    """The stage, and the tooltip's geometry inside its box."""
+    return [f'constexpr int kStageW = {STAGE_W};',
+            f'constexpr int kStageH = {STAGE_H};',
+            f'constexpr int kTipW = {TIP_W};',
+            f'constexpr int kTipPad = {TIP_PAD};',
+            f'constexpr int kTipTop = {TIP_TOP};',
+            f'constexpr int kTipNameX = {tip_name_x()};',
+            f'constexpr int kTipNameDy = {text_top(TIP_PAD, TIP_ICON)};',
+            f'constexpr int kTipIcons = {len(ATTRIBUTE_ICONS)};']
+
+
 def layout_header() -> str:
     """The plugin's copy of both layouts, generated so nothing can disagree."""
     lines = ['// GENERATED by tools/generators/gen_morrowind_stats_swf.py.',
              '// Edit the generator, not this file.', '', '#pragma once', '',
              'namespace tesruntime::mw::stats_layout {', '']
-    lines += stats_lines() + [''] + dialog_lines()
+    lines += stats_lines() + [''] + dialog_lines() + [''] + tip_lines()
     lines += ['', '}  // namespace tesruntime::mw::stats_layout', '']
     return '\n'.join(lines)
 

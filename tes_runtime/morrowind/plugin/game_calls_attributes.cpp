@@ -1,0 +1,240 @@
+// Morrowind's attribute effects on every actor, and the character sheet's
+// skill cap.
+//
+// Fortify, Drain, Damage, Restore and Absorb Attribute convert as script-less
+// Script effects, one variant per attribute, so the engine's active-effect
+// list holds each for exactly as long as it lasts. The tick sums them per
+// actor and attribute as OpenMW's MagicEffects does: Fortify adds and Drain
+// takes away while they last; Absorb takes from its target and gives to its
+// caster; Damage lowers the attribute by its magnitude every second, and
+// stays until Restore gives it back at its own rate. The stat reads add the
+// result to the base (Hooks().attributeEffect), so scripts, dialogue,
+// persuasion and the buffs all see it.
+//
+// The cap is Morrowind's trainer rule (sNotifyMessage17), widened: a skill at
+// or above its governing attribute gains nothing from use and cannot be
+// trained. Books and quest rewards still raise it, as in Morrowind.
+// See: docs/commentary/morrowind_runtime.md#attribute-effects
+// See: docs/commentary/morrowind_runtime.md#skill-cap
+
+#include "game_calls_internal.h"
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <map>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <utility>
+
+#include "actor_stats.h"
+#include "engine_ids.h"
+#include "hook.h"
+#include "ids.h"
+#include "leveling.h"
+#include "log.h"
+#include "object_tick.h"
+
+namespace tesruntime::mw {
+namespace gamecalls {
+
+namespace {
+
+constexpr const char* kPlayerId = "player";
+
+// TES3 attribute effect indices.
+constexpr int kDrainAttribute = 17;
+constexpr int kDamageAttribute = 22;
+constexpr int kRestoreAttribute = 74;
+constexpr int kFortifyAttribute = 79;
+constexpr int kAbsorbAttribute = 85;
+
+// Damage accrued on an actor's attributes is kept under this prefix and its
+// TES3 id, in the dialogue state so it rides the co-save: Morrowind keeps a
+// damaged attribute damaged across a save.
+constexpr const char* kDamageOwner = "attrdamage|";
+
+using Attributes = std::array<float, kAttributeCount>;
+
+// What active magic does to each actor's attributes now, by lowercase TES3
+// id, rebuilt by every tick.
+std::unordered_map<std::string, Attributes> g_effects;
+
+// The NPCs an attribute effect landed on, by runtime FormID, until none is
+// left on them; the player is always summed.
+std::set<std::uint32_t> g_watched;
+
+// Each Absorb by (target FormID, attribute) -> its caster's FormID. The
+// active effect carries no caster we read, so the latest cast pays.
+std::map<std::pair<std::uint32_t, int>, std::uint32_t> g_absorbs;
+
+using AdvanceSkillFn = void (*)(void* player, std::uint32_t skill, float points,
+                                void* form, std::uint32_t unk);
+using TrainFn = void (*)(void* menu);
+
+AdvanceSkillFn g_advanceSkill = nullptr;
+TrainFn g_train = nullptr;
+
+std::string DamageKey(int attribute) { return "a" + std::to_string(attribute); }
+
+// Per attribute: what Fortify adds, what Drain and Absorb take, and Damage
+// less Restore, a rate per second.
+struct Sums {
+    float add[kAttributeCount] = {};
+    float take[kAttributeCount] = {};
+    float damage[kAttributeCount] = {};
+};
+
+void Sum(Sums& sums, const RuntimeEffect& row, float magnitude) {
+    const int a = row.attribute;
+    if (a < 0 || a >= kAttributeCount) return;
+    if (row.index == kFortifyAttribute) sums.add[a] += magnitude;
+    if (row.index == kDrainAttribute || row.index == kAbsorbAttribute) sums.take[a] += magnitude;
+    if (row.index == kDamageAttribute) sums.damage[a] += magnitude;
+    if (row.index == kRestoreAttribute) sums.damage[a] -= magnitude;
+}
+
+// The damage an attribute carries after this tick: never below 0, never more
+// than the base it damages.
+float AccrueDamage(const std::string& actor, int attribute, float perSecond) {
+    const std::string owner = kDamageOwner + actor;
+    const float was = State().Var(owner, DamageKey(attribute));
+    const float most = ActorBaseAttribute(actor, attribute);
+    const float now = std::clamp(was + perSecond * TickDelta(), 0.0f, std::max(0.0f, most));
+    if (now != was) State().SetVar(owner, DamageKey(attribute), now);
+    return now;
+}
+
+// The TES3 id the stat store keeps an actor under: "player", or its base
+// NPC_'s id; "" for an actor no Morrowind record made.
+std::string ActorKey(void* ref) {
+    if (!IsActorRef(ref)) return std::string();
+    if (ref == PlayerRef()) return kPlayerId;
+    const char* id = SpeakerId(FormIdOf(At<void*>(ref, ids::kOffRefBase)));
+    return id ? Lower(id) : std::string();
+}
+
+// Sums one actor's attribute effects into g_effects; true while any is
+// active or any damage is left.
+bool TickActor(void* ref, const std::string& actor) {
+    Sums sums;
+    ForEachActiveEffect(ref, [&sums](const RuntimeEffect& row, float magnitude) {
+        Sum(sums, row, magnitude);
+    });
+    Attributes& out = g_effects[actor];
+    bool live = false;
+    for (int a = 0; a < kAttributeCount; ++a) {
+        const float damaged = AccrueDamage(actor, a, sums.damage[a]);
+        out[a] += sums.add[a] - sums.take[a] - damaged;
+        live = live || sums.add[a] || sums.take[a] || sums.damage[a] || damaged > 0.0f;
+    }
+    return live;
+}
+
+// Each Absorb still on its target gives its magnitude to its caster.
+void PayAbsorbs() {
+    for (auto it = g_absorbs.begin(); it != g_absorbs.end();) {
+        void* target = RefByRuntimeId(it->first.first);
+        const float magnitude =
+            target ? ActiveMagnitude(target, kAbsorbAttribute, it->first.second) : 0.0f;
+        const std::string caster = ActorKey(RefByRuntimeId(it->second));
+        if (magnitude <= 0.0f || caster.empty()) {
+            it = g_absorbs.erase(it);
+            continue;
+        }
+        g_effects[caster][it->first.second] += magnitude;
+        ++it;
+    }
+}
+
+float AttributeEffect(const std::string& actor, int tes3Index) {
+    const auto found = g_effects.find(Lower(actor));
+    if (found == g_effects.end() || tes3Index < 0 || tes3Index >= kAttributeCount) {
+        return 0.0f;
+    }
+    return found->second[tes3Index];
+}
+
+// Whether the player's skill (Skyrim actor value 6..23) is at or past its
+// governing attribute, as magic leaves it -- OpenMW checks getModified.
+bool Capped(std::uint32_t skill) {
+    if (!SkillCapEnabled() || !Hooks().baseActorValue) return false;
+    const int attribute = GoverningAttribute(static_cast<int>(skill));
+    const char* name = SkillName(static_cast<int>(skill));
+    if (attribute < 0 || !name) return false;
+    return Hooks().baseActorValue(kPlayerId, name) >= ActorAttribute(kPlayerId, attribute);
+}
+
+void AdvanceSkillHook(void* player, std::uint32_t skill, float points, void* form,
+                      std::uint32_t unk) {
+    if (Capped(skill)) return;
+    g_advanceSkill(player, skill, points, form, unk);
+}
+
+// Refused before the trainer takes any gold, with Morrowind's own line.
+void TrainHook(void* menu) {
+    const std::uint32_t skill = At<std::uint32_t>(menu, ids::kOffTrainingMenuSkill);
+    if (Capped(skill)) {
+        Notify(GmstText("sNotifyMessage17",
+                        "You cannot train a skill above its governing attribute."));
+        return;
+    }
+    g_train(menu);
+}
+
+void InstallSkillCap() {
+    g_advanceSkill = reinterpret_cast<AdvanceSkillFn>(SwapVtableSlot(
+        "PlayerCharacter::AdvanceSkill",
+        Resolve("PlayerCharacter vtable", tesruntime::ids::kPlayerVtable, nullptr),
+        ids::kAdvanceSkillSlot,
+        Resolve("PlayerCharacter::AdvanceSkill", ids::kPlayerAdvanceSkill, nullptr),
+        reinterpret_cast<void*>(&AdvanceSkillHook)));
+    const std::uintptr_t caller =
+        Resolve("TrainingMenu train caller", ids::kTrainingMenuTrainCaller, nullptr);
+    const std::uintptr_t train = Resolve("TrainingMenu train", ids::kTrainingMenuTrain, nullptr);
+    const std::uintptr_t site =
+        caller && train ? FindCallTo(caller, ids::kTrainingCallerScan, train) : 0;
+    if (site && PatchCall(site, reinterpret_cast<void*>(&TrainHook), "TrainingMenu train")) {
+        g_train = reinterpret_cast<TrainFn>(train);
+    }
+    Log("attributes: skill cap on use %s, on trainers %s",
+        g_advanceSkill ? "hooked" : "NOT hooked", g_train ? "hooked" : "NOT hooked");
+}
+
+}  // namespace
+
+// The player every tick, since a save can carry an effect the apply sink never
+// saw; every other actor until nothing is left on it. One whose reference is
+// not loaded keeps its place and its damage.
+void TickAttributeEffects(void* player) {
+    g_effects.clear();
+    if (!player || !SheetEnabled()) return;
+    TickActor(player, kPlayerId);
+    for (auto it = g_watched.begin(); it != g_watched.end();) {
+        void* ref = RefByRuntimeId(*it);
+        const std::string actor = ActorKey(ref);
+        if (!actor.empty() && !TickActor(ref, actor)) {
+            it = g_watched.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    PayAbsorbs();
+}
+
+void WatchAttributes(std::uint32_t actorId, std::uint32_t casterId, const RuntimeEffect& row) {
+    if (!actorId) return;
+    if (!PlayerRef() || actorId != FormIdOf(PlayerRef())) g_watched.insert(actorId);
+    if (row.index == kAbsorbAttribute && casterId && casterId != actorId) {
+        g_absorbs[{actorId, row.attribute}] = casterId;
+    }
+}
+
+void InstallAttributeCalls(GameHooks& hooks) {
+    hooks.attributeEffect = AttributeEffect;
+    InstallSkillCap();
+}
+
+}  // namespace gamecalls
+}  // namespace tesruntime::mw

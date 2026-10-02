@@ -121,13 +121,14 @@ def test_packaging_adds_every_composed_menu(tmp_path, monkeypatch):
             assert arc.as_posix() in names and zf.read(arc.as_posix()) == data
 
 
-def test_the_character_sheet_ships_turned_off(tmp_path):
-    """TESRuntime.zip carries MorrowindRuntime.ini, the character sheet off and on K."""
+def test_the_character_sheet_ships_turned_on(tmp_path):
+    """TESRuntime.zip carries MorrowindRuntime.ini: the sheet and its skill cap on, on K."""
     arc = 'SKSE/Plugins/MorrowindRuntime/MorrowindRuntime.ini'
     assert arc in _packaged(tmp_path)
     with zipfile.ZipFile(tmp_path / 'Finished Mods' / 'TESRuntime.zip') as zf:
         lines = zf.read(arc).decode('ascii').splitlines()
-    assert '[CharacterSheet]' in lines and 'Enabled=0' in lines and 'Hotkey=75' in lines
+    assert '[CharacterSheet]' in lines and 'Hotkey=75' in lines
+    assert 'Enabled=1' in lines and 'SkillCap=1' in lines
 
 
 def test_stats_layout_header_is_the_generators():

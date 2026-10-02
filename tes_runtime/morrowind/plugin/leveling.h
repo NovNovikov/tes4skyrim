@@ -41,9 +41,17 @@ int SpecializationIncreases(int specialization);
 // increases (at most 10), 1 with none, and never past 100.
 int AttributeGain(int attribute);
 
-// Takes one step: each chosen attribute rises by its gain, the credits reset,
-// and one pending level-up is used.
+// Takes one step: each chosen BASE attribute rises by its gain (a Fortify is
+// never counted, as in Morrowind), the pools picked since the last step earn
+// their bonus, the credits reset, and one pending level-up is used.
 void CompleteLevelUp(const std::vector<int>& attributes);
+
+// The TES3 attribute governing a Skyrim skill by actor value index (6..23),
+// through the same namesake skill the credits use; -1 for anything else.
+int GoverningAttribute(int skyrimSkill);
+
+// That skill's actor value name ("OneHanded"), or null.
+const char* SkillName(int skyrimSkill);
 
 // Forgets the race the last read saw, so a case starts from a first read.
 void ResetLevelingForTest();

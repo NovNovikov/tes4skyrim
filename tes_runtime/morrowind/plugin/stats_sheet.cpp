@@ -9,6 +9,8 @@
 
 #include "activation.h"
 #include "actor_stats.h"
+#include "attribute_buffs.h"
+#include "attribute_tip.h"
 #include "conversation.h"
 #include "dialogue_state.h"
 #include "leveling.h"
@@ -30,14 +32,15 @@ namespace {
 
 namespace sl = stats_layout;
 
-// MorrowindRuntime.ini's [CharacterSheet]: the windows stay off unless
-// Enabled=1, and Hotkey is a virtual-key code in decimal. K by default: bound
+// MorrowindRuntime.ini's [CharacterSheet]: Enabled and SkillCap are on unless
+// set to 0, and Hotkey is a virtual-key code in decimal. K by default: bound
 // to nothing in Skyrim's own controlmap.txt (every letter it leaves free is
 // G, H, K, U, Y, B and N).
 // See: docs/commentary/morrowind_runtime.md#character-sheet
 constexpr const char* kIniName = "MorrowindRuntime.ini";
 constexpr const char* kIniSection = "CharacterSheet";
 constexpr int kDefaultHotkey = 'K';
+constexpr int kDefaultOn = 1;
 int g_hotkey = kDefaultHotkey;
 
 // The tick's period, and how many ticks pass between reads of the skills.
@@ -54,13 +57,8 @@ constexpr const char* kDynamicValues[] = {"Health", "Magicka", "Stamina"};
 constexpr const char* kDynamicGmst[][2] = {
     {"sHealth", "Health"}, {"sMagic", "Magicka"}, {"sFatigue", "Fatigue"}};
 
-// The eight attributes and 27 skills by TES3 index: GMST name, and the text
-// Morrowind.esm gives it, for a chain that stages none.
-constexpr const char* kAttributeGmst[][2] = {
-    {"sAttributeStrength", "Strength"}, {"sAttributeIntelligence", "Intelligence"},
-    {"sAttributeWillpower", "Willpower"}, {"sAttributeAgility", "Agility"},
-    {"sAttributeSpeed", "Speed"}, {"sAttributeEndurance", "Endurance"},
-    {"sAttributePersonality", "Personality"}, {"sAttributeLuck", "Luck"}};
+// The 27 skills by TES3 index: GMST name, and the text Morrowind.esm gives
+// it, for a chain that stages none.
 constexpr const char* kSkillGmst[][2] = {
     {"sSkillBlock", "Block"}, {"sSkillArmorer", "Armorer"},
     {"sSkillMediumarmor", "Medium Armor"}, {"sSkillHeavyarmor", "Heavy Armor"},
@@ -111,6 +109,20 @@ ThumbDrag g_drag;
 CustomMenu& Menu() {
     static CustomMenu menu("MorrowindStatsMenu", "morrowind_stats");
     return menu;
+}
+
+AttributeTip& Tip() {
+    static AttributeTip tip(Menu());
+    return tip;
+}
+
+// The attribute whose row is under the point, or -1.
+int AttributeAt(double x, double y) {
+    for (int i = 0; i < sl::kAttributeRows; ++i) {
+        const Rect row{sl::kAttrRowX, sl::kAttrRowY + i * sl::kRowH, sl::kAttrRowW, sl::kRowH};
+        if (row.Contains(x, y)) return i;
+    }
+    return -1;
 }
 
 std::string Path(const std::string& name, const char* property) {
@@ -167,7 +179,7 @@ void PushInfo() {
 
 void PushAttributes() {
     for (int i = 0; i < sl::kAttributeRows; ++i) {
-        SetText(Indexed("AttrName", i, ".text"), Gmst(kAttributeGmst[i]));
+        SetText(Indexed("AttrName", i, ".text"), AttributeName(i));
         SetText(Indexed("AttrValue", i, ".text"),
                 std::to_string(static_cast<int>(ActorAttribute(kPlayer, i))));
     }
@@ -254,6 +266,7 @@ void PushCaption() {
 }
 
 void PushAll() {
+    Tip().Hide();
     SetText("_root.Title.text", PlayerName());
     g_captionDirty = true;
     for (int row = 0; row < sl::kBarRows; ++row) PushBar(row);
@@ -280,7 +293,8 @@ void OnClick(double x, double y) {
     Scroll(sl::kRowH * ScrollClick(kSkillScroll, y, fraction, page));
 }
 
-void OnHover(double, double y) {
+void OnHover(double x, double y) {
+    Tip().Hover(g_drag.Active() ? -1 : AttributeAt(x, y), x, y);
     if (!g_drag.Active()) return;
     const int to = static_cast<int>(std::lround(g_drag.Fraction(y) * ListRange()));
     if (to != g_scroll) Scroll(to - g_scroll);
@@ -294,6 +308,7 @@ void OnWheel(double x, double y, double delta) {
 
 void OnTick() {
     if (g_captionDirty) PushCaption();
+    Tip().Tick();
 }
 
 // ------------------------------------------------------------- the tick
@@ -314,24 +329,31 @@ bool InGameplay() {
            Hooks().gamePaused && !Hooks().gamePaused() && !ConversationOpen();
 }
 
-// K toggles the window; out in the world the skills are read now and then,
-// and a pending level-up opens its step before anything else.
+// Now and then out in the world: the skills and level are read, and the buffs
+// held where the attributes put them -- or handed back with the sheet off.
+// True when a level-up step is waiting.
+bool Sample() {
+    if (--g_untilSample > 0) return false;
+    g_untilSample = kSampleEvery;
+    if (SheetEnabled()) SampleLeveling();
+    HoldAttributeBuffs();
+    return SheetEnabled() && PendingLevelUps() > 0;
+}
+
+// K toggles the window; a pending level-up opens its step before anything
+// else.
 void Tick() {
     const bool down = HotkeyDown();
-    const bool pressed = down && !g_keyWasDown;
+    const bool pressed = down && !g_keyWasDown && SheetEnabled();
     g_keyWasDown = down;
     if (Menu().IsOpen()) {
         if (pressed) Menu().Close();
         return;
     }
     if (LevelUpOpen() || !InGameplay()) return;
-    if (--g_untilSample <= 0) {
-        g_untilSample = kSampleEvery;
-        SampleLeveling();
-        if (PendingLevelUps() > 0) {
-            OpenLevelUp();
-            return;
-        }
+    if (Sample()) {
+        OpenLevelUp();
+        return;
     }
     if (pressed) {
         PushAll();
@@ -347,8 +369,13 @@ int IniInt(const char* key, int fallback) {
 }  // namespace
 
 void InstallCharacterSheet() {
-    if (IniInt("Enabled", 0) == 0) {
-        Log("sheet: off (%s [%s] Enabled=1 turns it on)", kIniName, kIniSection);
+    SetSheetEnabled(IniInt("Enabled", kDefaultOn) != 0);
+    SetSkillCapEnabled(IniInt("SkillCap", kDefaultOn) != 0);
+    if (!SheetEnabled()) {
+        // Still ticking: a save made with the sheet on holds buffs to hand back.
+        const bool ticking = CanPostToMainThread() && StartTick(PostToMainThread, kTickMs, Tick);
+        Log("sheet: off (%s [%s] Enabled=0); attributes read 100, buffs %s", kIniName,
+            kIniSection, ticking ? "released" : "NOT released");
         return;
     }
     g_hotkey = IniInt("Hotkey", kDefaultHotkey);
@@ -366,8 +393,9 @@ void InstallCharacterSheet() {
     Menu().SetInput(input);
     const bool ticking = stats && levelUp && CanPostToMainThread() &&
                          StartTick(PostToMainThread, kTickMs, Tick);
-    Log("sheet: stats window %s, level-up %s, hotkey %d %s", stats ? "ok" : "FAILED",
-        levelUp ? "ok" : "FAILED", g_hotkey, ticking ? "watching" : "NOT watching");
+    Log("sheet: stats window %s, level-up %s, hotkey %d %s, skill cap %s",
+        stats ? "ok" : "FAILED", levelUp ? "ok" : "FAILED", g_hotkey,
+        ticking ? "watching" : "NOT watching", SkillCapEnabled() ? "on" : "off");
 }
 
 bool StatsSheetOpen() { return Menu().IsOpen(); }

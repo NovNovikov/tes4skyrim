@@ -50,7 +50,7 @@ LayeredTable<FormRef> g_bases;
 LayeredTable<FormRef> g_cells;
 LayeredTable<TeleportMarker> g_markers{false};
 LayeredTable<CellAnchor> g_anchors{false};
-LayeredTable<int> g_teleports{false};
+LayeredTable<RuntimeEffect> g_teleports{false};
 LayeredTable<FormRef> g_worldParents{false};
 
 // Each plugin's AI package quest, its aliases by name -> ALST index, and its
@@ -312,6 +312,15 @@ std::vector<TravelDest> ParseTravel(const std::string& value) {
 
 float Number(const std::string& text) {
     return static_cast<float>(std::atof(text.c_str()));
+}
+
+// `index` or `index:attribute`.
+RuntimeEffect ParseRuntimeEffect(const std::string& value) {
+    RuntimeEffect out;
+    out.index = std::atoi(value.c_str());
+    const std::size_t colon = value.find(':');
+    if (colon != std::string::npos) out.attribute = std::atoi(value.c_str() + colon + 1);
+    return out;
 }
 
 // `kind|Plugin|place|x|y|z|zRot`; a short row keeps nothing, as a marker with
@@ -594,8 +603,8 @@ void LoadRecordRows(int layer, const std::string& pluginDir) {
                    g_anchors.Add(layer, Lower(cell), ParseAnchor(cell, value));
                });
     ForEachRow(pluginDir + kFileTeleports,
-               [layer](const std::string& effect, const std::string& index) {
-                   g_teleports.Add(layer, effect, std::atoi(index.c_str()));
+               [layer](const std::string& effect, const std::string& value) {
+                   g_teleports.Add(layer, effect, ParseRuntimeEffect(value));
                });
     ForEachRow(pluginDir + kFileWorlds,
                [layer](const std::string& child, const std::string& parent) {
@@ -866,10 +875,12 @@ void ForEachCellAnchor(const std::function<void(const CellAnchor&)>& fn) {
         [&fn](const std::string&, const CellAnchor& row, int) { fn(row); });
 }
 
-void ForEachTeleportEffect(const std::function<void(const FormRef&, int)>& fn) {
-    g_teleports.ForEachRow([&fn](const std::string& effect, int index, int) {
-        fn(ParseFormRef(effect), index);
-    });
+void ForEachTeleportEffect(
+    const std::function<void(const FormRef&, const RuntimeEffect&)>& fn) {
+    g_teleports.ForEachRow(
+        [&fn](const std::string& effect, const RuntimeEffect& row, int) {
+            fn(ParseFormRef(effect), row);
+        });
 }
 
 void ForEachWorldParent(

@@ -22,9 +22,10 @@ from .magic import (
     O_CASTING_TYPE, O_COUNTER_COUNT, O_EXPLOSION, O_HIT_EFFECT_ART, O_HIT_SHADER,
     build_data, code_to_fid, effect_keywords,
     fit_delivery, get_archetype, is_derived, known_sigs, menu_display_object,
-    mgef_parts, mgef_tail, resolve_actor_value, source_record)
+    mgef_parts, mgef_tail, morrowind_index, resolve_actor_value, source_record)
 from .common import pack_keywords
 from .magic_art import explosion, master_signature, projectile, sound_set
+from .magic_morrowind import mw_attribute_variant
 
 #: {output MGEF FormID: (EditorID, subrecords before DATA, DATA, subrecords after)} of every emitted MGEF.
 _parts: dict = {}
@@ -285,9 +286,10 @@ def build_av_variants(mgef_records: list, effect_records: list, writer) -> int:
         src = by_code[code]
         tes5_av = resolve_actor_value(code, av, src)
         name = _ATTR_NAMES.get(av) or _SKILL_NAMES.get(av)
-        if tes5_av == AV_NONE or not name:
+        runtime = mw_attribute_variant(morrowind_index(src), av)
+        if (tes5_av == AV_NONE and not runtime) or not name:
             continue
-        edid = f'TES4{code}{name}'
+        edid = av_variant_editor_id(code, av)
         fid = generated_formid(writer, 'MGEF', edid, 'MGEF_AV', (code, av))
         full = get_str(src, 'FULL')
         head = pack_string_subrecord('FULL', _variant_name(full, name)) if full else b''
@@ -298,6 +300,11 @@ def build_av_variants(mgef_records: list, effect_records: list, writer) -> int:
         _av_variants[(code, av)] = fid
         written += 1
     return written
+
+
+def av_variant_editor_id(code: str, effect_av: int) -> str:
+    """`code`'s variant EditorID for one TES4 attribute or skill: TES4DGATStrength."""
+    return f'TES4{code}{_ATTR_NAMES.get(effect_av) or _SKILL_NAMES.get(effect_av)}'
 
 
 def _variant_name(base_full: str, stat_name: str) -> str:
