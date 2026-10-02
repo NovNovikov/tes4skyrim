@@ -455,7 +455,7 @@ def play_group(ctx, call) -> str:
         sig = ctx.xref.get_base_signature(call.ref) if ctx.xref else ''
         is_actor = sig in ('NPC_', 'CREA', 'ACHR', 'ACRE') if sig else True
     else:
-        is_actor = call.extends == 'Actor'
+        is_actor = call.extends in ('Actor', 'ActiveMagicEffect', 'TopicInfo')
 
     if is_actor:
         # SendAnimationEvent takes an ObjectReference, and TES4 aims PlayGroup
@@ -784,6 +784,14 @@ def is_spell_target(ctx, call) -> str:
         return ctx.note(f'{call.written()} (spell has no convertible effect)',
                         value='False')
     return _effect_family_test(ctx, call, code)
+
+
+@command('isplayable', 'isplayable2')
+def is_playable(ctx, call) -> str:
+    """OBSE IsPlayable [object]: the argument's playable flag, else the receiver's."""
+    target = (call.arg(0) if len(call)
+              else ctx._resolve_objref_ref(call.ref, call.extends))
+    return f'TES4Polyfill.IsPlayable({target})'
 
 
 @command('hasmagiceffect')

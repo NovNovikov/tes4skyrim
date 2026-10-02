@@ -191,6 +191,7 @@ PAPYRUS_BOOL_FUNCTIONS = {
     'issprinting', 'isonmount', 'isalerted', 'isequipped', 'ismounted',
     'istrespassing', 'isavrecoverydisabled', 'isfurnitureinuse',
     'isflightblocked', 'isinterior', 'islocked',
+    'isactor', 'isactorsaioff', 'isplayable', 'isplayable2',
     'getdead', 'getdisabled', 'getlocked', 'getghost', 'getisalerted',
     'getincombat', 'getnobleedoutrecovery', 'getisplayablerace',
     'getcurrentweatherpercent', 'getiscurrentpackage',
