@@ -305,6 +305,8 @@ def _text_payloads(source_path: str, records: list):
                 if taken >= 4000 or size >= 65536:
                     break
                 taken += 1
+                if rec.offset < 0:
+                    continue
                 if rec.flags & FLAG_COMPRESSED or rec.data_size <= 0:
                     continue
                 start = rec.offset + hdr_size
