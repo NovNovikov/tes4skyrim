@@ -5792,3 +5792,27 @@ class TestGameModeStepsAreRates:
         body = body[:body.index('EndFunction')]
         assert 'akRef.SendModEvent("TES4Track", aiAxis as String, afValue)' in body
         assert '!(akRef as Actor)' in body
+
+
+def test_phase_compile_empty_scripts_is_success(tmp_path, monkeypatch):
+    """A plugin owning zero scripts passes the compile step.
+
+    Dependent plugins share their master's scripts/source dir, so their own
+    list filters down to nothing; failing the step then fails every
+    scriptless plugin's pipeline for no reason.
+    """
+    import papyrus_compile
+
+    out = tmp_path / "scripts"
+    out.mkdir()
+
+    class _EmptyRun:
+        psc_files = []
+        script_out = out
+
+        def run_batches(self):
+            return set(), False
+
+    monkeypatch.setattr(papyrus_compile, "_prepare",
+                        lambda *a, **k: (_EmptyRun(), None))
+    assert papyrus_compile.phase_compile("Dev1Patch.esp", {}, str(tmp_path))
