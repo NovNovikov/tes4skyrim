@@ -72,6 +72,8 @@
 - [Command families matched by PREFIX](#command-prefix-families)
 - [FO3/FNV commands that reach the compiler unrouted](#fnv-unrouted-commands)
 - [An unmapped AV command silently became a READ](#unmapped-av-command-became-a-read)
+- [FO3/FNV actor-value names](#fallout-actor-value-names)
+- [A negative comparand is still a number](#negative-comparand)
 - [A digit-leading member name swallowed its dot](#digit-leading-member-names)
 - [`Kill` takes only the killer](#kill-takes-only-the-killer)
 - [An inert read must never FIRE a guard](#an-inert-read-must-never-fire)
@@ -4195,6 +4197,54 @@ not the skill itself). Every other entry already agreed with its row, so no
 TES4 call site moves. `Actor.psc` declares both natives with exactly the TES4
 argument shape: `RestoreActorValue(string, float)`, `DamageActorValue(string,
 float)`.
+
+### <a id="fallout-actor-value-names"></a>FO3/FNV actor-value names
+
+**Code:** `constants_falloutnv.py` `FALLOUT_ATTRIBUTES`, `FALLOUT_ACTOR_VALUE_MAP`,
+`FALLOUT_UNMAPPED_ACTOR_VALUES`; merged in `constants.py` (`PRIMARY_STATS`,
+`AV_ARGUMENT_NAMES`, `SPLIT_SKILLS`); applied in `commands.py` `actor_value`.
+
+Scripts name actor values by string, and the AV argument went through
+Oblivion's `ACTOR_VALUE_MAP` only, so a Fallout name missing from it reached
+Skyrim unchanged: an unknown name reads 0 and its write is rejected
+([above](#skyrim-has-no-attributes)). The script side now follows the
+condition side's table ([conditions](tes5_import_conditions.md#fallout-actor-values)),
+so a value reads the same in a script and in a dialogue condition:
+
+| Fallout name | Now |
+|---|---|
+| Barter, Speech | `Speechcraft` |
+| Lockpick, Repair, Medicine | `Lockpicking`, `Smithing`, `Restoration` |
+| Guns, Small Guns, Big Guns, Energy Weapons | `Marksman` |
+| Melee Weapons | `OneHanded`; a current read takes the higher of One- and Two-Handed, as Blade and Blunt do |
+| Unarmed | `OneHanded` |
+| Perception, Charisma | `100.0`, write dropped, like the five S.P.E.C.I.A.L. stats that share a name with a TES4 attribute |
+| Karma, XP, Action Points, Explosives, Science, Survival, the rads, Rad/Energy/EMP resist, Turbo, Bloody Mess, Damage Threshold, the hardcore needs | inert read (`note`), write dropped |
+
+An inert read folds a comparison to `false`, or drops out of its `&&`/`||`
+chain ([comparing an inert operand](#comparing-an-inert-operand)), so no karma
+or skill check is decided by a 0 nobody authored.
+
+The renames apply to the actor-value argument only, never to a bare name
+(`resolve_name` still uses `ACTOR_VALUE_MAP`): `lockpick` is also Fallout's
+bobby-pin item, and `GetItemCount lockpick` must keep it. Names Skyrim already
+has pass through: the limb conditions, `Variable01`-`10`, `DamageResist`.
+
+Census of the names FalloutNV.esm's records pass to AV commands, among those
+that used to reach Skyrim unchanged: Repair 49, Medicine 43, Science 29,
+Explosives 26, Perception 23, Guns 9, RadiationRads 9, Melee Weapons 8,
+Charisma 6, Energy Weapons 6, Lockpick 5, Speech 5, Karma 4, Unarmed 4,
+Barter 3.
+
+### <a id="negative-comparand"></a>A negative comparand is still a number
+
+**Code:** `emit/expr.py` `_numeric_cmp`, `_is_number`.
+
+`-250` parses as unary minus over the literal `250`, so `_numeric_cmp` did not
+treat it as a number and the comparison took the plain path. An inert read
+compared against it stayed a decided `0 >= -250`, where against `250` it folds
+to `false` (measured: `GetPCMiscStat 99 >= -250`). A negated literal now takes
+the same path as any other number; this applies to every source game.
 
 ### A digit-leading member name swallowed its dot
 <a id="digit-leading-member-names"></a>
