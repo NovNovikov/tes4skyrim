@@ -4,6 +4,7 @@ import hashlib
 import re
 
 from asset_convert.game_paths import current_namespace
+from script_convert.constants_falloutnv import FALLOUT_ACTOR_VALUE_MAP, FALLOUT_ATTRIBUTES
 
 # ===========================================================================
 # Constants
@@ -35,7 +36,7 @@ TES4_MISC_STAT_NAMES = (
 )
 
 #: TES4 skills Skyrim split in two; a read takes the higher. See: docs/plans/character_sheet.md#bug-blade-blunt
-SPLIT_SKILLS = {'blade': ('OneHanded', 'TwoHanded'), 'blunt': ('OneHanded', 'TwoHanded')}
+SPLIT_SKILLS = {name: ('OneHanded', 'TwoHanded') for name in ('blade', 'blunt', 'meleeweapons')}
 
 #: Misc stats Oblivion content writes; its engine keeps the rest. See: docs/commentary/script_convert.md#pc-misc-stat-names
 TES4_SCRIPT_OWNED_MISC_STATS = frozenset({14, 15, 16, 19, 27})
@@ -158,6 +159,12 @@ ACTOR_VALUE_MAP = {
     'responsibility': 'Morality',
 }
 
+#: Primary stats Skyrim lacks, TES4's and FO3/FNV's: a read passes any threshold, a write drops.
+PRIMARY_STATS = TES4_ATTRIBUTES | FALLOUT_ATTRIBUTES
+
+#: Actor-value command argument -> Skyrim's name; FO3/FNV's renames apply to this argument only.
+AV_ARGUMENT_NAMES = {**ACTOR_VALUE_MAP, **FALLOUT_ACTOR_VALUE_MAP}
+
 
 # TES4 global variables that exist in Skyrim — these need GlobalVariable property access
 KNOWN_GLOBALS = {
@@ -191,6 +198,7 @@ PAPYRUS_BOOL_FUNCTIONS = {
     'issprinting', 'isonmount', 'isalerted', 'isequipped', 'ismounted',
     'istrespassing', 'isavrecoverydisabled', 'isfurnitureinuse',
     'isflightblocked', 'isinterior', 'islocked',
+    'isactor', 'isactorsaioff', 'isplayable', 'isplayable2',
     'getdead', 'getdisabled', 'getlocked', 'getghost', 'getisalerted',
     'getincombat', 'getnobleedoutrecovery', 'getisplayablerace',
     'getcurrentweatherpercent', 'getiscurrentpackage',

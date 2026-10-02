@@ -517,7 +517,8 @@ def _bool_literal_cmp(conv, left, right, op: str, extends: str,
             return 'false'
         del conv._line_comments[mark:]
         return inert
-    if right.text.strip() not in ('0', '1') or not _is_bool_valued(conv, left):
+    if (not isinstance(right, N.Literal) or right.text.strip() not in ('0', '1')
+            or not _is_bool_valued(conv, left)):
         return f'{inner} {op} {emit(conv, right, extends)}'
     if (op == '==') == (right.text.strip() == '1'):
         return inner
@@ -585,8 +586,16 @@ def _binop(conv, node: N.BinOp, extends: str) -> str:
     numeric = _numeric_cmp(conv, left, right, op, extends)
     if numeric is not None:
         return numeric
-    return (f'{_operand(conv, left, node, extends)} {op} '
-            f'{_operand(conv, right, node, extends, right=True)}')
+    return _plain_binop(conv, left, right, op, node, extends)
+
+
+def _plain_binop(conv, left, right, op: str, node: N.BinOp, extends: str) -> str:
+    """`left op right`; two Bool operands of arithmetic are cast, as Papyrus rejects `Bool + Bool`."""
+    lhs = _operand(conv, left, node, extends)
+    rhs = _operand(conv, right, node, extends, right=True)
+    if op in _ARITH and _is_bool_valued(conv, left) and _is_bool_valued(conv, right):
+        return f'({lhs} as Int) {op} ({rhs} as Int)'
+    return f'{lhs} {op} {rhs}'
 
 
 #: `a op b` reversed, so a literal-first comparison folds on the same path.
@@ -604,13 +613,23 @@ def _numeric_cmp(conv, left, right, op: str, extends: str):
     if op not in _MIRROR_OP:
         return None
     chain = bool(_CHAIN_DEPTH[0])
-    if isinstance(right, N.Literal) and not right.is_string:
+    if _is_number(right):
         return _bool_literal_cmp(conv, left, right, op, extends,
                                  in_chain=chain)
-    if isinstance(left, N.Literal) and not left.is_string:
+    if _is_number(left):
         return _bool_literal_cmp(conv, right, left, _MIRROR_OP[op], extends,
                                  in_chain=chain)
     return None
+
+
+def _is_number(node) -> bool:
+    """A numeric literal, negated or not: `-250` parses as unary minus over `250`.
+
+    See: docs/commentary/script_convert.md#negative-comparand
+    """
+    if isinstance(node, N.Unary) and node.op == '-':
+        node = node.operand
+    return isinstance(node, N.Literal) and not node.is_string
 
 
 def _logical(conv, left, right, op: str, node, extends: str) -> str:

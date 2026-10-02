@@ -13,6 +13,8 @@ Parameter remapping and the crash rule are in
 
 - [Actor-value indices diverge from the BOOK skill table](#actor-value-vs-book-skill-table)
 - [Fallout actor values use Fallout's own table](#fallout-actor-values)
+- [Short Fallout CTDAs: the source decides, not the length](#fallout-short-ctda)
+- [Which functions carry an actor value](#av-param-funcs)
 - [Chargen-identity conditions become menu-choice globals](#chargen-identity-to-menu-globals)
 - [Speak-as topics drop the actor-interrogating conditions](#non-actor-speaker-drop)
 - [GetInCell names a prefix family, not a cell](#getincell-prefix-family)
@@ -319,8 +321,8 @@ table: `tes5_import/generated/ctda_fnv_remap.py` from
 
 FO3/FNV write TES4's 20 shared bytes, then an explicit **Run On** u32 and a
 **Reference** u32 where TES4 has 4 unused bytes (xEdit `wbDefinitionsFNV.pas`
-`wbConditions`). The length is the format signal: a 28-byte raw is Fallout, a
-24-byte raw is TES4, so no per-game switch is needed.
+`wbConditions`). A 28-byte raw is always Fallout, but a shorter one is not
+always TES4: see [short Fallout CTDAs](#fallout-short-ctda).
 
 Census over FalloutNV.esm's 59,664 INFO conditions: Run On 0 (Subject) 55,872,
 1 (Target) 2,905, 2 (Reference) 821, 3 (Combat Target) 66. TES4's type-byte
@@ -351,6 +353,39 @@ Absent functions are dropped, failing open, the way TES4's `_FUNC_DROP` does.
 the disposition-tier evaluation applies. `GetScriptVariable` (53) and
 `GetQuestVariable` (79) keep TES4's treatment: the strings path rewrites them
 to the VM reads, every other path drops them.
+
+### <a id="fallout-short-ctda"></a>Short Fallout CTDAs: the source decides, not the length
+
+**Code:** `conditions_falloutnv.py` `fallout_ctda`, applied in `convert_ctda` and
+`convert_ctda_list_with_strings` (so `split_skill_ctdas` sees the padded raw too).
+
+xEdit marks everything from Run On onward optional (`wbConditions`
+`.SetOptionalFrom(7)`), and the masters use it. FalloutNV.esm's INFO, QUST,
+PACK, IDLE, PERK, MESG, TERM, NOTE, CHAL and RCPE conditions: 65,830 are 28
+bytes, 123 are 20 bytes and 2 are 24 bytes. A 20-byte CTDA omits Run On and
+Reference, a 24-byte one Reference. Judged by length they took the TES4 path,
+which reads the function through TES4's numbering: 37 of the 125 name a
+function Fallout numbers differently (391 ×34, 392 ×2, 427 `GetIsVoiceType`
+×1), and 21 are `GetActorValue`, whose value went through TES4's table. A
+24-byte `GetActorValue` 14 would also have been split as TES4 Blade.
+
+So a CTDA shorter than 28 bytes is Fallout's whenever the source plugin is
+(`is_fallout_source`, set once per plugin in `build_actor_indexes`), and is
+zero-padded to 28: Run On 0 is Subject, the omitted fields' meaning. A TES4
+source keeps the length rule.
+
+### <a id="av-param-funcs"></a>Which functions carry an actor value
+
+**Code:** `conditions.py` `_AV_PARAM_FUNCS`.
+
+Every Skyrim condition function whose param1 is an actor value (xEdit
+`wbDefinitionsTES5.pas`, `ParamType1: ptActorValue`) needs that index
+translated, or dropped when the source value has none: `GetActorValue` (14),
+`IsWeaponSkillType` (109), `GetBaseActorValue` (277), `GetPermanentActorValue`
+(494) and `GetActorValuePercent` (640). FNV and FO3 number `GetPermanentActorValue`
+495, remapped to 494 before this lookup; with only 14 and 277 listed, its
+Fallout index passed straight through. TES4's 109 (`GetWeaponSkillType`) is
+in `_FUNC_DROP` and never reaches the table.
 
 ### <a id="fallout-actor-values"></a>Actor values: Fallout's own table
 

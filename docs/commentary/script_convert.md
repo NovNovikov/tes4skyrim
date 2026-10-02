@@ -72,6 +72,8 @@
 - [Command families matched by PREFIX](#command-prefix-families)
 - [FO3/FNV commands that reach the compiler unrouted](#fnv-unrouted-commands)
 - [An unmapped AV command silently became a READ](#unmapped-av-command-became-a-read)
+- [FO3/FNV actor-value names](#fallout-actor-value-names)
+- [A negative comparand is still a number](#negative-comparand)
 - [A digit-leading member name swallowed its dot](#digit-leading-member-names)
 - [`Kill` takes only the killer](#kill-takes-only-the-killer)
 - [An inert read must never FIRE a guard](#an-inert-read-must-never-fire)
@@ -4196,6 +4198,54 @@ TES4 call site moves. `Actor.psc` declares both natives with exactly the TES4
 argument shape: `RestoreActorValue(string, float)`, `DamageActorValue(string,
 float)`.
 
+### <a id="fallout-actor-value-names"></a>FO3/FNV actor-value names
+
+**Code:** `constants_falloutnv.py` `FALLOUT_ATTRIBUTES`, `FALLOUT_ACTOR_VALUE_MAP`,
+`FALLOUT_UNMAPPED_ACTOR_VALUES`; merged in `constants.py` (`PRIMARY_STATS`,
+`AV_ARGUMENT_NAMES`, `SPLIT_SKILLS`); applied in `commands.py` `actor_value`.
+
+Scripts name actor values by string, and the AV argument went through
+Oblivion's `ACTOR_VALUE_MAP` only, so a Fallout name missing from it reached
+Skyrim unchanged: an unknown name reads 0 and its write is rejected
+([above](#skyrim-has-no-attributes)). The script side now follows the
+condition side's table ([conditions](tes5_import_conditions.md#fallout-actor-values)),
+so a value reads the same in a script and in a dialogue condition:
+
+| Fallout name | Now |
+|---|---|
+| Barter, Speech | `Speechcraft` |
+| Lockpick, Repair, Medicine | `Lockpicking`, `Smithing`, `Restoration` |
+| Guns, Small Guns, Big Guns, Energy Weapons | `Marksman` |
+| Melee Weapons | `OneHanded`; a current read takes the higher of One- and Two-Handed, as Blade and Blunt do |
+| Unarmed | `OneHanded` |
+| Perception, Charisma | `100.0`, write dropped, like the five S.P.E.C.I.A.L. stats that share a name with a TES4 attribute |
+| Karma, XP, Action Points, Explosives, Science, Survival, the rads, Rad/Energy/EMP resist, Turbo, Bloody Mess, Damage Threshold, the hardcore needs | inert read (`note`), write dropped |
+
+An inert read folds a comparison to `false`, or drops out of its `&&`/`||`
+chain ([comparing an inert operand](#comparing-an-inert-operand)), so no karma
+or skill check is decided by a 0 nobody authored.
+
+The renames apply to the actor-value argument only, never to a bare name
+(`resolve_name` still uses `ACTOR_VALUE_MAP`): `lockpick` is also Fallout's
+bobby-pin item, and `GetItemCount lockpick` must keep it. Names Skyrim already
+has pass through: the limb conditions, `Variable01`-`10`, `DamageResist`.
+
+Census of the names FalloutNV.esm's records pass to AV commands, among those
+that used to reach Skyrim unchanged: Repair 49, Medicine 43, Science 29,
+Explosives 26, Perception 23, Guns 9, RadiationRads 9, Melee Weapons 8,
+Charisma 6, Energy Weapons 6, Lockpick 5, Speech 5, Karma 4, Unarmed 4,
+Barter 3.
+
+### <a id="negative-comparand"></a>A negative comparand is still a number
+
+**Code:** `emit/expr.py` `_numeric_cmp`, `_is_number`.
+
+`-250` parses as unary minus over the literal `250`, so `_numeric_cmp` did not
+treat it as a number and the comparison took the plain path. An inert read
+compared against it stayed a decided `0 >= -250`, where against `250` it folds
+to `false` (measured: `GetPCMiscStat 99 >= -250`). A negated literal now takes
+the same path as any other number; this applies to every source game.
+
 ### A digit-leading member name swallowed its dot
 <a id="digit-leading-member-names"></a>
 
@@ -6186,3 +6236,47 @@ let a later SetStage overwrite the specific type.
 The FNV objective rows first carried `types={0: 'Quest'}`, which registers the
 type unconditionally: 345 FalloutNV scripts then failed with "field or
 property X not found" on quest-variable reads (`VMS16.nGangerDeathCount`).
+
+## <a id="pr54-obse-commands"></a>Knockout, actor AI, IsActor and IsPlayable
+
+**Code:** `blocks.BLOCK_MAP`, `command_rows` (`isactor`, `setactorsai`,
+`toggleactorsai`, `isactorsaioff`), `commands.is_playable`,
+`TES4Polyfill.IsPlayable`, `emit/expr._plain_binop`,
+`converter._record_property_type`, `tes5_import/base/object_scripts._TES4_REFERENCE_EVENTS`.
+Ported from Murray2k6's PR #54 and re-derived against master.
+
+- **OnKnockout → `OnEnterBleedout()`.** Before, the block had no BLOCK_MAP
+  entry and was dropped whole: 28 Nehrim blocks, 2 in Morrowind_ob. The
+  Erothin beggar's (`STAFFErothinBettlerTorBettlerScript`) is the only thing
+  that sets `Next to 1`, so his scene could never continue. OnEnterBleedout
+  is an Actor event, so `onknockout` is a reference-only event: that script
+  had only GameMode + OnKnockout and stayed on the base NPC_, which never
+  receives it. There is no TES4 `OnMurder` mapping: neither the vanilla nor the
+  SKSE `Actor.psc` declares an OnMurder event, so an `Event OnMurder` would
+  compile and never fire.
+- **SetActorsAI → `EnableAI`** (vanilla); ToggleActorsAI / IsActorsAIOff read
+  SKSE `IsAIEnabled`. SetActorsAI was a `;NE:` no-op: 62 Nehrim calls, 2
+  Oblivion (SE13 allies, SE14 Voice of Sheogorath).
+- **IsActor → `((ref as Actor) != None)`.** It read as 0, which made Oblivion's
+  Sanguine Rose, Hermaeus Mora soul spell and Skull of Corruption conditions
+  `0 == 1`: their effect never fired.
+- **IsPlayable / IsPlayable2 → `TES4Polyfill.IsPlayable`**, SKSE
+  `Form.IsPlayable` on the base form (TES4 also accepted a placed reference).
+  No header overlay is needed: the compiler searches the LAST `-h` first, so
+  SKSE's `Form.psc` shadows vanilla's (see [vanilla headers](#vanilla-headers)).
+- **Bool arithmetic.** Measured with the compiler: `Int + Bool`, `Bool - 1` and
+  `Bool * 2.5` compile; `Bool + Bool` ("infix operator `+` not support type
+  Bool") and `x += Bool` do not. Only two Bool operands are cast, so no
+  compiling output changed.
+- **Effect subjects.** In an ActiveMagicEffect, `Self` is the effect:
+  `SetDestroyed` (now `OBJREF`) and bare `PlayGroup` act on `GetTargetActor()`.
+  Both emitted `Self` and failed to compile.
+- **Leading-digit owners.** `FlightQuest.X` for record `1FlightQuest` resolved
+  the property's script class by the stripped name and missed, typing it
+  `Quest`; `_owning_scripts`, `_dangling_cross_script_target` and the property
+  type now resolve through `resolve_property_formid`/the canonical EditorID.
+
+Blast radius on the rebuild: Oblivion 6 scripts (the three artifact spells,
+SE13Ally, SE13KnightOfOrder, SE14VoiceofSheogorathSpell), no CharacterGen or
+MQ script; Nehrim's arena fighters, the beggar and the IsPlayable2 line in
+AAGeneralUpdateQuest; Morrowind_ob 2 OnKnockout scripts. Everything compiles.

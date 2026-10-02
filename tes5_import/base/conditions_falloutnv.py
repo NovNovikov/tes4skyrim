@@ -11,6 +11,7 @@ See: docs/commentary/tes5_import_conditions.md#fallout-ctda
 import struct
 
 from ..generated.ctda_fnv_remap import FNV_FUNC_ABSENT, FNV_FUNC_REMAP
+from ..record_types.world_falloutnv import is_fallout_source
 
 #: A CTDA at least this long carries Fallout's Run On / Reference tail.
 FALLOUT_CTDA_SIZE = 28
@@ -58,6 +59,16 @@ FALLOUT_AV_TO_TES5 = {
 #: Fallout Run On values: Subject, Target, Reference, Combat Target, Linked Ref.
 _RUN_ON_TARGET = 1
 _RUN_ON_REFERENCE = 2
+
+
+def fallout_ctda(raw: bytes) -> bytes:
+    """`raw`, zero-padded to 28 bytes when the source is FO3/FNV.
+
+    See: docs/commentary/tes5_import_conditions.md#fallout-short-ctda
+    """
+    if len(raw) < FALLOUT_CTDA_SIZE and is_fallout_source():
+        return raw.ljust(FALLOUT_CTDA_SIZE, b'\0')
+    return raw
 
 
 def fallout_function(func_idx: int) -> 'int | None':

@@ -18,8 +18,8 @@ argument text -- so those are properties of the CALL and live on it.
 
 from script_convert import resolve_name as _resolve_name
 from script_convert.constants import (
-    ACTOR_VALUE_MAP, ANIM_GROUP_EVENTS, ATTRIBUTE_STUB_VALUE, CASTABLE,
-    FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, TES4_ASSAULT_BOUNTY, TES4_ATTRIBUTES,
+    ANIM_GROUP_EVENTS, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE,
+    FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS, TES4_ASSAULT_BOUNTY,
     SPLIT_SKILLS, TES4_MISC_STAT_NAMES, TES4_MURDER_BOUNTY, TES4_SCRIPT_OWNED_MISC_STATS,
     TES4_STEAL_BOUNTY, is_generated_script_type, mgef_family_keyword_name,
     record_type_to_papyrus, safe_property_name, papyrus_script_name
@@ -34,7 +34,7 @@ from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
 from script_convert.constants import typed_already
-from script_convert.constants_falloutnv import FALLOUT_COMMAND_ALIASES
+from script_convert.constants_falloutnv import FALLOUT_COMMAND_ALIASES, FALLOUT_UNMAPPED_ACTOR_VALUES
 from tes5_import.dialogue.say_topics import PLAYER_TOKENS
 from tes5_import.actors.confidence import (
     FACTION_EDID as CONFIDENCE_FACTION, FLEE_SPELL_EDID as CONFIDENCE_FLEE_SPELL,
@@ -455,7 +455,7 @@ def play_group(ctx, call) -> str:
         sig = ctx.xref.get_base_signature(call.ref) if ctx.xref else ''
         is_actor = sig in ('NPC_', 'CREA', 'ACHR', 'ACRE') if sig else True
     else:
-        is_actor = call.extends == 'Actor'
+        is_actor = call.extends in ('Actor', 'ActiveMagicEffect', 'TopicInfo')
 
     if is_actor:
         # SendAnimationEvent takes an ObjectReference, and TES4 aims PlayGroup
@@ -784,6 +784,14 @@ def is_spell_target(ctx, call) -> str:
         return ctx.note(f'{call.written()} (spell has no convertible effect)',
                         value='False')
     return _effect_family_test(ctx, call, code)
+
+
+@command('isplayable', 'isplayable2')
+def is_playable(ctx, call) -> str:
+    """OBSE IsPlayable [object]: the argument's playable flag, else the receiver's."""
+    target = (call.arg(0) if len(call)
+              else ctx._resolve_objref_ref(call.ref, call.extends))
+    return f'TES4Polyfill.IsPlayable({target})'
 
 
 @command('hasmagiceffect')
@@ -1500,6 +1508,16 @@ def _attribute_access(ctx, call, raw: str) -> str:
     return f';TES4 attribute {raw} has no Skyrim equivalent -- write dropped'
 
 
+def _unmapped_actor_value(ctx, call, raw: str) -> str:
+    """An FO3/FNV actor value Skyrim lacks: an inert read, or a dropped write.
+
+    See: docs/commentary/script_convert.md#fallout-actor-value-names
+    """
+    if call.name in ACTOR_VALUE_READ_FUNCTIONS:
+        return ctx.note(f'{call.raw_name} {raw} - Skyrim has no {raw} actor value')
+    return f';Fallout actor value {raw} has no Skyrim equivalent -- write dropped'
+
+
 def _actor_subject(ref: str, extends: str) -> str:
     """The subject as an Actor expression: `ref`, `Self`, or `(Self as Actor)`."""
     if ref != 'Self' or extends == 'Actor':
@@ -1516,9 +1534,11 @@ def actor_value(ctx, call) -> str:
     if not len(call):
         return None
     raw = call.source(0).rstrip(',').strip('"\'')
-    if raw.lower() in TES4_ATTRIBUTES:
+    if raw.lower() in PRIMARY_STATS:
         return _attribute_access(ctx, call, raw)
-    av = ACTOR_VALUE_MAP.get(raw.lower(), raw)
+    if raw.lower() in FALLOUT_UNMAPPED_ACTOR_VALUES:
+        return _unmapped_actor_value(ctx, call, raw)
+    av = AV_ARGUMENT_NAMES.get(raw.lower(), raw)
     if av.lower() == 'confidence' and call.name in _AV_PAPYRUS:
         return _confidence(ctx, call)
     if raw.lower() == 'encumbrance' and call.name in _AV_READ:

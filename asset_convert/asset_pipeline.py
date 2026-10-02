@@ -39,6 +39,7 @@ from asset_convert.collision import clutter_plan
 from asset_convert.collision import resting_items_plan
 from asset_convert.nif import door_plan
 from asset_convert.nif import fixture_plan
+from asset_convert.nif import furniture_travel
 
 
 # Shared-folder resolution lives in output_layout (one module, three
@@ -189,6 +190,9 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
     plan[fixture_plan.FIXTURE_KEY] = fixtures
     plan[fixture_plan.ANIMATED_KEY] = fixture_plan.build_animated_models(rec_dir)
     print(f"  Placed fixture plan: {len(fixtures)} scenery models")
+    plan[furniture_travel.SIT_TRAVEL_KEY] = furniture_travel.sit_travels(rec_dir)
+    print(f"  Sit travel plan: {len(plan[furniture_travel.SIT_TRAVEL_KEY])} "
+          f"marker ids with an authored enter animation")
     resting, stocked = resting_items_plan.write_index(export_root, plugin)
     plan[resting_items_plan.RESTING_KEY] = resting
     print(f"  Resting items plan: {stocked} fixture models share a cell "

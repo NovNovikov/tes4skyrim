@@ -172,7 +172,7 @@ def collision_source(root) -> tuple:
     extra on a placed FIXTURE, or an EMPTY RootCollisionNode, which the
     engine treats as camera-only. `generated` is True when the render mesh
     itself is the collision: no RootCollisionNode exists, or it is one box
-    the plugin places items inside.
+    the plugin places items inside and the render mesh has collidable shapes.
     See: docs/commentary/asset_convert_nif.md#morrowind-collision
     """
     flags = source_root_flags() or root_flag_extras(root)
@@ -180,7 +180,8 @@ def collision_source(root) -> tuple:
             s.startswith(_NO_COLLISION_PREFIX) for s in flags):
         return None, False
     node = find_collision_node(source_children_owner(root))
-    if node is None or _box_holds_items(node, root):
+    if node is None or (_box_holds_items(node, root)
+                        and any(_collision_shapes(root, flags))):
         return root, True
     return (node if getattr(node, 'num_children', 0) else None), False
 
@@ -650,6 +651,31 @@ def disable_specular(data, stats=None) -> int:
                 cleared += 1
     _count(stats, 'mw_specular_cleared', cleared)
     return cleared
+
+
+def opaque_unblended_shapes(data, stats=None) -> int:
+    """Raise shader alpha to 1 on every shape that carries no NiAlphaProperty.
+
+    Returns the number of shaders changed. Morrowind blends nothing without an
+    alpha property, so its material alpha is inert there; Skyrim's shader alpha
+    fades the shape regardless, and an authored 0 makes it invisible.
+    See: docs/commentary/asset_convert_nif.md#morrowind-material-alpha
+    """
+    raised = 0
+    for root in data.roots:
+        for block in root.tree():
+            props = getattr(block, 'bs_properties', None)
+            if not props or props[1] is not None:
+                continue
+            shader = props[0]
+            if isinstance(shader, NifFormat.BSLightingShaderProperty) and shader.alpha < 1.0:
+                shader.alpha = 1.0
+                raised += 1
+            elif isinstance(shader, NifFormat.BSEffectShaderProperty) and shader.emissive_color.a < 1.0:
+                shader.emissive_color.a = 1.0
+                raised += 1
+    _count(stats, 'mw_unblended_alpha_raised', raised)
+    return raised
 
 
 def run_morrowind_fixups(data, stats=None) -> None:

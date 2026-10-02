@@ -572,6 +572,62 @@ class TestActorValueMap:
         assert result == 'Game.GetPlayer().GetActorValue("Smithing") >= 10'
 
 
+class TestFalloutActorValueNames:
+    """FO3/FNV actor-value names read as the conditions map them, stub, or go inert.
+
+    See: docs/commentary/script_convert.md#fallout-actor-value-names
+    """
+
+    @pytest.mark.parametrize('name, skyrim', [
+        ('Repair', 'Smithing'), ('Speech', 'Speechcraft'), ('Barter', 'Speechcraft'),
+        ('Lockpick', 'Lockpicking'), ('Medicine', 'Restoration'), ('Guns', 'Marksman'),
+        ('EnergyWeapons', 'Marksman'), ('Unarmed', 'OneHanded')])
+    def test_renamed_skill_reads_skyrim_name(self, converter, name, skyrim):
+        """Each renamed skill reads the Skyrim value its condition reads."""
+        result = conv_expr(converter, f'player.getav {name} >= 50', 'Quest')
+        assert result == f'Game.GetPlayer().GetActorValue("{skyrim}") >= 50'
+
+    def test_melee_weapons_reads_the_higher_half(self, converter):
+        """Melee Weapons covered both hands, like Blade and Blunt."""
+        result = conv_expr(converter, 'player.getav MeleeWeapons >= 50', 'Quest')
+        assert 'HigherActorValue(Game.GetPlayer(), "OneHanded", "TwoHanded")' in result
+
+    def test_renamed_skill_write(self, converter):
+        """A write renames the argument too."""
+        assert 'ModActorValue("Speechcraft", 5)' in conv_line(converter, 'player.modav Speech 5', 'Quest')
+
+    @pytest.mark.parametrize('name', ['Perception', 'Charisma', 'Strength'])
+    def test_special_read_is_stubbed_open(self, converter, name):
+        """All seven S.P.E.C.I.A.L. stats read alike."""
+        assert conv_expr(converter, f'player.getav {name} >= 6', 'Quest') == '100.0 >= 6'
+
+    def test_special_write_is_dropped(self, converter):
+        """A S.P.E.C.I.A.L. write has nothing to write to."""
+        result = conv_line(converter, 'player.setav Charisma 7', 'Quest')
+        assert result.lstrip().startswith(';') and 'SetActorValue' not in result
+
+    def test_unmapped_read_is_inert(self, converter):
+        """Karma is no Skyrim actor value: the comparison folds, even against a negative."""
+        assert conv_expr(converter, 'player.getav Karma >= -250', 'Quest') == 'false'
+
+    def test_unmapped_write_is_dropped(self, converter):
+        """A write to a value Skyrim lacks becomes a comment."""
+        result = conv_line(converter, 'player.modav Science 10', 'Quest')
+        assert result.lstrip().startswith(';') and 'ModActorValue' not in result
+
+    def test_rename_applies_to_the_actor_value_argument_only(self, converter):
+        """`lockpick` is also Fallout's bobby-pin item, which must keep its name."""
+        assert 'Lockpicking' not in conv_expr(converter, 'player.GetItemCount lockpick < 1', 'Quest')
+
+
+def test_negative_comparand_folds_an_inert_read(converter):
+    """`-250` is unary minus over a literal, and still a number.
+
+    See: docs/commentary/script_convert.md#negative-comparand
+    """
+    assert conv_expr(converter, 'GetPCMiscStat 99 >= -250', 'Quest') == 'false'
+
+
 # ===========================================================================
 # Standalone script conversion tests
 # ===========================================================================

@@ -22,8 +22,8 @@ apply_patches()
 from pyffi.formats.nif import NifFormat
 
 from asset_convert.havok.kf_decode import DEFAULT_FPS
-from asset_convert.nif.sequences import (CYCLE_CLAMP, CYCLE_LOOP,
-                                         transform_manager)
+from asset_convert.nif.sequences import (CYCLE_CLAMP, CYCLE_LOOP, INTRO_SUFFIX,
+                                         OUTRO_SUFFIX, transform_manager)
 from asset_convert.nif.timeline_morrowind import (XYZ_ROTATION_KEY, chain,
                                                   channel, clip_range,
                                                   euler_arrays, groups, interp,
@@ -31,6 +31,18 @@ from asset_convert.nif.timeline_morrowind import (XYZ_ROTATION_KEY, chain,
 
 #: The group Morrowind loops on every animated object by default.
 IDLE_GROUP = 'idle'
+
+#: Groups Morrowind loops whatever their keys say (OpenMW `Animation::isLoopingAnimation`).
+_ALWAYS_LOOPING = frozenset((
+    'walkforward', 'walkback', 'walkleft', 'walkright', 'swimwalkforward',
+    'swimwalkback', 'swimwalkleft', 'swimwalkright', 'runforward', 'runback',
+    'runleft', 'runright', 'swimrunforward', 'swimrunback', 'swimrunleft',
+    'swimrunright', 'sneakforward', 'sneakback', 'sneakleft', 'sneakright',
+    'turnleft', 'turnright', 'swimturnleft', 'swimturnright', 'spellturnleft',
+    'spellturnright', 'torch', 'idle', 'idle2', 'idle3', 'idle4', 'idle5',
+    'idle6', 'idle7', 'idle8', 'idle9', 'idlesneak', 'idlestorm', 'idleswim',
+    'jump', 'inventoryhandtohand', 'inventoryweapononehand',
+    'inventoryweapontwohand', 'inventoryweapontwowide'))
 
 #: NiTimeController cycle type, flags bits 1-2: 0 loop, 1 reverse, 2 clamp.
 _CYCLE_SHIFT, _CYCLE_MASK = 1, 0x3
@@ -217,24 +229,38 @@ def _animated(root, autoplay: bool) -> list:
     return out
 
 
-def _group_spans(data) -> list:
-    """(sequence name, start, stop, cycle) per text-key group; Idle loops.
+def _looping_spans(name: str, events: dict) -> list:
+    """A looping group's loop segment as a LOOP sequence, plus its Start..Loop
+    Start lead-in and Loop Stop..Stop lead-out as CLAMP ones where they last."""
+    got = clip_range(events)
+    if not got:
+        return []
+    loop_start, loop_stop, _ = got
+    spans = [(name, loop_start, loop_stop, CYCLE_LOOP)]
+    if loop_start > events['start']:
+        spans.append((name + INTRO_SUFFIX, events['start'], loop_start, CYCLE_CLAMP))
+    if events['stop'] > loop_stop:
+        spans.append((name + OUTRO_SUFFIX, loop_stop, events['stop'], CYCLE_CLAMP))
+    return spans
 
-    Idle is the group Morrowind loops by itself, so it ships its loop segment
-    when it has one; every other group plays once, Start to Stop, the way
-    `PlayGroup` runs it.
+
+def _group_spans(data) -> list:
+    """(sequence name, start, stop, cycle) per text-key group.
+
+    A looping group -- one with a loop start key, or one Morrowind always
+    loops -- ships `_looping_spans`; the LOOP cycle is what tells the
+    runtime's `LoopGroup` it repeats. Every other group plays once, Start to
+    Stop, and holds.
     """
     spans = []
     for name, events in sorted(groups(text_keys(data))[0].items()):
-        if name == IDLE_GROUP:
-            got = clip_range(events)
-            span = got and (got[0], got[1], CYCLE_LOOP)
-        else:
-            start, stop = events.get('start'), events.get('stop')
-            ok = start is not None and stop is not None and stop > start
-            span = (start, stop, CYCLE_CLAMP) if ok else None
-        if span:
-            spans.append((name.capitalize(),) + span)
+        title = name.capitalize()
+        if name in _ALWAYS_LOOPING or 'loop start' in events:
+            spans.extend(_looping_spans(title, events))
+            continue
+        start, stop = events.get('start'), events.get('stop')
+        if start is not None and stop is not None and stop > start:
+            spans.append((title, start, stop, CYCLE_CLAMP))
     return spans
 
 

@@ -25,7 +25,7 @@ from .constants import ENGINE_GLOBAL_FORMIDS
 from .ctda_bool import bool_outcomes
 from .equivalents import TES4_ITEM_FORMID_TO_SKYRIM
 from .conditions_falloutnv import (FALLOUT_AV_TO_TES5, FALLOUT_CTDA_SIZE,
-                                   fallout_function, fallout_run_on)
+                                   fallout_ctda, fallout_function, fallout_run_on)
 from ..generated.ctda_param_types import CTDA_FORMID_PARAMS
 from .owned_records import MGEF_FAMILY_KEYWORDS, WELL_KNOWN_PROPERTIES
 from .race_factions import race_faction
@@ -267,15 +267,8 @@ _TES4_AV_TO_TES5 = {
     68: 42,   # ResistShock     -> ResistShock
 }
 
-# Condition functions whose param1 is a ptActorValue in BOTH games. Every one
-# needs the index translated (or the whole condition dropped when it names an
-# attribute). Sourced from xEdit's wbConditionFunctions tables; TES4-only
-# entries (2571 GetBaseAV3, 2577 IsMajorRef, 1124 IsClassSkill) are already in
-# _FUNC_DROP or have no TES5 counterpart, so they never reach here.
-_AV_PARAM_FUNCS = frozenset({
-    14,    # GetActorValue
-    277,   # GetBaseActorValue
-})
+#: TES5 functions whose param1 is an actor value. See: docs/commentary/tes5_import_conditions.md#av-param-funcs
+_AV_PARAM_FUNCS = frozenset({14, 109, 277, 494, 640})
 
 
 def _map_race_param(fid: int) -> 'int | None':
@@ -635,6 +628,7 @@ def convert_ctda(raw: bytes, offset: 'int | None' = None,
     """
     if offset is None:
         offset = get_formid_index_offset()
+    raw = fallout_ctda(raw)
     head = _ctda_head(raw, offset, in_speak_as_topic)
     if not isinstance(head, tuple):
         return head
@@ -727,7 +721,7 @@ def convert_ctda_list_with_strings(rec: dict, script_vars: dict = None,
         if not raw_hex:
             continue
         try:
-            raw = bytes.fromhex(raw_hex)
+            raw = fallout_ctda(bytes.fromhex(raw_hex))
         except ValueError:
             continue
 
