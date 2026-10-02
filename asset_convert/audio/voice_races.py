@@ -72,8 +72,16 @@ class RaceVoices:
         self.keys = keys
 
     def folder_key(self, folder: str) -> 'str | None':
-        """Voice key for a source race folder, or None when unknown."""
-        return self.by_folder.get((folder or '').strip().lower())
+        """Voice key for a source race folder, or None when unknown.
+
+        Falls back to the alnum-collapsed spelling: the BSA spells some
+        folders with spaces the records do not have ('dark seducer' vs
+        'DarkSeducer'), and those must resolve to the same voice key
+        instead of synthesising a duplicate voice type.
+        """
+        lowered = (folder or '').strip().lower()
+        return self.by_folder.get(lowered) or self.by_folder.get(
+            voice_key(lowered))
 
     def __bool__(self):
         return bool(self.keys)
@@ -161,6 +169,9 @@ def load_race_voices(export_dir) -> RaceVoices:
         by_race_edid[edid] = key
         by_folder.setdefault(full.lower(), key)
         by_folder.setdefault(edid.lower(), key)
+        collapsed = voice_key(full).lower()
+        if collapsed != full.lower():
+            by_folder.setdefault(collapsed, key)
         alias = _bsa_spelling(full, codec)
         if alias:
             by_folder.setdefault(alias.lower(), key)

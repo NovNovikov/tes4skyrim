@@ -119,6 +119,21 @@ def test_race_voices_match_both_folder_spellings(tmp_path):
         voices.folder_key(full)
 
 
+def test_race_voices_match_spaced_folder(tmp_path):
+    """A BSA folder with spaces ('dark seducer') resolves like its EDID.
+
+    Without the collapsed fallback it misses every index key and synthesises
+    a duplicate ASCII voice type next to the race's real one.
+    """
+    _write_header(tmp_path, "cp1251")
+    (tmp_path / "RACE.txt").write_text(
+        "---RECORD_BEGIN---\nEditorID=DarkSeducer\nFULL=Dark Seducer\n"
+        "---RECORD_END---\n", encoding="utf-8")
+    voices = load_race_voices(str(tmp_path))
+    assert voices.folder_key("dark seducer") == \
+        voices.folder_key("DarkSeducer")
+
+
 def _plugin_binary(tmp_path, payloads):
     """A TES4 file with one record holding FULL `payloads`; its offset."""
     subs = b"".join(b"FULL" + struct.pack("<H", len(p)) + p for p in payloads)
