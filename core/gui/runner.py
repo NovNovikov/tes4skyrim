@@ -1267,6 +1267,23 @@ def start_global_action(app, key: str, record_done) -> None:
                                   lambda ws: _run_finished(app, ws)))
 
 
+def start_command(app, label: str, cmd: list, key: str, on_success) -> None:
+    """Stream one command's run into the log pane; `on_success(key)` runs if it exits 0."""
+    out_dir = app.output_var.get().strip()
+    _begin_run(app, {"Command": label, "Output": out_dir})
+    app.log(label)
+    app.log(f"Output: {out_dir}")
+    app.log_sink.note(app.log)
+    app.log("")
+
+    q = queue.Queue()
+    want_summary = [False]
+    start_global_worker(app, cmd, q, _run_env(app), key, want_summary,
+                        on_success)
+    app.root.after(50, make_drain(app, q, want_summary,
+                                  lambda ws: _run_finished(app, ws)))
+
+
 def refresh_global_btns(app, is_current) -> None:
     """Grey out the actions whose result is current; light up the rest."""
 
