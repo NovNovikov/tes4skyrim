@@ -941,17 +941,60 @@ basis the 2010 layout requires, since a zero motor ships a singular basis.
 
 ## <a id="nested-and-multiple-collision"></a>Nested and multiple collision
 
-**Code:** `asset_convert/collision/hoist.py`
+**Code:** `asset_convert/collision/collision.py` (`collision_owner`,
+`hoist_collision`), `asset_convert/nif/nif_converter.py`
+(`_hoist_root_collision`), `asset_convert/collision/collision_falloutnv.py`
+(`merge_static_parts`)
 
 Skyrim reads the `bhkCollisionObject` on the root BSFadeNode. Oblivion and
-FO3/FNV meshes hang collision off child NiNodes, sometimes several (an SCOL has
-one per part) and sometimes two levels down. `hoist_collision()` moves every
-descendant collision object onto the root, carrying each part's transform
-relative to the root: one part goes into its body (`bhkRigidBodyT`) or, for a
-phantom, a `bhkTransformShape`; several static parts (`MO_SYS_FIXED`) merge
-into one root body holding a `bhkListShape` of transform-wrapped shapes. When
-the parts cannot be merged the first is hoisted and the rest are counted in
-`PARTS_DROPPED` for the conversion report.
+FO3/FNV meshes hang collision off child NiNodes, sometimes several and
+sometimes several levels down. `hoist_collision()` moves ONE of them, the
+first `collision_owner()` finds depth-first, onto the root; any others stay
+on their own nodes. For an FO3/FNV source, `merge_static_parts()` runs first
+and, when every collision part is a fixed packed body, merges them all into
+one root body instead.
+
+<a id="every-collision-owner"></a>**The animation gate checks the node the
+hoist will move.** `_hoist_root_collision` skips the hoist when that node is
+moved by animation, so a swinging part keeps its collision on the node its
+animation drives. The gate used to run its own search, reverse depth-first,
+while the hoist searched forward. Where the two met different owners the gate
+approved a still frame and the hoist then moved the moving leaf's collision
+onto the static root: the leaf swung open and its collision stayed shut.
+Census of every exported mesh with two or more collision owners, one of them
+animated (unconstrained): the hoist took an animated owner past a still check
+in 14 Oblivion meshes (the five `ruininteriors/doors` gates, `rfswitch01`,
+`arfloorsmasher01`, `obturretbig01`, `obminetrap01`, the siege crawler
+activator, the Kvatch `postsmash01`/`woodpilecrumble01`, `blackwoodpump02`, a
+citadel ground plate), 12 Nehrim and 22 FalloutNV (`nv_fencepickburntgate01`,
+the vault sliding doors, office doors, `junkdoor`, `vendortrunk01`). Both now
+call `collision_owner()`. The reverse case also changes: 17 Oblivion, 10
+Nehrim and 14 FalloutNV meshes (torture cages, display cases, door frames,
+fridges) where the old gate hit a moving part first and skipped the whole mesh
+now hoist their first, still part, as the 40 Oblivion meshes whose two searches
+already agreed on a still part always did.
+
+<a id="nested-owner-transform"></a>**A nested owner carries its whole
+transform relative to the root** (`_frame_in_root`). The hoist baked only the
+owner's own local transform, so an owner under a moved parent lost that
+parent's offset. `ctorturecage01`'s wall sits on `wall02` (z -296.7) under
+`chain01` (z -798.1): hoisted, its collision landed 798 units above the cage.
+`arwelkydcage01`'s cage collision sat at z -93..1 while the cage hangs at
+-522..-428. A direct child is still baked from its own node, so its output is
+byte-identical; only a nested owner under a moved ancestor changes. Census:
+30 Oblivion, 33 Nehrim and 19 FalloutNV meshes have one; the animated ones
+and creature skeletons never reach the hoist.
+
+**The extractor applies a body's own transform** (`collision_extract._body_transform`).
+It placed a body by its node chain only, on the assumption that conversion
+folds every `bhkRigidBodyT` into the shape. That holds for CMS, which
+`_bake_body_transform_into_tris` folds and demotes to a plain body, but not
+for convex hulls and primitives, which keep the transform on the body. So
+every hoisted non-CMS body with an offset reached the navmesh at its owner's
+origin: the hoisted cage wall extracted at z -6..222 while the converted file
+holds it at -1100..-873. The body transform now applies before the node
+chain; a CMS body carries none, so its extraction is unchanged. The fix bumped
+`COLLISION_SCHEMA_VERSION` to 7 (`TESCOL10`).
 
 ## <a id="collision-extraction-scale"></a>Collision extraction scale
 

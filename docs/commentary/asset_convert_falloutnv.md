@@ -328,6 +328,58 @@ walked through them. Census of 1,500 FNV world meshes: layer 1 x373, 4 x32,
 3 x23, 10 x13, 13 x13, 2 x12, 19 x12, 26 x9, 5 x4, 15 x2, 6/9/14 x1.
 `fo3_layer()` passes 0-28 through and renumbers 29+.
 
+## <a id="stool-entries"></a>Sit entries an authored enter animation places
+
+**Code:** `asset_convert/nif/furniture_travel.py` (`sit_travels`),
+`asset_convert/nif/furniture_markers.py` (`marker_seats`, `_travel_seat`);
+the asset stage carries the travels in its plan (`SIT_TRAVEL_KEY`), the
+importer per mesh tree (`items._load_marker_seats`), so both seat consumers
+use the same plugin's tree.
+
+A plugin picks a furniture's sit-down animation through the IDLE tree: an IDLE
+conditioned on `GetFurnitureMarkerID == N` (function 160) has a descendant
+conditioned on `GetSitting == 2` ("getting ready to sit", function 159) whose
+model is the enter animation. That animation's `Bip01` root starts at the
+entry and ends on the seat, so its travel IS the entry-to-seat offset. In
+FalloutNV.esm three marker ids name a .kf:
+
+| Marker | Sit-down IDLE | Animation | Root travel (right, forward) |
+|---|---|---|---|
+| 15 stool | `SitDownStool` | `StoolEnter.kf` | (-18.95, 47.20) |
+| 16 pod | `PodEnter` | `SitTranquilityChairEnter.kf` | (-21.40, 89.66) |
+| 20 child bar | `BarEnter` | `ChildBarEnter.kf` | (0.00, 45.52) |
+
+Chairs (11-14), beds, floor sitting and wall leaning name only the
+`IdleAnims` folder: their entry animation is the engine's own, and they keep
+the Oblivion walk distances. Oblivion.esm (29 marker-id idles) and Nehrim.esm
+(21) use the same functions (TES4 159/160) with the parent in
+`DATA.IdleParent`, and none of their getting-ready-to-sit idles names a .kf,
+so no TES4 seat changes. None of the three .kf roots rotates, so the sitter
+keeps facing the way it walked in.
+
+<a id="bar-stool-keyword"></a>**Such a seat is entered from behind, so its
+FURN carries `isBarStool`** (`items.furn_keywords`). Walking in and sitting
+without turning is a behind entry (FNPR 0x0002). Skyrim plays a sit-down
+through its IDLE tree, and the plain chair branch for a behind entry,
+`EnterChairBack`, names no animation event: the player activated the stool and
+nothing played. Two vanilla branches do animate a behind entry, gated by a
+FURN keyword: `EnterBarStoolRoot` (`isBarStool`, `IdleStoolEnter` /
+`IdleStoolEnterPlayer`) and `EnterTable` (`IsTable`). Vanilla's one bar stool,
+`WoodenBarStool`, is exactly this: `isBarStool` and `FNPR 00020001`. So every
+FURN with an authored-travel seat gets the keyword: in FalloutNV.esm 17 of 234
+(the stools, the pod chair, the blackjack seats, and the couches and child-bar
+marker carrying a marker-20 entry); Oblivion's 186 and Nehrim's 205 FURN are
+byte-identical.
+
+`stool01.nif`'s single entry stands at (20.5, -41.0) facing +Y, exactly
+where `StoolEnter.kf`'s root starts; the seat is (1.5, 6.2), where it ends.
+The Oblivion rule (55 units straight ahead, then turn round) put it at
+(20.5, 14.0), half off the 30-unit stool, facing away. Each entry's travel is
+turned to its own approach, so the blackjack table's four rotated stool
+entries get the same authored offset. The tree is read from the plugin's own
+export, then its masters'; it needs the FO3/FNV IDLE `ANAM.Parent` the
+exporter now writes ([idle-anam-data-swapped](tes4_export_falloutnv.md#idle-anam-data-swapped)).
+
 ## <a id="gun-graph"></a>Guns are hand type 13, not crossbows
 
 **Code:** `asset_convert/havok/gun_anim_falloutnv.py`,
