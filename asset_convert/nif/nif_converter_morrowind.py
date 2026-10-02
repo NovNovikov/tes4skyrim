@@ -172,7 +172,7 @@ def collision_source(root) -> tuple:
     extra on a placed FIXTURE, or an EMPTY RootCollisionNode, which the
     engine treats as camera-only. `generated` is True when the render mesh
     itself is the collision: no RootCollisionNode exists, or it is one box
-    the plugin places items inside.
+    the plugin places items inside and the render mesh has collidable shapes.
     See: docs/commentary/asset_convert_nif.md#morrowind-collision
     """
     flags = source_root_flags() or root_flag_extras(root)
@@ -180,7 +180,8 @@ def collision_source(root) -> tuple:
             s.startswith(_NO_COLLISION_PREFIX) for s in flags):
         return None, False
     node = find_collision_node(source_children_owner(root))
-    if node is None or _box_holds_items(node, root):
+    if node is None or (_box_holds_items(node, root)
+                        and any(_collision_shapes(root, flags))):
         return root, True
     return (node if getattr(node, 'num_children', 0) else None), False
 

@@ -33,15 +33,15 @@ ANIMATED_TYPES = ('ACTI.txt', 'LIGH.txt', 'CONT.txt', 'DOOR.txt')
 ANIMATED_KEY = '*animated_models*'
 
 
-def fixture_model_ids(export_dir, types=FIXTURE_TYPES) -> dict:
-    """Map placed-fixture record FormID -> mesh-relative NIF path."""
+def fixture_model_ids(export_dir, types=FIXTURE_TYPES, field='FormID') -> dict:
+    """Map placed-fixture record `field` (FormID or EditorID) -> mesh-relative NIF path."""
     out = {}
     export_dir = Path(export_dir)
     for name in types:
         for rec in iter_records(export_dir / name):
             model = rec.get('Model.MODL', '').strip()
             if model:
-                out[rec.get('FormID', '')] = norm_model_path(model)
+                out[rec.get(field, '')] = norm_model_path(model)
     return out
 
 

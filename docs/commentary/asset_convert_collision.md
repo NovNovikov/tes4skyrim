@@ -128,7 +128,11 @@ single-box collision with an item inside it is replaced by the collision the
 render geometry builds (the path a mesh with no RootCollisionNode already
 takes). Every other box -- ramps, anchors, blockers, and shelves nobody stocks --
 ships as authored. A false positive costs nothing: render-geometry collision is
-the shape the player sees.
+the shape the player sees -- unless the render mesh has nothing collidable.
+`editormarker_box_01` (an `MRK` root, used as an invisible blocker) is placed
+with an item inside it by a plugin mastering the Morroblivion patch; its render shapes are all markers, so
+replacing its box shipped no collision at all. A box is replaced only when the
+render mesh yields at least one collidable shape.
 
 Measured on `Morrowind.esm` (2,680 meshes with a RootCollisionNode, 289 of them
 a single 12-triangle node -- the 266 above plus those whose corners are not
@@ -143,13 +147,16 @@ one ramp replaced, `ex_de_shack_steps`, has an item placed on a step inside it.
   naming it). The mesh converts with the plugin whose record names it, and that
   plugin may place none of it: `Furn_De_R_Bookshelf_02` is a STAT the
   Morroblivion compatibility patch defines (`029EE724`) and places 0 times;
-  Morrowind.esm places it 196 times (as `019EE724`), Tribunal 39, and the
-  books on it are Morrowind_ob.esm BOOKs. Reading the patch alone kept the box.
-- The generated patch reads only `PATCH_SOURCES` (Morrowind, Tribunal,
-  Bloodmoon): it is a patch OF those ESMs, and every other plugin mastering it
-  (Tamriel Rebuilt, Tamriel Data, ...) is a third-party mod that does not
-  decide the vanilla meshes' collision. Patch index: 113 fixture models from
-  the three sources, in 1.0 s.
+  the vanilla ESMs place it 235 times. Reading the patch alone kept the box.
+- The generated patch reads its source ESMs (Morrowind, Tribunal, Bloodmoon)
+  straight from the registered Data Files folder, as `export_patch` does
+  (`resting_items_morrowind`), never their exports: the patch is built before
+  any plugin placing its records, and the authored-mode Morrowind.esm export
+  masters nothing and carries its own FormIDs (the shelf is `00D736AB` there),
+  so a FormID join against it found 0 fixture models. Matching is by
+  Morrowind object id, which the patch keeps as EditorID; cells are keyed by
+  interior name or exterior grid; deleted references are skipped. 146 fixture
+  models in 2.6 s.
 - A raw FormID's index byte counts into ITS dump's master list, so every id is
   compared as (owning plugin, object id): the byte names `Master[i]`, or the
   dump itself when it equals the master count. Items are the CLUTTER/WEARABLE
