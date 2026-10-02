@@ -1,0 +1,187 @@
+name: Tag master
+
+# Fires for BOTH ways code reaches master: a direct push, and a merged pull
+# request.  A merged PR *is* a push to master, so `on: push` alone already
+# covers it -- what previously broke the PR case was not the trigger but the
+# job body, which tried to commit a version stamp back to protected master.
+# That commit is gone (see below), so one trigger now serves both routes with
+# identical behaviour.
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+# A second push while the first run is still tagging would compute the same
+# "next" tag and fail on the push.  Serialise instead.
+concurrency:
+  group: tag-on-push
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Compute and push next tag
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          # Tags are MAJOR.MMM (thousandths) from 0.581 on; 0.58 and earlier
+          # are MAJOR.MM (hundredths).  A 2-digit minor is worth TEN of the new
+          # units -- 0.58 IS 0.580 -- so scale by the field's width.  `sort -n`
+          # cannot do this: it compares 58 against 580 and would rank 0.59
+          # above 0.580.  Compute the max numerically instead.
+          latest=""
+          latest_mils=0
+          for t in $(git tag -l '[0-9]*.[0-9][0-9]' '[0-9]*.[0-9][0-9][0-9]'); do
+            major=${t%%.*}
+            minor=${t#*.}
+            case ${#minor} in
+              2) mils=$((10#$major * 1000 + 10#$minor * 10)) ;;
+              3) mils=$((10#$major * 1000 + 10#$minor)) ;;
+              *) continue ;;
+            esac
+            if [ "$mils" -gt "$latest_mils" ]; then
+              latest_mils=$mils
+              latest=$t
+            fi
+          done
+
+          # Nothing to do if HEAD is already tagged -- e.g. a workflow re-run,
+          # or a push that only moved a branch pointer.  A loop in a tagging
+          # workflow burns a tag number per lap, so this guard matters even
+          # though nothing this job does re-triggers it any more.
+          if [ -n "$latest" ] && [ "$(git rev-parse "$latest^{commit}")" = "$(git rev-parse HEAD)" ]; then
+            echo "HEAD is already tagged $latest -- nothing to do."
+            echo "HEAD is already tagged \`$latest\`; no new tag created." >> "$GITHUB_STEP_SUMMARY"
+            echo "created=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Advance past any name already taken (a tag created out of sort
+          # order, or a race the concurrency group didn't cover).
+          next_mils=$latest_mils
+          while :; do
+            next_mils=$((next_mils + 1))
+            next_tag=$(printf "%d.%03d" $((next_mils / 1000)) $((next_mils % 1000)))
+            git rev-parse -q --verify "refs/tags/$next_tag" >/dev/null || break
+            echo "Tag $next_tag already exists, trying the next one."
+          done
+
+          echo "Latest tag: ${latest:-<none>}"
+          echo "Next tag: $next_tag"
+
+          # Commit list + the GUI steps those commits require re-running.
+          if [ -n "$latest" ]; then
+            python -m tools.release.release_notes --from "$latest" --to HEAD \
+                                          --tag "$next_tag" --output "$RUNNER_TEMP/notes.txt"
+          else
+            python -m tools.release.release_notes --to HEAD \
+                                          --tag "$next_tag" --output "$RUNNER_TEMP/notes.txt"
+          fi
+          cat "$RUNNER_TEMP/notes.txt"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Tag HEAD ITSELF -- no stamp commit.
+          #
+          # This job used to write a version stamp and a steps table into the
+          # tree, commit that, and tag the commit.  The commit could not be
+          # pushed to master (protected: "changes must be made through a pull
+          # request", and the Actions bot is not a bypass actor -- GH013), so it
+          # lived only on the tag, leaving master permanently stale.  Worse, it
+          # made the whole scheme push-only: nothing about it could work for a
+          # PR merged in GitHub's UI.
+          #
+          # Neither file is written any more:
+          #   * VERSION is an `export-subst` template (.gitattributes), which
+          #     git expands to the tag name while building the source zip.  The
+          #     download therefore knows its own version with no commit at all.
+          #   * The steps table is gone entirely -- the checklist inside THESE
+          #     NOTES is the only copy, read back from the release body below.
+          git tag -a "$next_tag" -F "$RUNNER_TEMP/notes.txt"
+          git push origin "$next_tag"
+
+          echo "created=$next_tag" >> "$GITHUB_OUTPUT"
+          cp "$RUNNER_TEMP/notes.txt" "$RUNNER_TEMP/release-body.txt"
+
+          # Surface the same notes in the Actions run summary.
+          {
+            echo '```'
+            cat "$RUNNER_TEMP/notes.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create the GitHub Release
+        if: steps.tag.outputs.created != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.created }}
+        run: |
+          set -euo pipefail
+
+          # The Release body is the tag's notes VERBATIM -- including the
+          # "Steps to re-run in the GUI" checklist release_notes.py wrote.
+          #
+          # That checklist is the ONLY thing the app reads to work out what an
+          # upgrade owes.  It comes from `releases?per_page=100`, which returns
+          # every release body in ONE anonymous request; the alternative (list
+          # tag refs, then fetch each tag object for its message) costs one
+          # request per tag, and with 59 annotated tags against an anonymous
+          # limit of 60/hour a single refresh exhausted the quota and every
+          # later call got a 429.
+          #
+          # So a Release per tag is not cosmetic -- without it the app has no
+          # affordable way to read the checklists at all.  No assets are
+          # attached: the body IS the payload.
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/release-body.txt" \
+            --latest
+
+          echo "Created release \`$TAG\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Announce the release on Discord
+        # Only for CODE releases.  The navmesh cache publishes its own
+        # `navmesh-cache-*` releases, but it does so from
+        # tools/navmesh/navmesh_cache.py on a developer machine (the pre-push hook, or
+        # `navmesh_cache_hook.py --run`) -- never from a workflow.  Nothing in
+        # this job runs for a cache publish, so no tag-name filter is needed
+        # here: the separation is structural, not a rule that could drift.
+        #
+        # Never fails the job.  The tag and the Release already exist by this
+        # point and are what actually matter; a Discord outage must not paint
+        # a successful release red, and re-running the job would only hit the
+        # "HEAD is already tagged" guard and skip everything anyway.
+        continue-on-error: true
+        if: steps.tag.outputs.created != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TAG: ${{ steps.tag.outputs.created }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set -- skipping the announcement."
+            exit 0
+          fi
+          python tools/release/discord_release_notify.py \
+            --notes "$RUNNER_TEMP/release-body.txt" \
+            --tag "$TAG" \
+            --repo "$REPO"

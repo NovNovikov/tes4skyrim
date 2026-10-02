@@ -1,0 +1,111 @@
+[spt_engine] start
+[spt_engine] mapping 0x7af000 bytes at 0x00400000
+[spt_engine]   sec 0 va=0x1000 raw=0x400 size=0x626e00
+[spt_engine]   sec 1 va=0x628000 raw=0x627200 size=0xd9a00
+[spt_engine]   sec 2 va=0x702000 raw=0x700c00 size=0x30c00
+[spt_engine]   sec 3 va=0x7ac000 raw=0x731800 size=0x200
+[spt_engine]   sec 4 va=0x7ad000 raw=0x731a00 size=0x1800
+[spt_engine] sections copied
+[spt_engine]   import COMCTL32.dll
+[spt_engine]   import DINPUT8.dll
+[spt_engine]   import WINMM.dll
+[spt_engine]   import DSOUND.dll
+[spt_engine]   import binkw32.dll
+[spt_engine]   import KERNEL32.dll
+[spt_engine]   import USER32.dll
+[spt_engine]   import GDI32.dll
+[spt_engine]   import ADVAPI32.dll
+[spt_engine]   import SHELL32.dll
+[spt_engine]   import ole32.dll
+[spt_engine]   import VERSION.dll
+[spt_engine]   import d3dx9_27.dll
+[spt_engine]   import WSOCK32.dll
+[spt_engine] imports resolved
+[spt_engine] using the image's own allocator
+[spt_engine] pointer encoding: cookie=0xffffffff tls_index=12 (identity)
+[spt_engine] window-station probe skipped (0x99cc19 -> 0x99cc92)
+[spt_engine] _crtheap = 0x01420000 (private)
+[spt_engine] CRT allocator strategy = 1 (plain heap)
+[spt_engine] allocator critical sections initialised
+[spt_engine] game heap constructed, vtable=0x00a2f810
+[spt_engine] CRT lock table bypassed (single-threaded)
+[spt_engine] CRT error-reporter dispatch neutralised
+[spt_engine] __security_cookie = 0xbb40e64e, check byte now 0x3b
+[spt_engine]   neutralised terminator 0x98c49c
+[spt_engine]   neutralised terminator 0x9933a9
+[spt_engine] patch operator new  -> ok
+[spt_engine] patch operator del  -> ok
+[spt_engine] _invalid_parameter neutralised
+[spt_engine] _getptd stub ok -> 0x01217000; bytes now e9 39 5b 87 ff
+[spt_engine] _getptd() returns 0x01217000 (expect 0x01217000)
+[spt_engine] allocator list node = 0x01202098
+[spt_engine] calling ctor 0x78d6a0, self=0x01217220
+[spt_engine] image at 0x00400000, spt 5630 bytes
+[heap] before ctor    crtheap=ok processheap=ok
+[spt_engine] >> ctor
+[spt_engine] ctor first bytes: 55 8b ec 6a ff
+[spt_engine] leaf-call probe returned 0x001AF5DC (self=0x001AF5DC) flag=0
+[spt_engine] dispatching to engine thread
+[spt_engine] ctor ok, inner tree=0x01211940
+[heap] after ctor     crtheap=ok processheap=ok
+[levels] global vector: begin=0x00000000 end=0x00000000 cap=0x00000000
+[spt_engine] inner tree=0x01211940  first 16 dwords:
+    +0x00: 00a8c894 00000000 00000000 00000000
+    +0x10: 3f800000 3f800000 bf800000 00000000
+    +0x20: 00000100 00000000 00000000 00000000
+    +0x30: 00000000 00000000 00000000 0000000f
+[spt_engine] >> LoadTree(5630 bytes)
+[spt_engine] LoadTree returned TRUE
+[heap] after LoadTree crtheap=ok processheap=ok
+[spt_engine] SetTreeSize(0.500000, 0) -> +0x24 now 0.500000
+[spt_engine] this+0x24 size=0.500000  +0x0c=0x0120f300  +0x5c=0x011fe438  +0x60=0x01211a58  +0x45=0  +0x4c=0x012236a8
+[spt_engine] >> Compute(seed=737791)
+[spt_engine] Compute ok
+[heap] after Compute  crtheap=ok processheap=ok
+[spt_engine] LOD count (tree+0x70) = 2  default lod = 1 (alt 1)
+[spt_engine] >> GetGeometry
+[spt_engine] GetGeometry ok
+[spt_engine] branch verts=2069 lods=11
+    coords=0x01357f00 normals=0x01333f80 tex0=0x01342db8 strips=0x0126adf8 lens=0x011f3640
+    raw SGeometry dwords:
+      +0x00: 00000000 0000000b 011f3640 0126adf8
+      +0x10: 00000815 0133e830 01333f80 01350088
+      +0x20: 01348210 01357f00 01342db8 013647e8
+      +0x30: 00000000 00000000 42a80000 00000000
+      slot +0x08 = 0x011f3640  finite 2813/3000  range -5.56616e+29..2.80173e+29
+      slot +0x0c = 0x0126adf8  finite 2995/3000  range -5.56616e+29..2.61759e+29
+
+[spt_engine] EXCEPTION 0xc0000005 at 0x7681ca4e
+           read from address 0x00000815
+           dispatched from:
+           eip=0x7681ca4e esp=0x001af5e4 ebp=0x001af614
+           eax=0x000036f4 ecx=0x67df4ee4 edx=0x00000815 esi=0x00001000 edi=0x00000000
+      slot +0x10 = 0x00000815  UNREADABLE
+      slot +0x14 = 0x0133e830  finite 820/3000  range -5.56616e+29..80.4344
+      slot +0x18 = 0x01333f80  finite 3000/3000  range -0.999622..0.999234
+      slot +0x1c = 0x01350088  finite 3000/3000  range -0.999923..0.893783
+      slot +0x20 = 0x01348210  finite 3000/3000  range -0.998568..0.999889
+      slot +0x24 = 0x01357f00  finite 3000/3000  range -32.0986..87.2547
+      slot +0x28 = 0x01342db8  finite 3000/3000  range -552.823..621.626
+      slot +0x2c = 0x013647e8  finite 3000/3000  range 4.2513e-22..4.2513e-22
+[spt_engine] strip lengths available: 11 (nstrip=11)
+[verify] strip 0: 272 indices (first 16 0 17)
+[verify] strip 1: 160 indices (first 228 221 229)
+[verify] strip 2: 160 indices (first 921 914 922)
+[verify] strip 3: 160 indices (first 613 606 614)
+[verify] coords[0..2]=-8.25627 1.68001 0   normals[0..2]=-0.646253 0.332331 0.659447
+[verify] stripLengths[0..3]=10486032 10485920 10485920 10485920
+[spt_engine] wrote 2069 verts, 11 strips
+[spt_engine] leaf groups (tree+0xc0) = 2
+[spt_engine] >> GetGeometry(leaves)
+[spt_engine] GetGeometry(leaves) ok
+    raw leaf-region dwords (+0x78..+0xb8):
+      +0x78: 00000001 42a80000 00000000 00000224
+      +0x88: 012ced60 012b1ee8 0133ce00 012c3620
+      +0x98: 012ca300 012c3eb8 00000000 00000000
+      +0xa8: 00000000 00000000 00000000 00000000
+      +0xb8: 00000000 00000000 00000000 00000000
+[spt_engine] leaf count=548 centers=0x0133ce00
+    centers finite 548/548  bbox min -47.5894 -36.8234 15.0927  max 43.1975 50.2576 88.5168
+[spt_engine] wrote 548 leaf centers
+[spt_engine] wrote E:\Games\tes4skyrim-0.674\export\Oblivion.esm (Oblivion1c)\trees\spt_engine_dumps\treeyewforest_737791.bin

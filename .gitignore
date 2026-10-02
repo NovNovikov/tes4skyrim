@@ -1,0 +1,14 @@
+# Build artifacts: tens of GB per install, never committed.
+export/
+output/
+logs/
+temp/
+
+# Per-install: paths and settings of this machine only.
+conversion_config.json
+
+# Environment and caches.
+/.venv/
+__pycache__/
+*.pyc
+*.pyo

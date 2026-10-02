@@ -1,0 +1,53 @@
+# Local attributes: disable textual diffs for common binary file types
+# This prevents git (and VS Code) from generating expensive text diffs while
+# leaving files tracked so they can still be committed.
+
+# ── Release version stamping ────────────────────────────────────────────────
+# VERSION holds a literal `$Format:%(describe:tags)$` on master.  `export-subst`
+# makes git EXPAND it while building an archive, so the source zip GitHub
+# generates for a tag carries "0.581" even though no commit ever contained that
+# string.  That is the whole point: users install by downloading the tag's zip,
+# which has no .git, so the version has to be baked into the tree -- and the
+# only way to bake it in WITHOUT a commit is at archive time.
+#
+# The alternative we replaced was a CI commit that wrote the number into
+# VERSION and got tagged.  It could never reach master (protected: changes must
+# go through a PR), so it lived only on the tag, which meant master's VERSION
+# was permanently a lie and the same trick could not work for a PR merge.
+#
+# Expansion happens for `git archive` only.  A working checkout still reads the
+# raw `$Format:...$` literal, which version.py detects and replaces with the
+# git-derived version -- see version._read_version_file.
+VERSION export-subst
+
+# cmd.exe misreads labels in LF-only batch files, and GitHub's source zip keeps
+# the stored line endings, so the launcher is always checked out as CRLF.
+*.cmd text eol=crlf
+
+# Common libraries / executables
+*.dll -diff
+*.exe -diff
+*.pyd -diff
+*.so -diff
+*.lib -diff
+*.bin -diff
+
+# Game/asset formats
+*.nif -diff
+*.bsa -diff
+*.dds -diff
+*.tga -diff
+*.png -diff
+*.jpg -diff
+*.jpeg -diff
+
+# Plugin files
+*.esp -diff
+*.esm -diff
+
+# Archives
+*.zip -diff
+*.7z -diff
+*.tar -diff
+*.gz -diff
+*.jar -diff

@@ -1,0 +1,16 @@
+{
+    "explorer.excludeGitIgnore": false,
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.papyrus": true,
+        "**/.ruff_cache": true,
+    },
+    "files.watcherExclude": {
+        "**/output/**": true,
+        "**/export/**": true,
+        "**/temp/**": true,
+        "**/references/**": true,
+    },
+    "diffEditor.diffAlgorithm": "legacy"
+}

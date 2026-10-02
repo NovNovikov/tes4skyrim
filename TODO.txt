@@ -1,0 +1,82 @@
+Major Issues for V1:
+	1 - Iterate on quest and dialog conversion until everything is playable starting with Oblivion Main Quest
+
+	2 - Havok feels off. Items don't move like they should. Specifically, there seems to be too much inertia on small items, like I'm dragging a heavy object when it is something as small as a cup, Animated signs will get stuck in a position after swinging a bit, defying gravicty
+	
+	5 - Weather particle conversion (snow, rain) SPGD
+
+	6 - AutoUpdater
+
+Later Issues:
+	1 - Bound items like dagger not removed from inventory, only hands
+	
+	2 - Ajust zip step to pack loose files if bsas are out of date or not generated
+		Also zip should work on mod without plugin
+
+	3 - Arrows are held at an invisible location behind the arrow when nocking, and can't be picked up after shooting (maybe just scale them?)
+
+	4 - Restore Oblivion's remaining NPC-to-NPC conversations (see docs/commentary/tes5_import_dialogue.md)
+		DONE 2026-08-07: the 15 QUEST-ADVANCING chains are replayed by a generated driver quest
+		REMAINING: the ~240 pure-flavor chatter families are still dropped; they need SCEN synthesis with invented actor pairing.
+
+	5 - Magic and Spell Conversion
+		Mixed-range spells: check the Self half of a Target+Self spell lands on the caster
+		pme (PlayMagicEffectVisuals) plays only the effect shader, not the hit art
+		Creature casters have no magic/hand nodes, so casting art cannot attach
+		DLC ESPs: effects cloned from a master get no art (lookup reads only the plugin's own meshes)
+		Rebuild and test Nehrim (its own codes: BA01-BA10, DISE, DUMY)
+		Vanilla-effect clones and scripted bound-item clones have no name or menu art
+		Later: spellmaking, enchanting altar (spell selling done: merchants sell spell tomes through barter)
+		Spell tomes: a dependent plugin's Spell[] override of a master's merchant does not update that merchant's tomes
+
+	6 - Weapon and armor degradation through TESRuntime, plus a Repair service for Oblivion and Morrowind merchants, always in a Skyrim-styled repair window
+
+	7 - Make horses rideable
+
+	8 - Add progress bar for navmesh step
+
+	9 - Add optional skyrim weather remapping
+
+	10 - Add optional skyrim creature remapping
+
+	11 - Refine armor conversion: rings don't properly attach
+
+	12 - Creatures with geometry baked into skeleton.nif (no body-part NIFs, no NIFZ) get no generated race and alias to a vanilla one: scrib (28 records, Morroblivion), willothewisp (5, Oblivion)
+
+Minor Issues:
+	2 - Improve landscape layer blending
+	
+	4 - Harvested plants don't make a sound. Intentional?
+
+	7 - Flame atronach animated section not properly converted
+	
+	19 - Leaving a force-greet conversation can soft-lock
+
+	21 - FaceGen: Oblivion.exe statically links the FaceGen SDK (matrixVT.hpp, BSFaceGenModelMap, EGM/EGT basis load+apply). Use it like the SpeedTree engine harness to turn FGGS/FGGA coefficients into real vertex deltas
+
+Guns (FalloutNV):
+	G1 - HUD magazine readout: the counter text field path is a guess and the hook is disabled (hud.cpp, InstallHud not called); find the field in the loaded HUD movie and re-enable
+	G6 - Animated gun parts: the reload magazine swap works every reload; slide, hammer and bolt motion on fire and equip not yet checked in game
+	G8 - Ammo on a bow/melee holder: FNV rounds equipped with a non-gun still hang on QUIVER and show
+	G9 - Spare ammo, spread, VATS, weapon condition and weapon-specific reload speeds not implemented
+	G10 - NPC gun use: iGunShots is written per actor but AI never reloads or picks rounds; combat style for guns unverified
+	G11 - Automatic weapons: the loop attack / fGunLoopSpeed path untested in game
+	G12 - Zoom while sneaking: the iron stance SneakSwitch blend untested; sneak aim clips may be missing for some classes
+	G13 - fire.cpp is ~500 lines and mixes ammo, quiver, actions and keys; split the key thread and ammo logic out
+	G14 - Blend between the gun states: fire/reload/done/idle/moving transitions are instant (null transition effect); add crossfades where the poses differ, keeping the fire clips' shot triggers exact
+	G15 - Dual-wield 1h guns: mirror the FNV 1hp clips for the left hand (left-hand type 13 in the graph, mirrored clip set, per-hand ammo and shot counts in the DLL, left click = left gun)
+	G16 - Melee/bash key: FNV guns have their own bash (attackbash / 1hpattackbash clips); bind a key that sends a gun bash event instead of the dropped ActionLeftAttack
+	G17 - Holster/draw blend: equip and unequip clips cut to the aim pose with no crossfade
+	G18 - Shell casings: FNV ejects the WEAP's MOD2 casing model from ShellCasingNode on each shot; Skyrim has no equivalent (needs a casing projectile launched by the DLL)
+	G19 - Recoil on 1hp automatics (10mm SMG): base FNV ships no first-person 1hpattackloop (only the third-person pitched loops; GunRunnersArsenal adds the level clip), so the first-person graph falls back to another attack at weaponSpeedMult = shots/s (9x speed, violent); a still aim-pose loop now plays instead, so the first-person SMG holds still while firing. Find what FNV plays in first person for that class
+	G20 - Third-person aiming pitch: the AimPitchCurrent pitch blend exists but the torso twist toward the crosshair is unverified
+	G21 - Weapon mods (WMOD) and scoped weapons: scope zoom uses a scope overlay in FNV, not iron sights; the sight FOV path shows the mesh instead
+	G22 - Gun sounds beyond dry fire: fire sound is the engine's arrow release path; check the WEAP SNAM/XNAM per-shot and reload sounds are the FNV ones
+	G23 - NPC iron sights and hip fire: NPCs never zoom; the iGunZoom / fGunZoom variables are only written for the player
+	G24 - Strafe snap: strafing in first person shifts the whole skeleton and gun ~22 units toward the strafe direction against the render camera, almost at once (vanilla may do it slower). Not the direction blend: the clips' root/look/camera bones are static, and BSCyclicBlendTransitionGenerator never eases Direction (its duration runs only on CyclicCrossBlend). Next: record a vanilla sword vs the pistol strafing, weapon against the render camera (the WorldRoot Camera under PlayerCamera+0x20) with Direction
+
+Morrowind:
+	1 - Water missing in interiors with it flagged
+	2 - Magic effects with no Skyrim mechanism await the MorrowindRuntime
+	3 - Enchanting service: the NPC should enchant for a fee at the NPC's skill, not the player's (fee = enchantment cost x fEnchantmentValueMult, barter-adjusted; swap the player's Enchanting for the NPC's while the menu is open; no player skill gain)
+	4 - Spellmaking service row (sSpellmakingMenuTitle) has no Skyrim menu yet

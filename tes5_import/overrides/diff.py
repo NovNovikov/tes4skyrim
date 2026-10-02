@@ -1,0 +1,157 @@
+"""Author-intent diffing between a master's export and a plugin's export.
+
+The rule for converting an override is: take the master's CONVERTED record
+exactly, then replace only the fields the plugin's AUTHOR changed. This module
+answers "what did the author change?" — and it answers it from the two TES4
+exports, never by comparing two conversion runs.
+
+Why that distinction matters. Diffing conversions conflates two things:
+
+    the author changed this field        (real override content)
+    our pass re-derived it differently   (an artifact of less context)
+
+and the converter cannot tell them apart. Nehrim's Translation.esp made that
+concrete: comparing conversions reported 1821 changed NPC_ `RNAM` values, so
+every NPC's race was rewritten to a vanilla Skyrim race and the game hung on
+load. Comparing exports reports ZERO changed RNAMs, because the author never
+touched a single one. A field that neither export changes can never drift.
+
+Order-insensitivity is the other half. Oblivion does not preserve list order
+between a master and a plugin that overrides it: 1166 of 1264 Nehrim NPC_
+inventories differ positionally while only 5 differ as a set. A positional
+diff would rewrite 1161 inventories for no reason.
+"""
+
+import re
+
+# Indexed export keys look like `Item[3].FormID` / `Spell[0]`.
+_INDEXED_RE = re.compile(r'^(?P<name>[A-Za-z0-9_.]+)\[(?P<idx>\d+)\](?P<rest>.*)$')
+
+# Keys that are bookkeeping rather than authored content. Comparing them
+# produces spurious differences: a list's count follows from the list itself,
+# and the record's own identity is not a field anyone "changed".
+_IGNORED_KEYS = frozenset({
+    'FormID',
+    'Signature',
+    'EditorID',
+})
+
+# Counts derived from an indexed list end in 'Count' (ItemCount, SpellCount,
+# AIPackageCount, TargetCount, ...). The list comparison already covers any
+# real change, and Oblivion re-counts them per file.
+def _is_count_key(key: str) -> bool:
+    return key.endswith('Count')
+
+
+def _mask_u8(value: str) -> str:
+    """The low byte of an integer export value, as a string; input on failure.
+
+    Normalizes TES4 fields whose export value carries UNINITIALIZED CS MEMORY
+    beside the real data.  QSTA 'Flags' is a u8 (Compass Marker Ignores Locks)
+    plus 3 unused garbage bytes (wbDefinitionsTES4: wbInteger(itU8) +
+    wbUnused(3)); comparing the raw u32 reported 58 quest-target "changes"
+    whose meaningful byte was identical.
+    """
+    try:
+        return str(int(value) & 0xFF)
+    except (ValueError, TypeError):
+        return value
+
+
+_LIST_FIELD_NORMALIZERS = {
+    ('Target', 'Flags'): _mask_u8,
+}
+
+
+# LAND VHGT is `float Offset + 33*33 signed byte deltas + wbUnused(3)`
+# (wbDefinitionsCommon.pas wbLandHeights). Those last 3 bytes are uninitialised
+# CS memory, and vanilla proves the engine ignores them: a census of 15,410
+# Skyrim.esm LAND records finds arbitrary junk there (000000 is merely the most
+# common of many values — 3e9e23, b57086, ea5b25 ... each appear in the
+# hundreds-to-thousands). Comparing them reported phantom VHGT changes on 6 of
+# DLCBattlehornCastle's 16 LAND overrides whose real terrain was identical, and
+# rewriting them would gratuitously diverge from the master's bytes.
+_VHGT_PAYLOAD_NIBBLES = 2 * (4 + 33 * 33)
+
+
+def _strip_vhgt_pad(value: str) -> str:
+    if isinstance(value, str) and len(value) > _VHGT_PAYLOAD_NIBBLES:
+        return value[:_VHGT_PAYLOAD_NIBBLES]
+    return value
+
+
+# Scalar keys whose export value carries trailing uninitialised bytes.
+_SCALAR_NORMALIZERS = {
+    'VHGT': _strip_vhgt_pad,
+}
+
+
+def _split_indexed(record: dict) -> tuple:
+    """Partition a record into (scalars, {list_name: {index: {field: value}}})."""
+    scalars = {}
+    lists = {}
+    for key, value in record.items():
+        m = _INDEXED_RE.match(key)
+        if not m:
+            scalars[key] = value
+            continue
+        name = m.group('name')
+        idx = int(m.group('idx'))
+        field = m.group('rest').lstrip('.') or ''
+        lists.setdefault(name, {}).setdefault(idx, {})[field] = value
+    return scalars, lists
+
+
+def _list_as_multiset(name: str, entries: dict) -> list:
+    """Normalize one indexed list into an order-independent comparable form."""
+    out = []
+    for _idx, fields in sorted(entries.items()):
+        normed = []
+        for field, value in sorted(fields.items()):
+            fn = _LIST_FIELD_NORMALIZERS.get((name, field))
+            normed.append((field, fn(value) if fn else value))
+        out.append(tuple(normed))
+    return sorted(out)
+
+
+def diff_records(master_rec: dict, plugin_rec: dict) -> dict:
+    """What the plugin's author changed, relative to the master.
+
+    Returns {key: plugin_value} for scalar keys, plus {list_name: True} for
+    indexed lists whose CONTENTS differ as a multiset. An empty result means
+    the plugin's record is authorially identical to the master's, so the
+    override should be dropped rather than emitted.
+    """
+    m_scalars, m_lists = _split_indexed(master_rec)
+    p_scalars, p_lists = _split_indexed(plugin_rec)
+
+    # SORTED, not set order: `changed` becomes `pending` in override_builder,
+    # whose insert loop puts every newly-inserted subrecord at the SAME index,
+    # so dict order decides the emitted subrecord order. Python randomizes
+    # string hashing per process, so a bare set made two builds of the same
+    # input disagree -- CATShipCabinDoorExteriorREF came out `DATA EDID XTEL`
+    # in one run and `DATA XTEL EDID` in the next. The output ESM must stay
+    # byte-reproducible (docs/commentary/performance.md).
+    changed = {}
+    for key in sorted(set(m_scalars) | set(p_scalars)):
+        if key in _IGNORED_KEYS or _is_count_key(key):
+            continue
+        m_val, p_val = m_scalars.get(key), p_scalars.get(key)
+        fn = _SCALAR_NORMALIZERS.get(key)
+        if fn and fn(m_val) == fn(p_val):
+            continue
+        if m_val != p_val:
+            changed[key] = p_val
+
+    for name in sorted(set(m_lists) | set(p_lists)):
+        m_entries = _list_as_multiset(name, m_lists.get(name, {}))
+        p_entries = _list_as_multiset(name, p_lists.get(name, {}))
+        if m_entries != p_entries:
+            changed[name + '[]'] = True
+
+    return changed
+
+
+def changed_keys(master_rec: dict, plugin_rec: dict) -> set:
+    """Just the set of changed keys (see diff_records)."""
+    return set(diff_records(master_rec, plugin_rec))

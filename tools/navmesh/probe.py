@@ -1,0 +1,318 @@
+"""Shared cell-loading helpers for navmesh debugging tools.
+
+Loads a cell's records, collision cache, pathgrid and world-space geometry, so
+the render/probe tools all agree on how a cell is assembled.
+
+    python tools/navmesh/probe.py --cell AnvilFightersGuild
+"""
+
+import argparse
+import os
+import pickle
+import sys
+import time
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from asset_convert.collision import collision_extract as ce
+from tes5_import.navmesh import world
+from tes5_import.navmesh.pool import build_base_model_index, model_key
+from tes5_import.base.text_reader import (
+    parse_export_directory, group_records_by_type, get_float, get_formid,
+    get_int, get_str,
+)
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
+from output_layout import assets_for
+
+_TYPES = {'CELL', 'REFR', 'PGRD', 'LAND', 'STAT', 'CONT', 'FURN', 'ACTI',
+          'TREE', 'FLOR', 'DOOR', 'WRLD'}
+
+
+_BY_TYPE_MEMO = {}
+
+
+def _free_ram_bytes():
+    """Physically free RAM, or None if it cannot be determined."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _MS(ctypes.Structure):
+            _fields_ = [('dwLength', wintypes.DWORD),
+                        ('dwMemoryLoad', wintypes.DWORD),
+                        ('ullTotalPhys', ctypes.c_uint64),
+                        ('ullAvailPhys', ctypes.c_uint64),
+                        ('ullTotalPageFile', ctypes.c_uint64),
+                        ('ullAvailPageFile', ctypes.c_uint64),
+                        ('ullTotalVirtual', ctypes.c_uint64),
+                        ('ullAvailVirtual', ctypes.c_uint64),
+                        ('ullAvailExtendedVirtual', ctypes.c_uint64)]
+
+        ms = _MS()
+        ms.dwLength = ctypes.sizeof(_MS)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            return int(ms.ullAvailPhys)
+    except Exception:
+        pass
+    return None
+
+
+def _guard_ram(cache_path):
+    """Refuse to unpickle the index when free RAM cannot absorb it.
+
+    THE FAILURE THIS PREVENTS: the index is ~2 GB on disk and expands to
+    roughly 3x that as live Python objects.  The in-process memo below makes
+    repeat loads free WITHIN one process, but a PROCESS POOL defeats it
+    entirely -- every spawned worker unpickles its own independent copy.
+    `navmesh/audit.py --workers 8` therefore wanted ~8 x 6 GB on a 32 GB
+    machine, drove it into the pagefile, and hard-locked the whole desktop
+    (twice, each needing a reboot).
+
+    Failing loudly with a usable message beats taking the machine down, so
+    this raises instead of loading when the headroom is not there.
+    """
+    try:
+        need = os.path.getsize(cache_path) * 3
+    except OSError:
+        return
+    free = _free_ram_bytes()
+    if free is None or free > need:
+        return
+    raise MemoryError(
+        'refusing to load %s: needs ~%.1f GB, only %.1f GB free.\n'
+        'The export index loads PER PROCESS, so a worker pool multiplies it.\n'
+        'Run with fewer workers (--workers 2), or single-process.'
+        % (cache_path, need / 2 ** 30, free / 2 ** 30))
+
+
+def load_by_type(export_dir, reindex=False):
+    """Parsed export records grouped by type, CACHED to disk AND in-process.
+
+    Parsing the export is ~78s single-threaded (1.1M records) and every tool here
+    needs it, so a re-render used to cost more in parsing than in rendering.  The
+    parsed slices are pickled next to the export and reused.
+
+    The in-process memo is NOT an optimisation, it is a safety belt: the pickle
+    is ~2 GB on disk and expands to several GB of live objects, so a caller that
+    loads two cells in one process (a profiling sweep, a batch compare) used to
+    allocate a SECOND independent multi-GB graph and could exhaust RAM and wedge
+    the machine into swap.  One graph per (dir, process), shared by every caller.
+    """
+    key = os.path.abspath(export_dir)
+    if not reindex and key in _BY_TYPE_MEMO:
+        return _BY_TYPE_MEMO[key]
+
+    cache = os.path.join(export_dir, 'navmesh_index.pkl')
+    if os.path.exists(cache) and not reindex:
+        _guard_ram(cache)
+        with open(cache, 'rb') as fh:
+            by_type = pickle.load(fh)
+        _BY_TYPE_MEMO[key] = by_type
+        return by_type
+
+    t0 = time.time()
+    recs = parse_export_directory(export_dir, type_filter=_TYPES)
+    by_type = group_records_by_type(recs)
+    with open(cache, 'wb') as fh:
+        pickle.dump(by_type, fh, pickle.HIGHEST_PROTOCOL)
+    print('indexed export in %.0fs -> %s' % (time.time() - t0, cache))
+    _BY_TYPE_MEMO[key] = by_type
+    return by_type
+
+
+def load_cell(export_dir, cell_arg, load_collision=True):
+    """Return a dict with cell/refrs/pgrd/land/nodes/edges/base_model.
+
+    `door_fids` maps raw low-24 DOOR base FormID -> model key, so _collect_doors
+    can correct the door point from the REFR pivot (hinge) to the panel center
+    via the door-centers cache (test-navmesh-2 centering; master used the raw
+    offset hinge position).
+    """
+    if load_collision:
+        ce.load_collision(str(assets_for(export_dir) / 'collision_cache.bin'),
+                          quiet=True)
+
+    by_type = load_by_type(export_dir)
+
+    cell = None
+    # "grid:X:Y" (or "grid:X,Y") selects an exterior cell by grid coordinate
+    # (Tamriel first).  Colons survive the comma-splitting of --cell lists.
+    if cell_arg.lower().startswith('grid:'):
+        try:
+            gx, gy = (int(v) for v in
+                      cell_arg[5:].replace(',', ':').split(':'))
+        except ValueError:
+            raise SystemExit('bad grid spec %r (want grid:X:Y)' % cell_arg)
+        matches = [c for c in by_type.get('CELL', [])
+                   if c.get('ParentWRLD') and c.get('ParentWRLD') != '00000000'
+                   and get_int(c, 'XCLC.X', 10**9) == gx
+                   and get_int(c, 'XCLC.Y', 10**9) == gy]
+        matches.sort(key=lambda c: c.get('ParentWRLD') != '0000003C')
+        cell = matches[0] if matches else None
+    else:
+        for c in by_type.get('CELL', []):
+            if c.get('FormID', '').upper() == cell_arg.upper():
+                cell = c
+                break
+            if (c.get('EditorID') or '').lower() == cell_arg.lower():
+                cell = c
+                break
+    if cell is None:
+        raise SystemExit('cell %s not found' % cell_arg)
+
+    fid = cell['FormID']
+    refrs = [r for r in by_type.get('REFR', [])
+             if r.get('ParentCELL', '').upper() == fid.upper()]
+    pgrd = next((p for p in by_type.get('PGRD', [])
+                 if p.get('ParentCELL', '').upper() == fid.upper()), None)
+    land = next((l for l in by_type.get('LAND', [])
+                 if l.get('ParentCELL', '').upper() == fid.upper()), None)
+
+    base_model = build_base_model_index(by_type)
+
+    nodes, edges = [], []
+    if pgrd is not None:
+        n = get_int(pgrd, 'DATA.PointCount', 0)
+        for i in range(n):
+            if pgrd.get('Point[%d].X' % i) is None:
+                break
+            nodes.append((get_float(pgrd, 'Point[%d].X' % i),
+                          get_float(pgrd, 'Point[%d].Y' % i),
+                          get_float(pgrd, 'Point[%d].Z' % i)))
+        seen = set()
+        for i in range(len(nodes)):
+            deg = get_int(pgrd, 'Point[%d].Connections' % i, 0)
+            for j in range(deg):
+                tgt = pgrd.get('Point[%d].Edge[%d]' % (i, j))
+                if tgt is None:
+                    break
+                try:
+                    t = int(tgt)
+                except ValueError:
+                    continue
+                if 0 <= t < len(nodes) and t != i:
+                    key = (min(i, t), max(i, t))
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(key)
+
+    door_fids = {}
+    for d in by_type.get('DOOR', []):
+        f = get_formid(d, 'FormID')
+        if not f:
+            continue
+        m = get_str(d, 'Model.MODL') or get_str(d, 'MODL')
+        door_fids[f] = model_key(m) if m else None
+
+    from tes5_import.navmesh.from_pgrd import collect_doors, load_door_centroids
+    load_door_centroids(
+        str(assets_for(export_dir) / 'door_centers_cache.json'),
+                        quiet=True)
+    doors = [(x, y, z, r, tp, w)
+             for (x, y, z, r, _f, tp, w) in collect_doors(refrs, door_fids)]
+
+    is_ext = bool(cell.get('ParentWRLD') and
+                  cell.get('ParentWRLD') != '00000000')
+    grid_x = get_int(cell, 'XCLC.X', 0) if is_ext else 0
+    grid_y = get_int(cell, 'XCLC.Y', 0) if is_ext else 0
+
+    return {
+        'by_type': by_type, 'cell': cell, 'cell_fid': fid, 'refrs': refrs,
+        'pgrd': pgrd, 'land': land, 'nodes': nodes, 'edges': edges,
+        'base_model': base_model, 'door_fids': door_fids, 'doors': doors,
+        'is_exterior': is_ext, 'grid_x': grid_x, 'grid_y': grid_y,
+    }
+
+
+def cell_geometry(ctx, pad=200.0):
+    """(walkable, blocking, bounds) world-space triangles for a loaded cell."""
+    ox = ctx['grid_x'] * 4096.0
+    oy = ctx['grid_y'] * 4096.0
+    walk, block = world.gather_cell_geometry(
+        ctx['refrs'], ctx['base_model'], ce.get_collision,
+        land_rec=ctx['land'] if ctx['is_exterior'] else None,
+        origin_x=ox, origin_y=oy)
+
+    parts = [a for a in (walk, block) if len(a)]
+    if not parts:
+        return walk, block, None
+    allt = np.concatenate(parts, axis=0)
+    bounds = (float(allt[:, :, 0].min()) - pad,
+              float(allt[:, :, 1].min()) - pad,
+              float(allt[:, :, 2].min()) - pad,
+              float(allt[:, :, 0].max()) + pad,
+              float(allt[:, :, 1].max()) + pad,
+              float(allt[:, :, 2].max()) + pad)
+    return walk, block, bounds
+
+
+def probe_point(ctx, px, py, radius=64.0):
+    """Dump what the navmesh build knows about one XY spot: nearby REFRs and
+    pathgrid nodes/edge samples."""
+    import math
+
+    print('--- probe (%.0f, %.0f) r=%.0f ---' % (px, py, radius))
+    for r in ctx['refrs']:
+        try:
+            rx, ry, rz = (float(r.get('PosX')), float(r.get('PosY')),
+                          float(r.get('PosZ')))
+        except (TypeError, ValueError):
+            continue
+        if abs(rx - px) < radius * 2 and abs(ry - py) < radius * 2:
+            base = get_formid(r, 'NAME')
+            print('  REFR %s base=%06X model=%s pos=(%.0f,%.0f,%.0f) scale=%s'
+                  % (r.get('FormID'), base,
+                     ctx['base_model'].get(base, '?'),
+                     rx, ry, rz, r.get('XSCL.Scale', '1')))
+    for i, (nx, ny, nz) in enumerate(ctx['nodes']):
+        if abs(nx - px) < radius * 2 and abs(ny - py) < radius * 2:
+            print('  PGRD node %d (%.0f,%.0f,%.0f)' % (i, nx, ny, nz))
+    for (i, j) in ctx['edges']:
+        a, b = ctx['nodes'][i], ctx['nodes'][j]
+        # closest point of the edge to the probe, in XY
+        vx, vy = b[0] - a[0], b[1] - a[1]
+        den = vx * vx + vy * vy
+        t = 0.0 if den < 1e-9 else max(0.0, min(1.0, (
+            (px - a[0]) * vx + (py - a[1]) * vy) / den))
+        cx, cy = a[0] + t * vx, a[1] + t * vy
+        if math.dist((cx, cy), (px, py)) < radius:
+            print('  PGRD edge %d-%d  z@closest=%.0f (a=%.0f b=%.0f t=%.2f)'
+                  % (i, j, a[2] + t * (b[2] - a[2]), a[2], b[2], t))
+
+    # (The voxel span-column dump that used to follow went away with the
+    # voxel/region/spanmesh generator — the corridor model has no heightfield.)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--export', default='export/Oblivion.esm')
+    ap.add_argument('--cell', required=True)
+    ap.add_argument('--probe', default=None,
+                    help='world "X,Y": dump REFRs/pathgrid/span column there')
+    ap.add_argument('--probe-radius', type=float, default=64.0)
+    a = ap.parse_args()
+
+    ctx = load_cell(a.export, a.cell)
+    if a.probe:
+        px, py = (float(v) for v in a.probe.split(','))
+        probe_point(ctx, px, py, a.probe_radius)
+        return
+    walk, block, bounds = cell_geometry(ctx)
+    print('cell %s (%s)  exterior=%s'
+          % (ctx['cell_fid'], ctx['cell'].get('EditorID'), ctx['is_exterior']))
+    print('refrs=%d  pathgrid nodes=%d edges=%d'
+          % (len(ctx['refrs']), len(ctx['nodes']), len(ctx['edges'])))
+    print('collision: walkable=%d blocking=%d' % (len(walk), len(block)))
+    if bounds is None:
+        print('no geometry')
+        return
+    print('bounds: x %.0f..%.0f  y %.0f..%.0f  z %.0f..%.0f'
+          % (bounds[0], bounds[3], bounds[1], bounds[4], bounds[2], bounds[5]))
+
+
+if __name__ == '__main__':
+    main()
