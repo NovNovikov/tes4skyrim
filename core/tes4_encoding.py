@@ -73,10 +73,14 @@ def choice() -> str:
 
 
 def pin(codec: str) -> str:
-    """Fix the env var to `codec` and return the canonical name."""
-    codec = normalize(codec)
-    os.environ[ENCODING_ENV_VAR] = codec
-    return codec
+    """Fix the env var to `codec` and return the resolved codec.
+
+    `auto` is stored as-is so the export stage still detects per binary;
+    anything else is canonicalised, unknown names falling back to cp1252.
+    """
+    raw = str(codec or "").strip().lower()
+    os.environ[ENCODING_ENV_VAR] = raw if raw in ENCODING_CHOICES else normalize(codec)
+    return current()
 
 
 def current() -> str:

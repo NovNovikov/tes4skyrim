@@ -40,6 +40,13 @@ def test_pin_canonicalises(monkeypatch):
     assert current() == "cp1251"
 
 
+def test_pin_keeps_auto_for_detection(monkeypatch):
+    """`auto` survives pinning so the export stage still scans the binary."""
+    monkeypatch.delenv(ENCODING_ENV_VAR, raising=False)
+    assert pin("auto") == "cp1252"
+    assert choice() == "auto"
+
+
 def test_russian_round_trip(monkeypatch):
     """cp1251 bytes decode to Cyrillic and encode back identically."""
     monkeypatch.setenv(ENCODING_ENV_VAR, "cp1251")
