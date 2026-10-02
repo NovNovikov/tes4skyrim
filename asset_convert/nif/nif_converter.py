@@ -43,6 +43,7 @@ from asset_convert.nif.nif_materials_morrowind import carry_havok_material
 from asset_convert.nif.nif_converter_morrowind import (
     animate_doors, attach_morrowind_collision, build_skin_partitions,
     disable_specular, is_marker_shape, is_morrowind, latch_root_flags,
+    opaque_unblended_shapes,
     run_morrowind_fixups, source_root_flags, strip_collision_nodes,
     strip_spinning_doors)
 from asset_convert.nif.tex_paths import rewrite_tex_path
@@ -1001,6 +1002,7 @@ def _convert_roots(data, stats, fix_textures, src_path, creature,
     if was_morrowind:
         strip_collision_nodes(data, stats)
         disable_specular(data, stats)
+        opaque_unblended_shapes(data, stats)
         animate_doors(data, stats)
     else:
         strip_spinning_doors(data, stats)

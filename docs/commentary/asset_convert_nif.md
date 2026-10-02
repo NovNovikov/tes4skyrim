@@ -2609,6 +2609,33 @@ glossiness and strength keep the vanilla defaults, exactly as vanilla's own
 non-specular shapes do.
 
 
+## Morrowind material alpha
+<a id="morrowind-material-alpha"></a>
+
+**Code:** `asset_convert/nif/nif_converter_morrowind.py::opaque_unblended_shapes`,
+called from `_convert_roots` beside `disable_specular`; 4.0.0.2 sources only.
+
+Tamriel Data's Hlaalu ledge/wall set (`tr_in_hla_ldgwall_side.nif` and
+relatives) vanished in game: every shape carries `NiMaterialProperty` alpha
+0.0 and no `NiAlphaProperty`. Morrowind draws these solid -- OpenMW only puts
+material alpha into the diffuse color
+(`references/openmw/components/nifosg/nifloader.cpp:2765`), and without an
+alpha property nothing blends. Skyrim's `BSLightingShaderProperty` alpha (and
+`BSEffectShaderProperty` emissive alpha) fades the shape regardless, so the
+straight copy in `shaders.py::_harvest_material` made them invisible.
+
+The pass raises shader alpha to 1.0 on every converted shape with no alpha
+property; a shape that has one keeps its authored alpha. Oblivion and later
+meshes never reach it -- there the copy is unchanged.
+
+Measured: 180 of 38,637 converted Tamriel Data meshes had a faded unblended
+shape (41 in `tr/i`, 31 `tr/f`, 27 `pc/f`, 16 `sky/m`, rest scattered); 0
+after the rebuild. Vanilla Morrowind (1,330 meshes): every low-alpha shape
+carries its own `NiAlphaProperty`, so none change. No sampled 4.0.0.2 shape
+(2,681 TR + 1,330 vanilla) inherits its alpha property from a parent node,
+which this pass would otherwise make opaque.
+
+
 ## Morrowind triangle flag
 <a id="morrowind-triangle-flag"></a>
 

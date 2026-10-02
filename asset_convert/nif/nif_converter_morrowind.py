@@ -652,6 +652,31 @@ def disable_specular(data, stats=None) -> int:
     return cleared
 
 
+def opaque_unblended_shapes(data, stats=None) -> int:
+    """Raise shader alpha to 1 on every shape that carries no NiAlphaProperty.
+
+    Returns the number of shaders changed. Morrowind blends nothing without an
+    alpha property, so its material alpha is inert there; Skyrim's shader alpha
+    fades the shape regardless, and an authored 0 makes it invisible.
+    See: docs/commentary/asset_convert_nif.md#morrowind-material-alpha
+    """
+    raised = 0
+    for root in data.roots:
+        for block in root.tree():
+            props = getattr(block, 'bs_properties', None)
+            if not props or props[1] is not None:
+                continue
+            shader = props[0]
+            if isinstance(shader, NifFormat.BSLightingShaderProperty) and shader.alpha < 1.0:
+                shader.alpha = 1.0
+                raised += 1
+            elif isinstance(shader, NifFormat.BSEffectShaderProperty) and shader.emissive_color.a < 1.0:
+                shader.emissive_color.a = 1.0
+                raised += 1
+    _count(stats, 'mw_unblended_alpha_raised', raised)
+    return raised
+
+
 def run_morrowind_fixups(data, stats=None) -> None:
     """Apply the Morrowind-only repairs that must precede the version upgrade."""
     raise_triangle_flags(data, stats)
