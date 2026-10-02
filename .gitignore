@@ -1,14 +1,65 @@
-# Build artifacts: tens of GB per install, never committed.
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
 export/
 output/
 logs/
 temp/
+/references/
+# Private Python environment made by "TES Auto-Convert.cmd".
+/.venv/
 
-# Per-install: paths and settings of this machine only.
+*_log.txt
+*.log
+
+# Patch/merge backup files. `patch` and most merge tools drop these next to
+# the source; six of them were committed once already.
+*.orig
+*.rej
+*.bak
+
+.papyrus
+tools/*.txt
+external/lodgen/*.txt
+
+# Non-redistributable external tool — user supplies this (see README)
+external/xwmaencode/xWMAEncode.exe
+
+# Native navmesh extension: the built .pyd in native/dist/ IS committed (the
+# pipeline requires it and most machines have no compiler), but the link-time
+# artifacts and object files are not — nothing links against the extension.
+native/build/
+native/dist/*.lib
+native/dist/*.exp
+native/dist/*.pdb
+native/dist/*.obj
+# Navmesh cache drop-in: keep the folder and its README, ignore the zips.
+navmesh_cache/*
+!navmesh_cache/README.md
+# A user's own navmesh pins (the GUI editor's default save folder).
+my_navmesh_pins/
+
+# Per-install record of which version last ran each pipeline step.  Local
+# history, not source: committing it would ship one machine's conversion state
+# to every user and make their upgrade check lie.
+.conversion_state.json
+
+# Per-install settings, and the only file the running app rewrites.  Same
+# rationale: committing it ships one machine's data paths and worker count to
+# every user, and an updater that overwrote it would wipe the real ones.
+# Defaults live in core/gui/config.py: DEFAULT_CONFIG.
 conversion_config.json
 
-# Environment and caches.
-/.venv/
-__pycache__/
-*.pyc
-*.pyo
+# Renames the gate saw before they were staged.  Bridges a local write to a
+# local stage, after which git's own rename detection takes over.
+.claude/renames.json
+
+# Hand-editing artifacts from tools/cellview (local ground truth, not shipped)
+tests/navmesh_authored/
+tests/navmesh_fixed/
+
+# Local-only tool outputs and third-party binaries, never committed.
+external/lodgen/*.txt
+external/xwmaencode/*.exe
