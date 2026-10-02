@@ -285,6 +285,43 @@ _TEXT_SUBS = frozenset(("FULL", "DESC"))
 #: Bytes undefined in cp1252 but Cyrillic capitals in cp1251: never Western.
 _SIGNAL_BYTES = frozenset((0x81, 0x8D, 0x8F, 0x90, 0x9D))
 
+#: Detection sampling: stride to ~3000 probes, at most 4000 records or 64 KB.
+_PROBE_DIVISOR = 3000
+_PROBE_CAP = 4000
+_SIZE_CAP = 65536
+
+#: A verdict needs this much text, at this high-byte density, for cp1251.
+_FIELDS_MIN = 8
+_BYTES_MIN = 64
+_DENSITY_MIN = 0.10
+
+
+def decide_codec(payloads) -> str:
+    """'cp1251' when sampled string payloads read as Russian, else 'cp1252'.
+
+    Any signal byte (unrepresentable in cp1252) decides at once; otherwise a
+    high-byte density >= 10% over >= 8 fields and >= 64 bytes decides.
+    Shared by the TES4 and TES3 detectors so the rule cannot drift between
+    them. Measured on TES4 FULL/DESC: EN Oblivion.esm 0.03%, RU 73.23%.
+    """
+    high = total = fields = 0
+    size = 0
+    for payload in payloads:
+        for byte in payload:
+            if byte in _SIGNAL_BYTES:
+                return "cp1251"
+            if byte >= 0x80:
+                high += 1
+            total += 1
+        fields += 1
+        size += len(payload)
+        if fields >= _FIELDS_MIN and size >= _BYTES_MIN \
+                and high / total >= _DENSITY_MIN:
+            return "cp1251"
+        if size >= _SIZE_CAP:
+            break
+    return "cp1252"
+
 
 def _text_payloads(source_path: str, records: list):
     """FULL/DESC payloads spread across `source_path`.
@@ -296,13 +333,13 @@ def _text_payloads(source_path: str, records: list):
     """
     taken = 0
     size = 0
-    step = max(1, len(records) // 3000)
+    step = max(1, len(records) // _PROBE_DIVISOR)
     with open(source_path, "rb") as fh:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
         try:
             hdr_size = detect_header_size(mm)
             for rec in records[::step]:
-                if taken >= 4000 or size >= 65536:
+                if taken >= _PROBE_CAP or size >= _SIZE_CAP:
                     break
                 taken += 1
                 if rec.offset < 0:
@@ -329,22 +366,7 @@ def detect_codec(source_path: str, records: list) -> str:
 
     See: docs/reference/pipeline.md#tes4-text-encoding
     """
-    high = total = fields = 0
-    size = 0
-    for payload in _text_payloads(source_path, records):
-        for byte in payload:
-            if byte in _SIGNAL_BYTES:
-                return "cp1251"
-            if byte >= 0x80:
-                high += 1
-            total += 1
-        fields += 1
-        size += len(payload)
-        if fields >= 8 and size >= 64 and high / total >= 0.10:
-            return "cp1251"
-        if size >= 65536:
-            break
-    return "cp1252"
+    return decide_codec(_text_payloads(source_path, records))
 
 
 def configure_for_source(source_path: str, records: list) -> str:

@@ -158,7 +158,7 @@ def _add_navmesh_menu(app, settings_menu, menu_opts) -> None:
 
 
 def _add_encoding_menu(app, settings_menu, menu_opts) -> None:
-    """Settings > TES4 text encoding: auto-detect or a fixed codepage.
+    """Settings > Plugin text encoding: auto-detect or a fixed codepage.
 
     The Russian install needs cp1251; auto-detect measures the plugin binary
     (Western Oblivion.esm 0.03% high bytes, Russian 73%). Applies on the next
@@ -177,7 +177,7 @@ def _add_encoding_menu(app, settings_menu, menu_opts) -> None:
         enc_menu.add_radiobutton(label=labels.get(name, name), value=name,
                                  variable=app.tes4_encoding_var,
                                  command=_changed)
-    settings_menu.add_cascade(label="TES4 text encoding", menu=enc_menu)
+    settings_menu.add_cascade(label="Plugin text encoding", menu=enc_menu)
 
 
 def _add_lod_detail_menu(app, settings_menu, menu_opts) -> None:

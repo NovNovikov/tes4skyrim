@@ -240,16 +240,17 @@ and Tamriel Rebuilt in Morroblivion mode back to back without touching the
 saved setting; `--no-engine-branches` forces the Python SpeedTree generator.
 
 <a id="tes4-text-encoding"></a>
-### TES4 text encoding
+### Plugin text encoding
 
-Oblivion stores text in the install's Windows codepage: cp1252 for Western
+Oblivion and Morrowind store text in the install's Windows codepage: cp1252 for Western
 installs, cp1251 for the Russian 1C install. Decoding Russian bytes as cp1252
 mangles every name and turns five Cyrillic capitals (0x81/0x8D/0x8F/0x90/0x9D)
 into U+FFFD, which then matches no voice folder on disk.
 
-`Settings > TES4 text encoding` (saved as `tes4Encoding`, per-run flag
+`Settings > Plugin text encoding` (saved as `tes4Encoding`, per-run flag
 `--tes4-encoding`, env `TESCONV_TES4_ENCODING`): `auto` (default), `cp1252`,
-`cp1251`, `cp1250`. Auto scans the plugin binary's FULL/DESC payloads: any
+`cp1251`, `cp1250`. Auto scans the plugin binary's FULL/DESC payloads for TES4,
+or FNAM/DESC/TEXT/RNAM/NAME payloads for TES3: any
 signal byte, or >= 10% high bytes over >= 8 fields and >= 64 bytes, means
 cp1251. Measured: EN Oblivion.esm 0.03%, RU 73.23% over 12,668 fields.
 The export pins the resolved codec and writes it as `ENCODING=` into
@@ -257,6 +258,12 @@ The export pins the resolved codec and writes it as `ENCODING=` into
 (`core.plugin_masters.export_encoding`, default cp1252 for old exports).
 Voice matching additionally indexes each race folder under its BSA-extracted
 latin-1 spelling, so loose and extracted folders resolve to the same VTYP.
+
+TES3 record and script IDs are decoded again after detection, before object
+registration, master lookup or reference resolution. Inventory IDs, AI package
+targets, travel destinations and script variables use the same selected codec.
+The Morroblivion compatibility patch detects its codec from Morrowind.esm
+before comparing vanilla IDs with the converted masters.
 
 Limits: Polish/Czech installs need an explicit `cp1250` (dense high bytes
 auto-resolve to cp1251). Cyrillic mesh/texture paths inside BSAs are decoded

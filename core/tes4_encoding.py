@@ -1,6 +1,6 @@
-"""TES4 plugin text encoding: Western cp1252 or a localised codepage.
+"""TES3/TES4 plugin text encoding: Western cp1252 or a localised codepage.
 
-Oblivion stores text in the install's Windows codepage, not UTF-8: Western
+Oblivion and Morrowind store text in the install's Windows codepage, not UTF-8: Western
 installs use cp1252, the Russian 1C install cp1251. Decoding Russian bytes as
 cp1252 mangles every name into mojibake and turns five Cyrillic capitals into
 U+FFFD, which then mismatches every voice folder and filename on disk.
@@ -12,7 +12,8 @@ Resolution order (see :func:`choice` and :func:`current`):
      the environment so export worker processes and the import stage agree.
   2. The ``tes4Encoding`` key in conversion_config.json (export only).
   3. ``auto``: the export stage scans the plugin binary (see
-     ``tes4_reader.detect_codec``); every other stage defaults to cp1252.
+     ``tes4_reader.detect_codec`` or ``tes3_reader.detect_codec``); every
+     other stage defaults to cp1252.
 
 The export writes the resolved codec as ``ENCODING=`` into ``_HEADER.txt``;
 the import reads it back, so text round-trips byte-identically whatever the

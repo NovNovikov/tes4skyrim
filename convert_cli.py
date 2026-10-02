@@ -126,7 +126,7 @@ def _add_run_args(parser) -> None:
                              "unchanged).")
     parser.add_argument("--tes4-encoding", choices=ENCODING_CHOICES,
                         default=None,
-                        help="TES4 text codepage for this run only "
+                        help="TES3/TES4 plugin text codepage for this run only "
                              "(default: auto-detect; the Russian install "
                              "needs cp1251). Saved choice: Settings menu.")
     parser.add_argument("--only", nargs="+", metavar="NAME",

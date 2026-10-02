@@ -450,6 +450,8 @@ def phase_export(file_name: str, tes4_data: str, export_dir: str,
     from tes4_export.tes4_reader import configure_for_source, read_file
     from tes4_export.export import export_file, export_header
 
+    if choice() == ENCODING_AUTO and config.get(ENCODING_CONFIG_KEY):
+        pin(config[ENCODING_CONFIG_KEY])
     if file_name == PATCH_NAME:
         return run_patch_export(export_dir)
     out_dir = str(record_dir(export_dir, file_name))
@@ -475,8 +477,6 @@ def phase_export(file_name: str, tes4_data: str, export_dir: str,
     t1 = time.time()
     print(f"  Scanned {len(all_records)} records in {t1-t0:.2f}s")
 
-    if choice() == ENCODING_AUTO and config.get(ENCODING_CONFIG_KEY):
-        pin(config[ENCODING_CONFIG_KEY])
     configure_for_source(source, all_records)
 
     os.makedirs(out_dir, exist_ok=True)
