@@ -31,6 +31,12 @@ void RecordPools();
 // that many picks, which earn their bonus at the attributes as they now stand.
 void CreditPoolPicks();
 
+// A chargen choice (race now; class and birthsign later) moved `attribute`'s
+// base by `delta`: every pick it already earned is re-scored as if the
+// attribute had always stood there. Level-ups never are.
+// See: docs/commentary/morrowind_runtime.md#race-attributes
+void RescorePickBuffs(int attribute, float delta);
+
 // Moves every buffed value to its target, or back to vanilla with the sheet
 // off. Game thread, out in the world.
 void HoldAttributeBuffs();

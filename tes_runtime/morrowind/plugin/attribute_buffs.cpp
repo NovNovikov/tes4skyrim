@@ -137,6 +137,17 @@ void CreditPoolPicks() {
     RecordPools();
 }
 
+void RescorePickBuffs(int attribute, float delta) {
+    for (const PickBuff& buff : kPickBuffs) {
+        const float picks = Var(Picks(buff.pool));
+        if (buff.attribute != attribute || picks == 0.0f) continue;
+        const float shift = picks * buff.perPick * delta / 100.0f;
+        SetVar(Bonus(buff.value), Var(Bonus(buff.value)) + shift);
+        Log("buffs: attribute %d %+.0f re-scores %.0f %s pick(s) -> %s %+.1f", attribute,
+            delta, picks, buff.pool, buff.value, shift);
+    }
+}
+
 void HoldAttributeBuffs() {
     if (!CanHold()) return;
     const bool on = SheetEnabled();

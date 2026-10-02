@@ -8,6 +8,8 @@ namespace tesruntime::mw {
 
 namespace {
 
+const layout::Palette* g_colors = &layout::kMorrowindColors;
+
 int TrackLength(const Rect& bar) {
     return bar.h - layout::kScrollTrackTop - layout::kScrollTrackBottom -
            layout::kThumbH;
@@ -20,6 +22,14 @@ double ThumbTop(const Rect& bar, double fraction) {
 }
 
 }  // namespace
+
+const layout::Palette& Colors() { return *g_colors; }
+
+void PickColors(CustomMenu& menu) {
+    double x = 0;
+    g_colors = menu.GetNumber(layout::kStyleMarker, &x) ? &layout::kSkyrimColors
+                                                        : &layout::kMorrowindColors;
+}
 
 void PushScrollbar(CustomMenu& menu, const Rect& bar, const std::string& barPath,
                    const std::string& thumbPath, bool visible, double fraction) {

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
@@ -75,6 +76,14 @@ using TrainFn = void (*)(void* menu);
 
 AdvanceSkillFn g_advanceSkill = nullptr;
 TrainFn g_train = nullptr;
+
+// Where PlayerCharacter keeps its PlayerSkills pointer, as AdvanceSkill loads
+// it; 0 when that load is not the instruction it was.
+std::size_t g_skillsOffset = 0;
+
+// `mov rcx, [rcx + disp32]`, the load AdvanceSkill opens with.
+constexpr std::uint8_t kLoadSkills[] = {0x48, 0x8b, 0x89};
+constexpr int kSkyrimSkills = 18;
 
 std::string DamageKey(int attribute) { return "a" + std::to_string(attribute); }
 
@@ -183,13 +192,44 @@ void TrainHook(void* menu) {
     g_train(menu);
 }
 
+std::size_t SkillsOffset(std::uintptr_t advance) {
+    if (!advance) return 0;
+    const auto* code = reinterpret_cast<const std::uint8_t*>(advance + ids::kAdvanceSkillLoadAt);
+    if (std::memcmp(code, kLoadSkills, sizeof(kLoadSkills)) != 0) return 0;
+    std::uint32_t disp = 0;
+    std::memcpy(&disp, code + sizeof(kLoadSkills), sizeof(disp));
+    return disp;
+}
+
+// The player's {points, pointsMax} toward the next point of Skyrim skill
+// `skill`, as a fraction.
+float SkillProgress(const char* skill) {
+    int av = -1;
+    for (int i = ids::kFirstSkillValue; i < ids::kFirstSkillValue + kSkyrimSkills; ++i) {
+        const char* name = SkillName(i);
+        if (name && skill && _stricmp(name, skill) == 0) av = i;
+    }
+    void* player = PlayerRef();
+    if (av < 0 || !player || !g_skillsOffset) return -1.0f;
+    void* skills = At<void*>(player, g_skillsOffset);
+    const auto* data = skills ? At<const std::uint8_t*>(skills, 0) : nullptr;
+    if (!data) return -1.0f;
+    const std::size_t at = ids::kSkillDataFirst +
+                           static_cast<std::size_t>(av - ids::kFirstSkillValue) * ids::kSkillDataStride;
+    float points = 0.0f, most = 0.0f;
+    std::memcpy(&points, data + at + sizeof(float), sizeof(float));
+    std::memcpy(&most, data + at + 2 * sizeof(float), sizeof(float));
+    return most > 0.0f ? std::clamp(points / most, 0.0f, 1.0f) : -1.0f;
+}
+
 void InstallSkillCap() {
+    const std::uintptr_t advance =
+        Resolve("PlayerCharacter::AdvanceSkill", ids::kPlayerAdvanceSkill, nullptr);
+    g_skillsOffset = SkillsOffset(advance);
     g_advanceSkill = reinterpret_cast<AdvanceSkillFn>(SwapVtableSlot(
         "PlayerCharacter::AdvanceSkill",
         Resolve("PlayerCharacter vtable", tesruntime::ids::kPlayerVtable, nullptr),
-        ids::kAdvanceSkillSlot,
-        Resolve("PlayerCharacter::AdvanceSkill", ids::kPlayerAdvanceSkill, nullptr),
-        reinterpret_cast<void*>(&AdvanceSkillHook)));
+        ids::kAdvanceSkillSlot, advance, reinterpret_cast<void*>(&AdvanceSkillHook)));
     const std::uintptr_t caller =
         Resolve("TrainingMenu train caller", ids::kTrainingMenuTrainCaller, nullptr);
     const std::uintptr_t train = Resolve("TrainingMenu train", ids::kTrainingMenuTrain, nullptr);
@@ -198,8 +238,9 @@ void InstallSkillCap() {
     if (site && PatchCall(site, reinterpret_cast<void*>(&TrainHook), "TrainingMenu train")) {
         g_train = reinterpret_cast<TrainFn>(train);
     }
-    Log("attributes: skill cap on use %s, on trainers %s",
-        g_advanceSkill ? "hooked" : "NOT hooked", g_train ? "hooked" : "NOT hooked");
+    Log("attributes: skill cap on use %s, on trainers %s; skill progress at player+0x%zx",
+        g_advanceSkill ? "hooked" : "NOT hooked", g_train ? "hooked" : "NOT hooked",
+        g_skillsOffset);
 }
 
 }  // namespace
@@ -233,6 +274,7 @@ void WatchAttributes(std::uint32_t actorId, std::uint32_t casterId, const Runtim
 
 void InstallAttributeCalls(GameHooks& hooks) {
     hooks.attributeEffect = AttributeEffect;
+    hooks.skillProgress = SkillProgress;
     InstallSkillCap();
 }
 

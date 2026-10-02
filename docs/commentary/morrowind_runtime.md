@@ -3858,7 +3858,7 @@ times (0.5 + attribute / 100), so 50 plays like vanilla.
 
 ### <a id="attribute-tooltips"></a>Attribute tooltips (2026-10-02, unconfirmed in game)
 
-**Code:** `plugin/attribute_tip.cpp`; `gen_morrowind_stats_swf.tip_tags`. OpenMW's `AttributeToolTip`
+**Code:** `plugin/stat_tip.cpp`; `gen_morrowind_stats_swf.tip_tags`. OpenMW's `AttributeToolTip`
 (`openmw_tooltips.layout`), in both the stats window and the level-up dialog,
 as OpenMW gives both: a `HUD_Box_NoTransp` box, 8 px padding, the attribute's
 `icons\k` icon at 32 px with its name beside it, and the description wrapped
@@ -3884,6 +3884,138 @@ The description is Morrowind's own, cut down to what the attribute does here:
 
 Personality reads its GMST, so a translated Morrowind keeps its language; the
 changed lines are English.
+
+### <a id="skyrim-skill-list"></a>The skill list is Skyrim's (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/stats_sheet.cpp` `BuildRows` / `kSkillGroups`;
+`asset_convert/ui/skyrim_skills.py`.
+
+The player's skills ARE Skyrim's, so the stats window lists Skyrim's 18, in
+the three groups Skyrim's own skills menu draws (warrior, mage, thief) under
+Morrowind's `sSpecializationCombat/Magic/Stealth` headings, each group by
+name, with the actor value's current value. (The first sheet copied OpenMW's
+list of Morrowind's 27 skills, against [the plan](../plans/character_sheet.md#m2-swf);
+that was wrong.) The kept legacy skills join the list when they are built.
+
+The names and descriptions are Skyrim's own, in the install's language:
+`package_runtime_dll.py` reads the 18 skill AVIFs from the player's Skyrim.esm
+(FormIDs 0x44C..0x45D, actor value 6 first; Illusion's is `AVMysticism`), looks
+their FULL and DESC string ids up in `strings\skyrim_<sLanguage>.strings` /
+`.dlstrings` from the Skyrim BSAs, and ships `skyrim_skills.txt`
+(`av=name|description`) beside the menus. Nothing of Bethesda's is committed;
+without the table the runtime shows English names and no description.
+
+### <a id="skill-tooltips"></a>Skill tooltips (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/stat_tip.cpp` (`StatTip`, which also shows the attribute
+tooltips); `gen_morrowind_stats_swf.tip_tags`. OpenMW's `SkillToolTip`
+(`openmw_tooltips.layout`) laid over a Skyrim skill: its icon (the nearest
+Morrowind or Oblivion skill picture, `SKILL_ICONS` / `OB_SKILLS`), Skyrim's
+name, `sGoverningAttribute`: "Governing Attribute: X" (the attribute the cap
+and the level-up credit use, `GoverningAttribute`), Skyrim's description, then
+`sSkillProgress` ("Progress towards skill increase") over a red bar reading
+`NN/100`, or `sSkillMaxReached` alone at 100. Hovering a skill row shows it;
+headings and faction rows show nothing.
+
+**The progress** is `PlayerSkills` data's `points / pointsMax` for the skill.
+The pointer's offset in PlayerCharacter differs by build (0x9b8 on 1.6.1170,
+0x9c0 on 1.7.104), so it is read from `PlayerCharacter::AdvanceSkill`'s own
+`mov rcx,[rcx+disp32]`; the 12-byte `{level, points, pointsMax}` entries from
++0x08 are what `PlayerSkills::AdvanceSkill` adds to and compares (`ids.h`, read
+on both builds).
+
+### <a id="race-attributes"></a>Race starting attributes, retroactive (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/leveling.cpp` `ApplyRaceStart`; `attribute_buffs.cpp`
+`RescorePickBuffs`; `morrowind_sidecar_source.race_lines` → `RACE.txt`.
+
+The player starts from the race's own attributes (TES3 `RADT`, by sex), as in
+Morrowind. The player picks a race in Skyrim's RaceMenu, so `RACE.txt` is keyed
+by the SKYRIM race a player of each TES3 race wears, through the converter's
+own chain (`RACE_FORMIDS` → `TES4_RACE_FID_TO_EDID` → `RACE_MAP`), and again by
+that race's vampire race (Skyrim.esm `<Race>RaceVampire`), so turning vampire
+does not reset anything. A race no playable Skyrim race stands for has no row.
+The sex is `TESNPC::GetSex`'s own read (bit 0 of +0x38, both builds).
+
+Every sample compares the start the race and sex now give with the start the
+player's base was last built on (`start0..7` in the leveling state; before
+any, the `player` record's own). A difference moves the BASE by exactly that
+much, so every level-up gain is kept, and **re-scores every pick buff that
+attribute already earned** as if it had always stood there:
+`picks × perPick × delta / 100`, the same linear rule a Fortify uses. This is
+the one retroactive change: a level-up or a script's `SetStrength` never
+re-scores. Class and birthsign menus will feed the same start
+(`docs/plans/character_sheet.md#m3-store`).
+
+### <a id="menu-styles"></a>Menu styles: Morrowind's look or Skyrim's (2026-10-02, unconfirmed in game)
+
+**Code:** `asset_convert/ui/menu_art.py`, `morrowind_menu_art.MorrowindArt`,
+`skyrim_menu_art.SkyrimArt`; the three generators take the art object;
+`plugin/menu_widgets.cpp` `Colors`.
+
+Every menu movie (dialogue, stats, level-up) is built from ONE art object, and
+the two objects have the same members: `compose_frame`, `compose_box`,
+`compose_head`, `compose_cap`, `compose_button`, `compose_scrollbar`,
+`compose_thumb`, `compose_line`, `compose_stat_bar`, `compose_bar`, plus
+`colors`, `background`, `cover` and `icons`. Changing a menu's look is changing
+which object it is built with; the layout, the field names and the plugin's
+hit rects do not move.
+
+Two choices, made apart, both in `conversion_config.json` and in Settings ▸
+Menu style:
+
+- **The look** (`menuStyle`): `morrowind` uses Morrowind's frame art (never
+  committed); `skyrim` draws everything: thin light rules that fade at their
+  ends (the caption's rule parts round the title), translucent black panels,
+  shaded meters, white text that greys when disabled.
+- **The icons** (`menuIcons`): `morrowind` (`icons\k`, `textures\levelup`, the
+  gold coin) or `oblivion` (`textures\menus`: `level_up\attributes_icons`,
+  `class\attributes\load_image_*_small`, `level_up\class_creation`, whose tall
+  portraits on a transparent 512 px square are cropped to the painted part
+  and fitted whole into the 2:1 picture box). Each Skyrim skill shows its
+  nearest picture (Two-handed as Axe or Blunt, Pickpocket as Sneak,
+  Enchanting as Enchant or Mysticism).
+
+**Where the art comes from: the installs, by content.** Every registered game
+install (`source_registry.directories`, never an imported mod) is indexed once
+(`menu_art.GameFiles`: its loose files, its Morrowind-format archives and its
+Oblivion-format v103 ones; Fallout's and Skyrim's are skipped by version), and
+an install supplies a game's art when it holds that game's marker texture
+(`menu_thick_border_top.dds`, `attributes_icon_strength.dds`) -- whatever its
+plugins are called. So Arktwend's Data Files supply Morrowind's art and
+Nehrim's supply Oblivion's; the scan takes about a second here. The GUI greys
+out a choice no install can supply, and fills its cascade on first open so
+startup pays nothing. An unset choice (or one whose art is missing on this
+machine) builds from what is there: Morrowind's look and icons when found,
+else Skyrim's look and Oblivion's icons. `package_runtime_dll.py` reads both
+keys (`--menu-style`, `--menu-icons` override them).
+
+**The plugin's colors follow the movie.** The runtime colors names, topics and
+buttons itself (hover, disabled, headers), so both palettes are generated into
+`menu_layout.h` as `kMorrowindColors` / `kSkyrimColors`. A Skyrim-style movie
+carries an empty `SkyrimStyle` sprite; each menu checks for it when it opens
+(`_root.SkyrimStyle._x` reads only when the sprite exists) and colors with the
+matching palette. A movie and its palette therefore always agree, whichever
+style the user packaged.
+
+**The font stays MysticCards in both styles.** The plugin lays text out with
+that face's advance table (`menu_layout.h` `kAdvance`: dialogue page breaks,
+the level-up values beside their names), so a second face would need a second
+table chosen at runtime. Skyrim's own `$EverywhereMediumFont` (imported from
+`gfxfontlib.swf`, which the first probe proved draws) is the candidate if the
+look needs it.
+
+#### <a id="menu-previews"></a>Previews without the game
+
+`tools/generators/menu_preview.py --out DIR [--style skyrim] [--icons oblivion]`
+renders every menu to PNGs: the dialogue window, the stats window bare and with
+an attribute and a skill tooltip, and the level-up dialog mid-step. It draws
+the MOVIE ITSELF -- it reads back the tags the generators wrote (bitmaps, the
+bitmap- and solid-rect shapes, sprites, placements, text fields) -- so a
+preview cannot drift from what ships. What the plugin would set at runtime
+(texts, row positions, covers, which class image shows, where a tooltip sits)
+is a sample STATE per instance name; the tooltip's state follows
+`StatTip::Place`. Text is drawn in the same MysticCards face the movie embeds.
 
 ### <a id="sheet-off"></a>The sheet off
 

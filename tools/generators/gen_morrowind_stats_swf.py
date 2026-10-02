@@ -2,31 +2,28 @@
 Author the Morrowind stats window and level-up dialog SWFs, and their layout header.
 
 Two standalone movies, each a menu of its own, drawn exactly like the dialogue
-window (`gen_morrowind_menu_swf.py`): Morrowind's art from the registered
-install composed into one chrome bitmap, OpenMW's embedded face, and every
-string a dynamic field the plugin writes. Rows are single-line fields the
-plugin places, so a list's pitch is the layout's, not the font's.
+window (`gen_morrowind_menu_swf.py`): the art object's chrome composed into one
+bitmap, OpenMW's embedded face, and every string a dynamic field the plugin
+writes. Rows are single-line fields the plugin places, so a list's pitch is the
+layout's, not the font's.
 
 - `morrowind_stats.swf`: `openmw_stats_window.layout`.
 - `morrowind_levelup.swf`: `openmw_levelup_dialog.layout`, with every class
-  image (`textures/levelup`) as a hidden sprite and the gold coins.
+  image as a hidden sprite and the gold coins.
 
-🛑 The art is NOT committed; like the dialogue menu this needs a Morrowind
-install. The header IS committed, so the plugin builds without one.
+🛑 Morrowind's art is NOT committed; the Skyrim style needs none. The header
+IS committed, so the plugin builds without either.
 
 See: docs/plans/character_sheet.md#m2-swf
+See: docs/commentary/morrowind_runtime.md#menu-styles
 """
 
 import argparse
 import os
 import struct
 
-from asset_convert.ui.morrowind_menu_art import (ICONS, SCROLL_TRACK, SCROLL_W,
-                                                 compose_box, compose_button,
-                                                 compose_cap, compose_frame,
-                                                 compose_head, compose_scrollbar,
-                                                 compose_stat_bar,
-                                                 compose_thumb, load)
+from asset_convert.ui.menu_art import ICON_SETS, STYLES, menu_art
+from asset_convert.ui.morrowind_menu_art import SCROLL_TRACK, SCROLL_W
 from asset_convert.ui.swf import (Swf, Tag, define_bits_lossless2,
                                   define_shape3_bitmap_rects,
                                   define_shape3_solid_rects, define_sprite,
@@ -34,9 +31,9 @@ from asset_convert.ui.swf import (Swf, Tag, define_bits_lossless2,
 from asset_convert.ui.ui_menus import premultiplied_argb
 from tools.generators.gen_morrowind_menu_swf import (
     ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, BODY_HEIGHT_TWIPS, CAPTION_PAD,
-    CHAR_MW_FONT, COLOR_BACKGROUND, FONT_COLORS, STAGE_H, STAGE_W, TAG_END,
-    TAG_FILE_ATTRIBUTES, TAG_SET_BACKGROUND_COLOR, TAG_SHOW_FRAME, THUMB_H,
-    THUMB_W, THUMB_X, TWIP, define_edit_text, embed_font, text_top)
+    CHAR_MW_FONT, STAGE_H, STAGE_W, TAG_END, TAG_FILE_ATTRIBUTES,
+    TAG_SET_BACKGROUND_COLOR, TAG_SHOW_FRAME, THUMB_H, THUMB_W, THUMB_X, TWIP,
+    define_edit_text, embed_font, style_marker, text_top)
 
 #: Where the plugin's copy of both layouts is written.
 HEADER_PATH = 'tes_runtime/morrowind/plugin/stats_layout.h'
@@ -103,6 +100,8 @@ OK_BUTTON = (DIALOG_W - 10 - 64, 462, 64, 24)
 COLUMNS = (32, 218)
 GRID_ROW_H = 20
 MULTIPLIER_W = 20
+#: OpenMW's multiplier box is 100 px and runs under the name: "x2" is wider than 20 px.
+MULTIPLIER_FIELD_W = 100
 NAME_W = 120
 VALUE_W = 40
 
@@ -140,14 +139,22 @@ TIP_ICON = 32
 TIP_TOP = TIP_PAD + TIP_ICON + TIP_PAD
 TIP_TEXT_H = 200
 
-#: Store<ESM::Attribute>'s icon per attribute, under icons\k, in TES3 order.
-ATTRIBUTE_ICONS = ('attribute_strength', 'attribute_int', 'attribute_wilpower',
-                   'attribute_agility', 'attribute_speed', 'attribute_endurance',
-                   'attribute_personality', 'attribute_luck')
+#: SkillToolTip: name and governing attribute as two 16 px lines beside the icon.
+TIP_LINE = 16
+#: Then a 2 px gap, the 18 px progress label and the 200x20 MW_Progress_Red bar.
+TIP_GAP = 2
+TIP_LABEL_H = 18
+TIP_BAR_W = 200
+TIP_BAR_H = 20
 
-#: Character ids for the tooltip in either movie: the box's three pieces and the icons (three each), then its fields.
+#: The TES3 attribute count and Skyrim's skills (actor values 6..23), one tooltip icon each.
+ATTRIBUTES = 8
+SKYRIM_SKILLS = range(6, 24)
+
+#: Tooltip character ids: box pieces, icons and bar (three each), the bar's cover, then fields.
 CHAR_TIP_SPRITE_FIRST = 400
-CHAR_TIP_FIELD_FIRST = 480
+CHAR_TIP_COVER = 560
+CHAR_TIP_FIELD_FIRST = 600
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +187,11 @@ def line_in(box: tuple) -> tuple:
     return (x, text_top(y, h), w, h)
 
 
-def field(char_id: int, rect: tuple, origin: tuple, color: str = 'normal',
-          align: int = ALIGN_LEFT) -> Tag:
+def field(char_id: int, rect: tuple, origin: tuple, colors: dict,
+          color: str = 'normal', align: int = ALIGN_LEFT) -> Tag:
     """A dynamic field in the embedded face at a window-space rect."""
     return define_edit_text(char_id, *on_stage(rect, origin), '', '',
-                            font_id=CHAR_MW_FONT, rgb=FONT_COLORS[color],
+                            font_id=CHAR_MW_FONT, rgb=colors[color],
                             height=BODY_HEIGHT_TWIPS, align=align)
 
 
@@ -208,12 +215,12 @@ def sprite(char_id: int, image, name: str, rect: tuple, origin: tuple,
 
 
 def cover(char_id: int, name: str, rect: tuple, origin: tuple,
-          depth: int) -> list:
-    """A 1 px wide black sprite `rect[3]` tall at a window-space rect's
+          depth: int, rgba: tuple = (0, 0, 0, 255)) -> list:
+    """A 1 px wide `rgba` sprite `rect[3]` tall at a window-space rect's
     top-left; the plugin sets its `_x` and `_width`."""
     x, y, _w, h = on_stage(rect, origin)
     return [
-        define_shape3_solid_rects(char_id, [(0, 0, 1, h)], (0, 0, 0, 255)),
+        define_shape3_solid_rects(char_id, [(0, 0, 1, h)], rgba),
         define_sprite(char_id + 1, [place_object2(depth=1, character_id=char_id)]),
         place_object2(depth=depth, character_id=char_id + 1, name=name,
                       translate=(x, y)),
@@ -246,24 +253,23 @@ def place_all(parts: list, fields: list, depth: int) -> list:
     return tags
 
 
-def tip_sprites(export_root) -> list:
-    """The tooltip box as top, a 1 px middle the plugin stretches, and bottom; then each icon.
+def tip_sprites(art) -> list:
+    """The tooltip box as top, a 1 px middle the plugin stretches, and bottom;
+    each attribute and skill icon a game supplies; the skill progress bar.
 
     All at the stage origin: the plugin moves every piece beside the pointer.
     See: docs/commentary/morrowind_runtime.md#attribute-tooltips
     """
-    box = compose_box(export_root, TIP_W, TIP_TOP + 1 + TIP_PAD, fill=COLOR_BACKGROUND)
-    pieces = [(box.crop((0, 0, TIP_W, TIP_TOP)), 'TipTop', (0, 0, TIP_W, TIP_TOP)),
-              (box.crop((0, TIP_TOP, TIP_W, TIP_TOP + 1)), 'TipMid', (0, 0, TIP_W, 1)),
-              (box.crop((0, TIP_TOP + 1, TIP_W, TIP_TOP + 1 + TIP_PAD)), 'TipBottom',
-               (0, 0, TIP_W, TIP_PAD))]
-    out = [sprite(CHAR_TIP_SPRITE_FIRST + 3 * i, image, name, rect, (0, 0))
-           for i, (image, name, rect) in enumerate(pieces)]
-    for i, icon in enumerate(ATTRIBUTE_ICONS):
-        image = load(export_root, 'k' + chr(92) + icon, ICONS)
-        out.append(sprite(CHAR_TIP_SPRITE_FIRST + 3 * (len(pieces) + i), image,
-                          f'TipIcon{i}', (0, 0, TIP_ICON, TIP_ICON), (0, 0), image.size))
-    return out
+    box = art.compose_box(TIP_W, TIP_TOP + 1 + TIP_PAD, fill=art.background)
+    pieces = [(box.crop((0, 0, TIP_W, TIP_TOP)), 'TipTop'),
+              (box.crop((0, TIP_TOP, TIP_W, TIP_TOP + 1)), 'TipMid'),
+              (box.crop((0, TIP_TOP + 1, TIP_W, TIP_TOP + 1 + TIP_PAD)), 'TipBottom')]
+    icons = [(art.icons.attribute(i), f'TipIcon{i}') for i in range(ATTRIBUTES)]
+    icons += [(art.icons.skill(av), f'TipSkill{av}') for av in SKYRIM_SKILLS]
+    pieces += [(image.resize((TIP_ICON, TIP_ICON)), name) for image, name in icons if image]
+    pieces.append((art.compose_stat_bar(TIP_BAR_W, TIP_BAR_H, BAR_COLORS[0]), 'TipBar'))
+    return [sprite(CHAR_TIP_SPRITE_FIRST + 3 * i, image, name, (0, 0, *image.size), (0, 0))
+            for i, (image, name) in enumerate(pieces)]
 
 
 def tip_name_x() -> int:
@@ -271,17 +277,27 @@ def tip_name_x() -> int:
     return TIP_PAD + TIP_ICON + TIP_PAD
 
 
-def tip_fields() -> list:
-    """The tooltip's name, beside the icon, and its wrapped description, at the origin."""
-    name_w = TIP_W - tip_name_x() - TIP_PAD
-    return [(field(CHAR_TIP_FIELD_FIRST, (0, 0, name_w, TIP_ICON), (0, 0)), 'TipName'),
-            (field(CHAR_TIP_FIELD_FIRST + 1, (0, 0, TIP_W - 2 * TIP_PAD, TIP_TEXT_H),
-                   (0, 0)), 'TipText')]
+def tip_fields(colors: dict) -> list:
+    """The tooltip's name and governing attribute beside the icon, its wrapped
+    description, and the progress label and value, all at the origin."""
+    name_w, inner_w = TIP_W - tip_name_x() - TIP_PAD, TIP_W - 2 * TIP_PAD
+    rows = (('TipName', name_w, TIP_ICON, ALIGN_LEFT),
+            ('TipAttr', name_w, TIP_LINE, ALIGN_LEFT),
+            ('TipText', inner_w, TIP_TEXT_H, ALIGN_LEFT),
+            ('TipLabel', inner_w, TIP_LABEL_H, ALIGN_CENTER),
+            ('TipProgress', TIP_BAR_W, TIP_BAR_H, ALIGN_CENTER))
+    return [(field(CHAR_TIP_FIELD_FIRST + i, (0, 0, w, h), (0, 0), colors, align=align), name)
+            for i, (name, w, h, align) in enumerate(rows)]
 
 
-def tip_tags(export_root, depth: int) -> list:
-    """The tooltip above everything else, from `depth` up."""
-    return place_all(tip_sprites(export_root), tip_fields(), depth)
+def tip_tags(art, depth: int) -> list:
+    """The tooltip above everything else, from `depth` up: its sprites, the
+    cover the plugin slides over the bar past the progress, then its text."""
+    sprites = tip_sprites(art)
+    tags = place_all(sprites, [], depth)
+    depth += len(sprites)
+    tags += cover(CHAR_TIP_COVER, 'TipBarCover', (0, 0, 1, TIP_BAR_H - 4), (0, 0), depth)
+    return tags + place_all([], tip_fields(art.colors), depth + 1)
 
 
 def movie(tags: list) -> Swf:
@@ -329,84 +345,84 @@ def skill_scroll() -> tuple:
     return (x + w - BOX_PAD - SCROLL_W, y + BOX_PAD, SCROLL_W, h - 2 * BOX_PAD)
 
 
-def compose_stats(export_root):
+def compose_stats(art):
     """The stats window's chrome: frames, caption plate, four panes, three full bars."""
-    panel = compose_frame(export_root, STATS_W, STATS_H, fill=COLOR_BACKGROUND)
+    panel = art.compose_frame(STATS_W, STATS_H, fill=art.background)
     ix, iy, iw, ih = INNER_FRAME
-    panel.alpha_composite(compose_frame(export_root, iw, ih), (ix, iy))
+    panel.alpha_composite(art.compose_frame(iw, ih), (ix, iy))
     cx, cy, cw, ch = CAPTION
-    panel.alpha_composite(compose_head(export_root, cw, ch), (cx, cy))
+    panel.alpha_composite(art.compose_head(cw, ch), (cx, cy))
     for box in (DYNAMIC_BOX, INFO_BOX, ATTRIBUTE_BOX, SKILL_BOX):
         bx, by, bw, bh = client(box)
-        panel.alpha_composite(compose_box(export_root, bw, bh), (bx, by))
+        panel.alpha_composite(art.compose_box(bw, bh), (bx, by))
     for row, rgb in enumerate(BAR_COLORS):
         bx, by, bw, bh = bar_rect(row)
-        panel.alpha_composite(compose_stat_bar(export_root, bw, bh, rgb),
+        panel.alpha_composite(art.compose_stat_bar(bw, bh, rgb),
                               (bx, by))
     return panel
 
 
-def paired_rows(ids, rects: list, name: str) -> list:
+def paired_rows(ids, rects: list, name: str, colors: dict) -> list:
     """A name field and a right-aligned value field per rect: `Name<i>`, `Value<i>`."""
     origin, out = stats_origin(), []
     for row, rect in enumerate(rects):
-        out.append((field(next(ids), line_in(rect), origin), f'{name}Name{row}'))
-        out.append((field(next(ids), line_in(rect), origin, 'header',
+        out.append((field(next(ids), line_in(rect), origin, colors), f'{name}Name{row}'))
+        out.append((field(next(ids), line_in(rect), origin, colors, 'header',
                           ALIGN_RIGHT), f'{name}Value{row}'))
     return out
 
 
-def stats_fields() -> list:
+def stats_fields(colors: dict) -> list:
     """Every stats-window field as `(tag, instance_name)`."""
     origin = stats_origin()
     ids = iter(range(CHAR_STATS_FIELD_FIRST, CHAR_STATS_FIELD_FIRST + 200))
-    out = [(field(next(ids), line_in(CAPTION), origin, 'header', ALIGN_CENTER),
+    out = [(field(next(ids), line_in(CAPTION), origin, colors, 'header', ALIGN_CENTER),
             'Title')]
     for row in range(len(BAR_COLORS)):
         x, y, _w, _h = row_rect(DYNAMIC_BOX, BOX_PAD + row * ROW_H)
         out.append((field(next(ids), line_in((x, y, BAR_LABEL_W, ROW_H)),
-                          origin), f'BarLabel{row}'))
-        out.append((field(next(ids), line_in(bar_rect(row)), origin,
+                          origin, colors), f'BarLabel{row}'))
+        out.append((field(next(ids), line_in(bar_rect(row)), origin, colors,
                           align=ALIGN_CENTER), f'BarValue{row}'))
-    out += paired_rows(ids, [row_rect(INFO_BOX, y) for y in INFO_ROWS], 'Info')
+    out += paired_rows(ids, [row_rect(INFO_BOX, y) for y in INFO_ROWS], 'Info', colors)
     out += paired_rows(ids, [row_rect(ATTRIBUTE_BOX, BOX_PAD + r * ROW_H)
-                             for r in range(ATTRIBUTE_ROWS)], 'Attr')
+                             for r in range(ATTRIBUTE_ROWS)], 'Attr', colors)
     x, y, w, _h = skill_view()
     out += paired_rows(ids, [(x, y + r * ROW_H, w, ROW_H)
-                             for r in range(SKILL_FIELDS)], 'Skill')
+                             for r in range(SKILL_FIELDS)], 'Skill', colors)
     return out
 
 
-def stats_sprites(export_root) -> list:
+def stats_sprites(art) -> list:
     """The caption caps, the skill scrollbar and its thumb."""
     origin, bar = stats_origin(), skill_scroll()
     parts = [
-        (compose_cap(export_root, 'right'), 'CapLeft', CAPTION),
-        (compose_cap(export_root, 'left'), 'CapRight', CAPTION),
-        (compose_scrollbar(export_root, bar[3]), 'SkillScroll', bar),
-        (compose_thumb(export_root, THUMB_W, THUMB_H), 'SkillThumb',
+        (art.compose_cap('right'), 'CapLeft', CAPTION),
+        (art.compose_cap('left'), 'CapRight', CAPTION),
+        (art.compose_scrollbar(bar[3]), 'SkillScroll', bar),
+        (art.compose_thumb(THUMB_W, THUMB_H), 'SkillThumb',
          (bar[0] + THUMB_X, bar[1] + SCROLL_TRACK[0], THUMB_W, THUMB_H)),
     ]
     return [sprite(CHAR_STATS_SPRITE_FIRST + 3 * i, image, name, rect, origin)
             for i, (image, name, rect) in enumerate(parts)]
 
 
-def stats_window(export_root) -> Swf:
+def stats_window(art) -> Swf:
     """The stats window movie.
 
     See: docs/plans/character_sheet.md#m2-swf
     """
     origin = stats_origin()
-    tags = chrome_tags(CHAR_STATS_BMP, compose_stats(export_root), origin)
-    tags += cover(CHAR_COVER, 'Cover', CAPTION, origin, 2)
+    tags = chrome_tags(CHAR_STATS_BMP, compose_stats(art), origin)
+    tags += cover(CHAR_COVER, 'Cover', CAPTION, origin, 2, art.cover)
     for row in range(len(BAR_COLORS)):
         tags += cover(CHAR_BAR_COVER_FIRST + 2 * row, f'BarCover{row}',
                       bar_fill_rect(row), origin, 3 + row)
-    sprites, fields = stats_sprites(export_root), stats_fields()
+    sprites, fields = stats_sprites(art), stats_fields(art.colors)
     depth = 3 + len(BAR_COLORS)
     tags += place_all(sprites, fields, depth)
-    tags += tip_tags(export_root, depth + len(sprites) + len(fields))
-    return movie(tags)
+    tags += tip_tags(art, depth + len(sprites) + len(fields))
+    return movie(tags + style_marker(art))
 
 
 # ---------------------------------------------------------------------------
@@ -419,13 +435,13 @@ def grid_row(attribute: int) -> tuple:
     return ASSIGN[0] + COLUMNS[column], ASSIGN[1] + row * GRID_ROW_H
 
 
-def compose_dialog(export_root):
+def compose_dialog(art):
     """The level-up dialog's chrome: frame, the image box and the OK button."""
-    panel = compose_frame(export_root, DIALOG_W, DIALOG_H, fill=COLOR_BACKGROUND)
+    panel = art.compose_frame(DIALOG_W, DIALOG_H, fill=art.background)
     bx, by, bw, bh = IMAGE_BOX
-    panel.alpha_composite(compose_box(export_root, bw, bh), (bx, by))
+    panel.alpha_composite(art.compose_box(bw, bh), (bx, by))
     ox, oy, ow, oh = OK_BUTTON
-    panel.alpha_composite(compose_button(export_root, ow, oh), (ox, oy))
+    panel.alpha_composite(art.compose_button(ow, oh), (ox, oy))
     return panel
 
 
@@ -436,57 +452,57 @@ def ok_caption_rect() -> tuple:
                     w - 2 * BUTTON_INSET[0], h - 2 * BUTTON_INSET[1]))
 
 
-def grid_fields(ids) -> list:
+def grid_fields(ids, colors: dict) -> list:
     """Each attribute's multiplier, name and value fields, at its grid row."""
     origin, out = dialog_origin(), []
     for attribute in range(ATTRIBUTE_ROWS):
         x, y = grid_row(attribute)
         name_x = x + MULTIPLIER_W
-        out += [(field(next(ids), line_in((x, y, MULTIPLIER_W, GRID_ROW_H)),
-                       origin), f'Mult{attribute}'),
+        out += [(field(next(ids), line_in((x, y, MULTIPLIER_FIELD_W, GRID_ROW_H)),
+                       origin, colors), f'Mult{attribute}'),
                 (field(next(ids), line_in((name_x, y, NAME_W, GRID_ROW_H)),
-                       origin), f'AttrName{attribute}'),
+                       origin, colors), f'AttrName{attribute}'),
                 (field(next(ids), line_in((name_x, y, VALUE_W, GRID_ROW_H)),
-                       origin, 'header'), f'AttrValue{attribute}')]
+                       origin, colors, 'header'), f'AttrValue{attribute}')]
     return out
 
 
-def dialog_fields() -> list:
+def dialog_fields(colors: dict) -> list:
     """Every level-up field as `(tag, instance_name)`."""
     origin = dialog_origin()
     ids = iter(range(CHAR_DIALOG_FIELD_FIRST, CHAR_DIALOG_FIELD_FIRST + 100))
-    out = [(field(next(ids), line_in(LEVEL_TEXT), origin, align=ALIGN_CENTER),
+    out = [(field(next(ids), line_in(LEVEL_TEXT), origin, colors, align=ALIGN_CENTER),
             'LevelText'),
-           (field(next(ids), DESCRIPTION, origin), 'Description'),
-           (field(next(ids), ok_caption_rect(), origin, align=ALIGN_CENTER),
+           (field(next(ids), DESCRIPTION, origin, colors), 'Description'),
+           (field(next(ids), ok_caption_rect(), origin, colors, align=ALIGN_CENTER),
             'OkCaption')]
-    return out + grid_fields(ids)
+    return out + grid_fields(ids, colors)
 
 
-def dialog_sprites(export_root) -> list:
-    """The gold coins, then every class image, each a sprite of its own."""
-    origin, coin = dialog_origin(), load(export_root, 'tx_goldicon', ICONS)
+def dialog_sprites(art) -> list:
+    """The gold coins, then every class image the art has, each a sprite of its own."""
+    origin, coin = dialog_origin(), art.icons.coin().resize((COIN, COIN))
     out = [sprite(CHAR_COIN_FIRST + 3 * i, coin, f'Coin{i}',
                   (COIN_ROW[0], COIN_ROW[1], COIN, COIN), origin)
            for i in range(COINS)]
     for i, name in enumerate(CLASSES):
-        image = load(export_root, 'levelup' + chr(92) + name)
-        out.append(sprite(CHAR_CLASS_FIRST + 3 * i, image, f'Class_{name}',
-                          IMAGE, origin, CLASS_PIXELS))
+        image = art.icons.class_image(name)
+        if image:
+            out.append(sprite(CHAR_CLASS_FIRST + 3 * i, image, f'Class_{name}',
+                              IMAGE, origin, CLASS_PIXELS))
     return out
 
 
-def levelup_dialog(export_root) -> Swf:
+def levelup_dialog(art) -> Swf:
     """The level-up dialog movie.
 
     See: docs/plans/character_sheet.md#m2-swf
     """
-    tags = chrome_tags(CHAR_DIALOG_BMP, compose_dialog(export_root),
-                       dialog_origin())
-    sprites, fields = dialog_sprites(export_root), dialog_fields()
+    tags = chrome_tags(CHAR_DIALOG_BMP, compose_dialog(art), dialog_origin())
+    sprites, fields = dialog_sprites(art), dialog_fields(art.colors)
     tags += place_all(sprites, fields, 2)
-    tags += tip_tags(export_root, 2 + len(sprites) + len(fields))
-    return movie(tags)
+    tags += tip_tags(art, 2 + len(sprites) + len(fields))
+    return movie(tags + style_marker(art))
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +562,17 @@ def tip_lines() -> list:
             f'constexpr int kTipTop = {TIP_TOP};',
             f'constexpr int kTipNameX = {tip_name_x()};',
             f'constexpr int kTipNameDy = {text_top(TIP_PAD, TIP_ICON)};',
-            f'constexpr int kTipIcons = {len(ATTRIBUTE_ICONS)};']
+            f'constexpr int kTipSkillNameDy = {text_top(TIP_PAD, TIP_LINE)};',
+            f'constexpr int kTipAttrDy = {text_top(TIP_PAD + TIP_LINE, TIP_LINE)};',
+            f'constexpr int kTipGap = {TIP_GAP};',
+            f'constexpr int kTipLabelH = {TIP_LABEL_H};',
+            f'constexpr int kTipLabelDy = {text_top(0, TIP_LABEL_H)};',
+            f'constexpr int kTipBarW = {TIP_BAR_W};',
+            f'constexpr int kTipBarH = {TIP_BAR_H};',
+            f'constexpr int kTipBarTextDy = {text_top(0, TIP_BAR_H)};',
+            f'constexpr int kTipIcons = {ATTRIBUTES};',
+            f'constexpr int kTipSkillFirst = {SKYRIM_SKILLS[0]};',
+            f'constexpr int kTipSkillIcons = {len(SKYRIM_SKILLS)};']
 
 
 def layout_header() -> str:
@@ -559,26 +585,17 @@ def layout_header() -> str:
     return '\n'.join(lines)
 
 
-def write_movies(export_root: str, out_dir: str, compress: bool = True) -> list:
-    """Both movies into `out_dir`; returns the paths written."""
+def write_movies(art, out_dir: str, compress: bool = True) -> list:
+    """Both movies in `art`'s look into `out_dir`; returns the paths written."""
     os.makedirs(out_dir, exist_ok=True)
     written = []
     for name, build in ((STATS_MOVIE, stats_window),
                         (LEVELUP_MOVIE, levelup_dialog)):
         path = os.path.join(out_dir, name)
         with open(path, 'wb') as fh:
-            fh.write(build(export_root).serialize(compress=compress))
+            fh.write(build(art).serialize(compress=compress))
         written.append(path)
     return written
-
-
-def write_previews(export_root: str, folder: str) -> None:
-    """Both chromes as PNGs, to look at without the game."""
-    os.makedirs(folder, exist_ok=True)
-    compose_stats(export_root).convert('RGB').save(
-        os.path.join(folder, 'stats.png'))
-    compose_dialog(export_root).convert('RGB').save(
-        os.path.join(folder, 'levelup.png'))
 
 
 def main() -> None:
@@ -588,16 +605,16 @@ def main() -> None:
     ap.add_argument('--out', default='tes_runtime/morrowind/interface')
     ap.add_argument('--header', default=HEADER_PATH)
     ap.add_argument('--export-root', default='export')
-    ap.add_argument('--preview', help='also write both chromes as PNGs here')
+    ap.add_argument('--style', choices=STYLES, default=None)
+    ap.add_argument('--icons', choices=ICON_SETS, default=None)
     ap.add_argument('--uncompressed', action='store_true')
     args = ap.parse_args()
-    for path in write_movies(args.export_root, args.out, not args.uncompressed):
+    art = menu_art(args.export_root, args.style, args.icons)
+    for path in write_movies(art, args.out, not args.uncompressed):
         print(f'wrote {path} ({os.path.getsize(path)} bytes)')
     with open(args.header, 'w', encoding='ascii', newline='\n') as fh:
         fh.write(layout_header())
     print(f'layout -> {args.header}')
-    if args.preview:
-        write_previews(args.export_root, args.preview)
 
 
 if __name__ == '__main__':

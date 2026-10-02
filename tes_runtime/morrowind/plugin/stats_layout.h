@@ -68,6 +68,16 @@ constexpr int kTipPad = 8;
 constexpr int kTipTop = 48;
 constexpr int kTipNameX = 48;
 constexpr int kTipNameDy = 14;
+constexpr int kTipSkillNameDy = 6;
+constexpr int kTipAttrDy = 22;
+constexpr int kTipGap = 2;
+constexpr int kTipLabelH = 18;
+constexpr int kTipLabelDy = -1;
+constexpr int kTipBarW = 200;
+constexpr int kTipBarH = 20;
+constexpr int kTipBarTextDy = 0;
 constexpr int kTipIcons = 8;
+constexpr int kTipSkillFirst = 6;
+constexpr int kTipSkillIcons = 18;
 
 }  // namespace tesruntime::mw::stats_layout

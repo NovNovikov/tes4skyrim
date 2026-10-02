@@ -88,6 +88,9 @@ CRIME_TABLE = 'crime_formid.txt'
 GMST_TABLE = 'GMST.txt'
 SKILLS_TABLE = 'SKIL.txt'
 
+#: Each race's starting attributes under the Skyrim races a player of it wears: `FORMID=race|male|female`.
+RACES_TABLE = 'RACE.txt'
+
 #: What AddItem and its kin need: `item id=Plugin.esm|FormID`.
 ITEMS_TABLE = 'items_formid.txt'
 
@@ -746,6 +749,7 @@ def _stage_dialogue(export_dir: str, out_dir: str, present: list,
     staged = len(DIALOGUE_FILES)
     for name, key in ((ACTORS_TABLE, 'actors'), (FACTIONS_TABLE, 'own_factions'),
                       (GMST_TABLE, 'own_gmsts'), (SKILLS_TABLE, 'skills'),
+                      (RACES_TABLE, 'own_races'),
                       (START_SCRIPTS_TABLE, 'start_scripts'),
                       (TRAVEL_TABLE, 'travel')):
         staged += _write_lines(os.path.join(out_dir, name),

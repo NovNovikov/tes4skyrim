@@ -93,6 +93,15 @@ struct SkillDef {
     float use[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
+// One RACE record's starting attributes in TES3 order, by sex: RACE.txt, keyed
+// by each Skyrim race a player of it wears (its own and its vampire race).
+// See: docs/commentary/morrowind_runtime.md#race-attributes
+struct RaceDef {
+    std::string id;
+    int male[8] = {};
+    int female[8] = {};
+};
+
 // One place an NPC's travel service goes: NPC_travel.txt.
 // See: docs/commentary/morrowind_runtime.md#travel
 struct TravelDest {
@@ -413,6 +422,10 @@ std::size_t GmstCount();
 
 // A SKIL by TES3 skill index, 0..26, or null.
 const SkillDef* FindSkill(int index);
+
+// The TES3 race a player wearing Skyrim race `skyrimRace` (runtime FormID)
+// starts from, or null.
+const RaceDef* FindRaceStart(std::uint32_t skyrimRace);
 
 // Registers one faction's requirements directly, so the filter's rank rules
 // are testable without staging a sidecar.

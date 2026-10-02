@@ -166,9 +166,16 @@ struct GameHooks {
     // The BASE of that value, which a skill increase, a trainer or a book
     // moves and a fortify never does.
     float (*baseActorValue)(const std::string& actor, const char* name) = nullptr;
-    // The actor's race form, only ever compared: a change of race moves the
-    // skills for a reason that is not an increase.
-    const void* (*race)(const std::string& actor) = nullptr;
+    // The actor's race by runtime FormID (0 unknown): a change of race moves
+    // the skills for a reason that is not an increase, and sets the player's
+    // starting attributes. `female` is the actor's base record's sex.
+    // See: docs/commentary/morrowind_runtime.md#race-attributes
+    std::uint32_t (*race)(const std::string& actor) = nullptr;
+    bool (*female)(const std::string& actor) = nullptr;
+    // How far the player's Skyrim skill (by actor value name) is toward its
+    // next point, 0..1; negative when it cannot be read.
+    // See: docs/commentary/morrowind_runtime.md#skill-tooltips
+    float (*skillProgress)(const char* skill) = nullptr;
     void  (*advanceSkill)(const char* skill, float amount) = nullptr;
     void  (*showBarterMenu)(const std::string& actor) = nullptr;
     void  (*showTrainingMenu)(const std::string& actor) = nullptr;

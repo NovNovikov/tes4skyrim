@@ -10,7 +10,6 @@
 #include "activation.h"
 #include "actor_stats.h"
 #include "attribute_buffs.h"
-#include "attribute_tip.h"
 #include "conversation.h"
 #include "dialogue_state.h"
 #include "leveling.h"
@@ -24,6 +23,7 @@
 #include "paths.h"
 #include "scope.h"
 #include "script_tables.h"
+#include "stat_tip.h"
 #include "stats_layout.h"
 
 namespace tesruntime::mw {
@@ -57,27 +57,19 @@ constexpr const char* kDynamicValues[] = {"Health", "Magicka", "Stamina"};
 constexpr const char* kDynamicGmst[][2] = {
     {"sHealth", "Health"}, {"sMagic", "Magicka"}, {"sFatigue", "Fatigue"}};
 
-// The 27 skills by TES3 index: GMST name, and the text Morrowind.esm gives
-// it, for a chain that stages none.
-constexpr const char* kSkillGmst[][2] = {
-    {"sSkillBlock", "Block"}, {"sSkillArmorer", "Armorer"},
-    {"sSkillMediumarmor", "Medium Armor"}, {"sSkillHeavyarmor", "Heavy Armor"},
-    {"sSkillBluntweapon", "Blunt Weapon"}, {"sSkillLongblade", "Long Blade"},
-    {"sSkillAxe", "Axe"}, {"sSkillSpear", "Spear"},
-    {"sSkillAthletics", "Athletics"}, {"sSkillEnchant", "Enchant"},
-    {"sSkillDestruction", "Destruction"}, {"sSkillAlteration", "Alteration"},
-    {"sSkillIllusion", "Illusion"}, {"sSkillConjuration", "Conjuration"},
-    {"sSkillMysticism", "Mysticism"}, {"sSkillRestoration", "Restoration"},
-    {"sSkillAlchemy", "Alchemy"}, {"sSkillUnarmored", "Unarmored"},
-    {"sSkillSecurity", "Security"}, {"sSkillSneak", "Sneak"},
-    {"sSkillAcrobatics", "Acrobatics"}, {"sSkillLightarmor", "Light Armor"},
-    {"sSkillShortblade", "Short Blade"}, {"sSkillMarksman", "Marksman"},
-    {"sSkillMercantile", "Mercantile"}, {"sSkillSpeechcraft", "Speechcraft"},
-    {"sSkillHandtohand", "Hand-to-hand"}};
-constexpr int kSkillCount = 27;
 constexpr const char* kSpecializationGmst[][2] = {
     {"sSpecializationCombat", "Combat"}, {"sSpecializationMagic", "Magic"},
     {"sSpecializationStealth", "Stealth"}};
+
+// Skyrim's 18 skills by actor value, in the three groups its own skills menu
+// draws (warrior, mage, thief), under Morrowind's specialization headings.
+// See: docs/commentary/morrowind_runtime.md#skyrim-skill-list
+constexpr int kSkillGroups[][6] = {{6, 7, 8, 9, 10, 11},
+                                   {18, 19, 20, 21, 22, 23},
+                                   {12, 13, 14, 15, 16, 17}};
+
+// The packaged table of Skyrim's own skill names and descriptions.
+constexpr const char* kSkillTable = "skyrim_skills.txt";
 
 constexpr Rect kSkillView{sl::kSkillViewX, sl::kSkillViewY, sl::kSkillViewW,
                           sl::kSkillViewH};
@@ -97,6 +89,9 @@ struct Row {
     std::string name;
     std::string value;
     bool heading = false;
+    // The Skyrim skill (actor value) the row shows, for its tooltip; -1 for
+    // any other row.
+    int skill = -1;
 };
 
 std::vector<Row> g_rows;
@@ -111,8 +106,8 @@ CustomMenu& Menu() {
     return menu;
 }
 
-AttributeTip& Tip() {
-    static AttributeTip tip(Menu());
+StatTip& Tip() {
+    static StatTip tip(Menu());
     return tip;
 }
 
@@ -185,17 +180,17 @@ void PushAttributes() {
     }
 }
 
-// Each specialization's skills under its heading, by name, as OpenMW groups
-// the stats window's skills; then the factions the player belongs to.
+// Skyrim's skills, each group under its heading and by name, as OpenMW lays
+// the stats window's skills out; then the factions the player belongs to.
 void BuildRows() {
     g_rows.clear();
     for (int spec = 0; spec < kSpecializationCount; ++spec) {
         std::vector<Row> skills;
-        for (int i = 0; i < kSkillCount; ++i) {
-            const SkillDef* def = FindSkill(i);
-            if (!def || def->specialization != spec) continue;
-            skills.push_back({Gmst(kSkillGmst[i]),
-                              std::to_string(static_cast<int>(ActorSkill(kPlayer, i)))});
+        for (int av : kSkillGroups[spec]) {
+            const char* name = SkillName(av);
+            const float value = name && Hooks().actorValue ? Hooks().actorValue(kPlayer, name) : 0;
+            skills.push_back({SkyrimSkillName(av), std::to_string(static_cast<int>(value)),
+                              false, av});
         }
         std::sort(skills.begin(), skills.end(),
                   [](const Row& a, const Row& b) { return a.name < b.name; });
@@ -243,7 +238,7 @@ void PushRows() {
         SetText(Path(name, ".text"), row.name);
         SetText(Path(value, ".text"), row.value);
         Menu().SetNumber(Path(name, ".textColor").c_str(),
-                         row.heading ? layout::kColorHeader : layout::kColorNormal);
+                         row.heading ? Colors().header : Colors().normal);
         Menu().SetNumber(Path(name, "._y").c_str(), top + kTextShift);
         Menu().SetNumber(Path(value, "._y").c_str(), top + kTextShift);
     }
@@ -266,6 +261,7 @@ void PushCaption() {
 }
 
 void PushAll() {
+    PickColors(Menu());
     Tip().Hide();
     SetText("_root.Title.text", PlayerName());
     g_captionDirty = true;
@@ -293,8 +289,23 @@ void OnClick(double x, double y) {
     Scroll(sl::kRowH * ScrollClick(kSkillScroll, y, fraction, page));
 }
 
+// The skill whose row is fully in view under the point, or -1.
+int SkillAt(double x, double y) {
+    if (!kSkillView.Contains(x, y)) return -1;
+    const int index = (static_cast<int>(y) - kSkillView.y + g_scroll) / sl::kRowH;
+    const int top = kSkillView.y + index * sl::kRowH - g_scroll;
+    const bool shown = index < static_cast<int>(g_rows.size()) && top >= kSkillView.y &&
+                       top + sl::kRowH <= kSkillView.y + kSkillView.h;
+    return shown ? g_rows[static_cast<std::size_t>(index)].skill : -1;
+}
+
 void OnHover(double x, double y) {
-    Tip().Hover(g_drag.Active() ? -1 : AttributeAt(x, y), x, y);
+    const int attribute = g_drag.Active() ? -1 : AttributeAt(x, y);
+    if (attribute >= 0) {
+        Tip().HoverAttribute(attribute, x, y);
+    } else {
+        Tip().HoverSkill(g_drag.Active() ? -1 : SkillAt(x, y), x, y);
+    }
     if (!g_drag.Active()) return;
     const int to = static_cast<int>(std::lround(g_drag.Fraction(y) * ListRange()));
     if (to != g_scroll) Scroll(to - g_scroll);
@@ -379,6 +390,7 @@ void InstallCharacterSheet() {
         return;
     }
     g_hotkey = IniInt("Hotkey", kDefaultHotkey);
+    LoadSkyrimSkills(SidecarDir() + kSkillTable);
     const bool stats = Menu().Install();
     const bool levelUp = InstallLevelUpMenu();
     MenuInput input;

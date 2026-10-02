@@ -266,6 +266,11 @@ void SetActorAttribute(const std::string& actor, int tes3Index, float value) {
     WriteStat(actor, kAttributes[tes3Index], value);
 }
 
+float ActorAuthoredAttribute(const std::string& actor, int tes3Index) {
+    if (tes3Index < 0 || tes3Index >= Compiler::Stats::numberOfAttributes) return 0.0f;
+    return Authored(actor, Family::Attribute, tes3Index);
+}
+
 void SetSheetEnabled(bool on) { g_sheetOn = on; }
 
 bool SheetEnabled() { return g_sheetOn; }

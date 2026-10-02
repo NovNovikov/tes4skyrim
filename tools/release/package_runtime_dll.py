@@ -13,10 +13,11 @@ Finished Mods/<name>.zip, contents rooted as a Data folder -- so a user
 installs it exactly like any converted plugin.
 
 MorrowindRuntime's menus -- the dialogue window, the stats window and the
-level-up dialog -- are composed here, from the Morrowind install registered on
-this machine, and go straight into the archive: their art is Bethesda's, so
-the repo never holds a built copy. Without a registered install the menus are
-skipped and the rest still packages.
+level-up dialog -- are composed here in the `menuStyle` the config chooses
+(`--menu-style` overrides it) and go straight into the archive: Morrowind's
+art is Bethesda's, so the repo never holds a built copy. A forced Morrowind
+style with no registered install skips the menus and the rest still packages.
+See: docs/commentary/morrowind_runtime.md#menu-styles
 
 Usage:
   python tools/release/package_runtime_dll.py   # -> output/Finished Mods/TESRuntime.zip
@@ -26,13 +27,17 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+from asset_convert.ui.menu_art import (ICON_SETS, MENU_ICONS_KEY, MENU_STYLE_KEY,
+                                       STYLES, menu_art, resolve)
 from asset_convert.ui.morrowind_menu_art import MissingArtError
+from asset_convert.ui.skyrim_skills import SKILL_TABLE, skill_table_text
 from output_layout import finished_dir, write_mod_zip
 from tools.generators.gen_morrowind_menu_swf import dialogue_window
 from tools.generators.gen_morrowind_stats_swf import (LEVELUP_MOVIE,
@@ -46,6 +51,9 @@ SRC_DIR = SCRIPT_DIR / "tes_runtime"
 
 #: Where the pipeline's exports and the source registry live.
 EXPORT_ROOT = SCRIPT_DIR / "export"
+
+#: The per-install settings the GUI writes; its `menuStyle` picks the menus' look.
+CONFIG_FILE = SCRIPT_DIR / "conversion_config.json"
 
 #: MorrowindRuntime's menus as the game loads them, each with the function that composes it.
 MENUS = ((Path("Interface") / "morrowind_dialogue.swf", dialogue_window),
@@ -81,29 +89,40 @@ MODS = {
 }
 
 
-def morrowind_menus(export_root: Path) -> "list | None":
-    """Every Morrowind menu movie as `(archive path, bytes)`, composed from the
-    registered Morrowind install.
+def configured_choice() -> tuple:
+    """The config's `(menuStyle, menuIcons)`; None for either left unset."""
+    try:
+        cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    return cfg.get(MENU_STYLE_KEY), cfg.get(MENU_ICONS_KEY)
 
-    None when no install is registered (or it lacks the menu art), so the
+
+def morrowind_menus(export_root: Path, choice: tuple = (None, None)) -> "list | None":
+    """Every Morrowind menu movie as `(archive path, bytes)`, in `choice`'s
+    look and icons, and the Skyrim skill table the stats window names them by.
+
+    None when a Morrowind look finds no install holding its art, so the
     caller skips the menus instead of failing.
-    See: docs/commentary/morrowind_runtime.md#the-real-menu
+    See: docs/commentary/morrowind_runtime.md#menu-styles
     """
     try:
-        return [(arc, build(str(export_root)).serialize(compress=True))
-                for arc, build in MENUS]
+        art = menu_art(str(export_root), *choice)
+        menus = [(arc, build(art).serialize(compress=True)) for arc, build in MENUS]
     except MissingArtError:
         return None
+    table = skill_table_text()
+    return menus + ([(SKILL_TABLE, table.encode("utf-8"))] if table else [])
 
 
 def package(out_root: Path, mod_name: str = MOD_NAME,
-            export_root: Path = EXPORT_ROOT) -> int:
+            export_root: Path = EXPORT_ROOT, choice: tuple = (None, None)) -> int:
     """Zip `mod_name`'s files into <out_root>/Finished Mods/<mod_name>.zip.
 
     Every runtime is its own DLL, so a fault in one cannot take the others
     down; MorrowindRuntime links GPL-3.0 OpenMW, which stays out of the MIT
-    runtimes' binaries. Missing optional files are skipped, and so is the
-    Morrowind menu when `export_root` registers no Morrowind install.
+    runtimes' binaries. Missing optional files are skipped, and so are the
+    menus when a Morrowind look (`choice`, see `morrowind_menus`) finds no install.
     See: docs/commentary/morrowind_runtime.md#licensing
     """
     required, optional = MODS[mod_name]
@@ -129,10 +148,12 @@ def package(out_root: Path, mod_name: str = MOD_NAME,
         else:
             print(f"  - {arc} (not built, skipped)")
     if mod_name == MOD_NAME:
-        menus = morrowind_menus(export_root)
+        menus = morrowind_menus(export_root, choice)
         if menus is None:
             print("  - Morrowind menus (no Morrowind install registered, skipped)")
         else:
+            style, icons = resolve(str(export_root), *choice)
+            print(f"  menus: {style} look, {icons or 'no'} icons")
             members += [(str(arc), data) for arc, data in menus]
     write_mod_zip(zip_path, members, lambda _i, arc: print(f"  + {arc}"))
 
@@ -155,10 +176,16 @@ def main() -> int:
     ap.add_argument("--export-root", metavar="PATH", default=str(EXPORT_ROOT),
                     help="Where the Morrowind install is registered "
                          "(default: export/ in project root)")
+    ap.add_argument("--menu-style", choices=STYLES, default=None,
+                    help="The menus' look (default: the config's menuStyle)")
+    ap.add_argument("--menu-icons", choices=ICON_SETS, default=None,
+                    help="The menus' icons (default: the config's menuIcons)")
     args = ap.parse_args()
     out_root = (Path(args.output_dir) if args.output_dir
                 else SCRIPT_DIR / "output")
-    return package(out_root, args.mod, Path(args.export_root))
+    style, icons = configured_choice()
+    return package(out_root, args.mod, Path(args.export_root),
+                   (args.menu_style or style, args.menu_icons or icons))
 
 
 if __name__ == "__main__":

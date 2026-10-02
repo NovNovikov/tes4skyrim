@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "actor_stats.h"
-#include "attribute_tip.h"
+#include "stat_tip.h"
 #include "leveling.h"
 #include "log.h"
 #include "menu.h"
@@ -42,8 +42,8 @@ CustomMenu& Menu() {
     return menu;
 }
 
-AttributeTip& Tip() {
-    static AttributeTip tip(Menu());
+StatTip& Tip() {
+    static StatTip tip(Menu());
     return tip;
 }
 
@@ -128,8 +128,8 @@ void PushAttribute(int attribute) {
     SetText(Field("Mult", attribute, ".text"), open && gain > 1 ? "x" + std::to_string(gain) : "");
     SetText(Field("AttrName", attribute, ".text"), name);
     SetText(Field("AttrValue", attribute, ".text"), std::to_string(value));
-    unsigned color = attribute == g_hover ? layout::kColorNormalOver : layout::kColorNormal;
-    if (!open) color = layout::kColorDisabled;
+    unsigned color = attribute == g_hover ? Colors().normalOver : Colors().normal;
+    if (!open) color = Colors().disabled;
     SetNumber(Field("AttrName", attribute, ".textColor"), color);
     SetNumber(Field("AttrValue", attribute, "._x"),
               RowX(attribute) + sl::kMultiplierW + TextWidth(name) + kValueGap);
@@ -161,8 +161,8 @@ bool Ready() { return static_cast<int>(g_spent.size()) >= g_coins; }
 
 void PushOk() {
     SetText("_root.OkCaption.text", GmstText("sOK", "OK"));
-    unsigned color = g_hoverOk ? layout::kColorNormalOver : layout::kColorNormal;
-    if (!Ready()) color = layout::kColorDisabled;
+    unsigned color = g_hoverOk ? Colors().normalOver : Colors().normal;
+    if (!Ready()) color = Colors().disabled;
     SetNumber("_root.OkCaption.textColor", color);
 }
 
@@ -220,7 +220,7 @@ void OnClick(double x, double y) {
 void OnHover(double x, double y) {
     const int hover = AttributeAt(x, y);
     const bool ok = kOk.Contains(x, y);
-    Tip().Hover(hover, x, y);
+    Tip().HoverAttribute(hover, x, y);
     if (hover == g_hover && ok == g_hoverOk) return;
     g_hover = hover;
     g_hoverOk = ok;
@@ -247,6 +247,7 @@ bool InstallLevelUpMenu() {
     input.click = OnClick;
     input.hover = OnHover;
     input.opened = []() {
+        PickColors(Menu());
         Tip().Hide();
         PushAll();
     };

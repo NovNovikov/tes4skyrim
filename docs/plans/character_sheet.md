@@ -326,6 +326,7 @@ one copy. See [the menu must render itself](../commentary/morrowind_runtime.md#t
 - **Starting values:**
   - NPCs start from their authored record: Oblivion/Nehrim `NPC_` `DATA` attributes (`tes4_export/record_types/actors.py:142`) and `CREA` `DATA` attributes (`:187`); Morrowind from the runtime's existing `ActorDef`.
   - The player starts from the chosen game's race attributes (`RACE` `ATTR`, male/female, `actors.py:370`).
+  - **A chargen choice is retroactive** (race now; class and birthsign when their menus exist): when one moves a base attribute, every pick buff already earned is re-scored as if the attribute had always had its new value. Level-up gains on top are kept. This is unlike a level-up or a script's change, which is never retroactive.
 - **Morrowind:** `script_ops_stats.cpp`'s own `stat|` store moves under this one. The Morrowind runtime reads and writes through TESRuntime, so there is one store and one read.
 - **Player values** are mirrored into TESGameSelect globals (a new hand-assigned block; see [TESGameSelect records](../commentary/tesgameselect.md#records)) so dialogue conditions can read them with `GetGlobalValue` and saves carry them.
 - **NPC values** live in the TESRuntime co-save. The co-save already exists for the journal: `tes_runtime/tes/journal_log.*`, `plugin.cpp`.
@@ -393,6 +394,64 @@ Today these conditions are dropped at import
 - **Hotkey:** to be chosen. The mockup's C collides with Skyrim's Auto-Move (verify).
 - **Other ways in:** the Nehrim journal item, and a Tween-menu entry if the engine allows it ([L9](#learn)).
 - **Gamepad** navigation.
+
+### <a id="oblivion-plan"></a>Oblivion and Nehrim: plan of attack (proposed 2026-10-02)
+
+Morrowind already has the whole chain: a stat store, buffs, the skill cap,
+attribute magic, the level-up step, race starts, tooltips and the menus. The
+Oblivion work reuses it rather than building a second one.
+
+**Where they stand today (read in the code, counted in `export/`):**
+
+| Area | Today | Count |
+|---|---|---|
+| Script reads and writes (`GetAV Strength`, `ModAV`, …) | reads stubbed to 100, writes dropped (`script_convert/constants.py` `TES4_ATTRIBUTES`, `ATTRIBUTE_STUB_VALUE`) | Oblivion 51 calls, Nehrim 55 |
+| Dialogue/package conditions on attributes | dropped at import (`dialog_conditions._TES4_AV_ATTRIBUTES`) | not yet counted (the census query found none, so it was wrong) |
+| Attribute magic (FOAT, DRAT, DGAT, ABAT, REAT) | mapped onto a stand-in Skyrim value (`magic.ATTRIBUTE_TO_AV`: Strength → CarryWeight, Endurance → Health, …) | Oblivion ≈1,270 uses on SPEL/ENCH/ALCH/INGR/SGST, Nehrim ≈1,000 |
+| Level-up | Skyrim's only | — |
+| Race starts | none | — |
+
+**Order of attack.** Each step is one build and one in-game check, and each
+leaves the game working.
+
+1. **One sheet, every game.** The store, buffs, cap, leveling, tooltips and
+   menus stay in MorrowindRuntime (it ships in the same `TESRuntime.zip`) and
+   switch on when any converted game with attributes is installed, not only
+   Morrowind. Which game's rules apply comes from `TESGS_CurrentGame` ([M7](#m7-options)).
+   No code is copied into TESRuntime: parts are ported from OpenMW (GPL), so
+   moving them under MIT would need a rewrite for nothing.
+2. **The tables, per game, in the sidecar the TES4 import writes:** SKIL
+   (governing attribute and specialization from `DATA`), RACE (the `ATTR`
+   male/female starts, keyed by Skyrim race exactly as `RACE.txt` is), and
+   the NPC_/CREA authored attributes. These are the same file formats the
+   Morrowind sidecar uses, so the runtime reads both.
+3. **Scripts.** The 106 calls become Papyrus natives the runtime registers
+   (`TES4Polyfill.GetAttribute/SetAttribute/ModAttribute` for any actor),
+   replacing the stub. `--scripts-only` for every masterless plugin (static
+   scripts rule).
+4. **Magic.** FOAT/DRAT/DGAT/ABAT/REAT move off the stand-in values onto the
+   per-attribute runtime variants Morrowind already uses
+   (`magic_variants.build_av_variants` and the effect table), so one tick
+   handles all three games. Changed MGEFs keep their FormIDs; new variants are
+   hashed by EditorID. Measure drift before shipping.
+5. **Conditions.** Count them correctly first. Player-subject ones become
+   `GetGlobalValue` on TESGameSelect globals the runtime mirrors ([M5](#m5-conditions)).
+   NPC-subject ones are decided after the count shows how many there are.
+6. **Leveling per game.** Oblivion's step is Morrowind's (three attributes ×
+   `iLevelUp##Mult`, Luck +1), so it reuses the code with Oblivion's own SKIL
+   and GMST rows. The sheet's skill list comes from the current game's SKIL
+   table (21 skills, not 27). Nehrim keeps its own rules ([M8](#m8-nehrim)).
+7. **Menus.** Oblivion and Nehrim get the Skyrim style with their own icons
+   (built 2026-10-02, `menu_art.OblivionIcons`).
+8. **Chargen.** Native class and birthsign menus, for Morrowind mode and for
+   the Papyrus calls that open them today. Each feeds the starting attributes
+   through the same retroactive rule as race ([M3](#m3-store)).
+
+**Decisions needed before step 1:**
+- Should an Oblivion-only install (no Morrowind) still use the sheet's
+  hotkey, or open it from the journal or Tween menu only?
+- Standard or Strict ([rules](#rules)): do Oblivion attributes also give the
+  buffs and the cap, or only gate content?
 
 ### <a id="not-mvp"></a>Not in the MVP
 

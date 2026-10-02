@@ -615,6 +615,24 @@ constexpr std::uint64_t kTrainingMenuTrainCaller = 52662;
 constexpr std::size_t kTrainingCallerScan = 0x200;
 constexpr std::size_t kOffTrainingMenuSkill = 0x40;
 
+// The player's sex and skill progress, read on 1.6.1170 and 1.7.104 alike.
+//   TESNPC::GetSex (0x3a8df0; 0x3afeb0 on 1.7.104), what the ActorBase.GetSex
+//        native jumps to: `cmp byte [rcx+0x1a],0x2b; movzx eax,byte
+//        [rcx+0x38]; and eax,1` -- an NPC_ is female when bit 0 of +0x38 is set.
+//   PlayerCharacter::AdvanceSkill (id 40488) loads the PlayerSkills pointer by
+//        `mov rcx,[rcx+disp32]` 0x10 in: 0x9b8 on 1.6.1170, 0x9c0 on 1.7.104,
+//        so the offset is read from that instruction. Its data block holds a
+//        {level, points, pointsMax} per skill from +0x08, 12 bytes each, actor
+//        value 6 first: PlayerSkills::AdvanceSkill (id 41561) adds to
+//        [data + 12*(av-6) + 0xc] and compares it with +0x10.
+// See: docs/commentary/morrowind_runtime.md#skill-tooltips
+constexpr std::uint8_t kFormTypeNpc = 0x2B;
+constexpr std::size_t kOffNpcSexFlags = 0x38;
+constexpr std::size_t kAdvanceSkillLoadAt = 0x10;
+constexpr std::size_t kSkillDataFirst = 0x08;
+constexpr std::size_t kSkillDataStride = 0x0C;
+constexpr int kFirstSkillValue = 6;
+
 // The character-creation and control natives, each the registration callback
 // beside its name string under script `Game` on 1.6.1170:
 //   void Game.ShowRaceMenu()                                      0xa12780

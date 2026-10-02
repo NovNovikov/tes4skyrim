@@ -31,6 +31,8 @@ float ActorBaseAttribute(const std::string& actor, int tes3Index);
 // so every reader above sees it. An index outside 0..7 does nothing.
 void SetActorAttribute(const std::string& actor, int tes3Index, float value);
 
+// What the actor's NPC_ record authors for an attribute, before any write.
+float ActorAuthoredAttribute(const std::string& actor, int tes3Index);
 // MorrowindRuntime.ini's [CharacterSheet] Enabled and SkillCap; both on until
 // set. The cap only ever applies with the sheet on.
 void SetSheetEnabled(bool on);

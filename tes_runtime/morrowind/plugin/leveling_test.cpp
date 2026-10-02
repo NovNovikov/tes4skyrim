@@ -28,8 +28,12 @@ void Check(bool ok, const char* what) {
 
 std::map<std::string, float> g_base;
 int g_level = 1;
-int g_raceA = 0, g_raceB = 0;
-const void* g_race = &g_raceA;
+// Races the fixture's RACE.txt does not know, then Morrowind.esm's Dark Elf
+// under its Skyrim race and that race's vampire.
+constexpr std::uint32_t kRaceA = 1, kRaceB = 2;
+constexpr std::uint32_t kDarkElf = 0x00013742, kDarkElfVampire = 0x0008883D;
+std::uint32_t g_race = kRaceA;
+bool g_female = false;
 
 float FakeBase(const std::string&, const char* name) {
     const auto found = g_base.find(name);
@@ -50,7 +54,8 @@ bool BaseIs(const char* name, float want) {
 }
 
 int FakeLevel() { return g_level; }
-const void* FakeRace(const std::string&) { return g_race; }
+std::uint32_t FakeRace(const std::string&) { return g_race; }
+bool FakeFemale(const std::string&) { return g_female; }
 
 std::string FixtureDir() {
     char exe[MAX_PATH] = {0};
@@ -81,7 +86,7 @@ void CreditCases() {
           "and their specializations");
 
     std::printf("a race change moves skills without crediting them\n");
-    g_race = &g_raceB;
+    g_race = kRaceB;
     g_base["Destruction"] = 25.0f;
     SampleLeveling();
     Check(AttributeIncreases(kWillpower) == 0, "racial Destruction is not an increase");
@@ -179,12 +184,44 @@ void SheetOffCases() {
     Check(BaseIs("Health", 30.0f), "and back on, the earned bonus returns");
 }
 
+// After PickCases the player has one Health pick, holding 30 Health, with
+// Endurance at 100 over an authored start the fixture leaves at 0.
+void RaceCases() {
+    std::printf("the race worn sets the starting attributes, earned picks re-scored\n");
+    const float authored = ActorAuthoredAttribute("player", kEndurance);
+    const float before = ActorBaseAttribute("player", kEndurance);
+    g_race = kDarkElf;
+    SampleLeveling();
+    HoldAttributeBuffs();
+    Check(ActorBaseAttribute("player", kEndurance) == before + 40.0f - authored,
+          "Endurance moves to a Dark Elf man's 40, gains kept");
+    Check(BaseIs("Health", 30.0f + (40.0f - authored) / 10.0f),
+          "the Health pick earns as if Endurance had always been there");
+    std::printf("a vampire of the race starts where the race does\n");
+    g_race = kDarkElfVampire;
+    SampleLeveling();
+    HoldAttributeBuffs();
+    Check(ActorBaseAttribute("player", kEndurance) == before + 40.0f - authored,
+          "nothing moves");
+    std::printf("the other sex's start moves it again\n");
+    g_female = true;
+    SampleLeveling();
+    HoldAttributeBuffs();
+    Check(ActorBaseAttribute("player", kEndurance) == before + 30.0f - authored,
+          "a Dark Elf woman's Endurance is 30");
+    Check(BaseIs("Health", 30.0f + (30.0f - authored) / 10.0f), "and the pick follows");
+    std::printf("a race no table knows changes nothing\n");
+    g_race = kRaceA;
+    SampleLeveling();
+    Check(ActorBaseAttribute("player", kEndurance) == before + 30.0f - authored,
+          "the start stays the last known race's");
+}
+
 void GoverningCases() {
     std::printf("each Skyrim skill's governing attribute\n");
     Check(GoverningAttribute(6) == kStrength, "One-Handed: Long Blade's Strength");
     Check(GoverningAttribute(17) == kPersonality, "Speech: Speechcraft's Personality");
-    Check(GoverningAttribute(24) == -1 && SkillName(24) == nullptr, "Health is no skill");
-}
+    Check(GoverningAttribute(24) == -1 && SkillName(24) == nullptr, "Health is no skill");}
 
 }  // namespace
 
@@ -196,11 +233,13 @@ int main() {
     Hooks().actorValue = FakeValue;
     Hooks().playerLevel = FakeLevel;
     Hooks().race = FakeRace;
+    Hooks().female = FakeFemale;
     CreditCases();
     StepCases();
     PickCases();
     MagicCases();
     SheetOffCases();
+    RaceCases();
     GoverningCases();
     std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
     return g_failures ? 1 : 0;

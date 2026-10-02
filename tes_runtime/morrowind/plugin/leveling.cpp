@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -50,9 +51,13 @@ constexpr Tracked kTracked[] = {
 // The race the last read saw. In memory only: a load restores the skills and
 // the samples together, so treating the first read after one as a change
 // costs nothing.
-const void* g_race = nullptr;
+std::uint32_t g_race = 0;
 
 std::string BaseKey(const char* skill) { return std::string("base.") + skill; }
+
+// The starting attribute the player's base was last built on, so a new
+// race or sex moves it by the difference and keeps every level-up gain.
+std::string StartKey(int attribute) { return "start" + std::to_string(attribute); }
 
 std::string IncreaseKey(int attribute) {
     return "inc" + std::to_string(attribute);
@@ -105,13 +110,38 @@ void SampleLevel(bool credit) {
     State().SetVar(kOwner, kLevelVar, static_cast<float>(now));
 }
 
+// The race (and sex) now worn sets the starting attributes: each base moves
+// by how far the new start is from the one it was built on -- before any, the
+// player record's own -- and the picks it earned are re-scored. A race no
+// sidecar describes changes nothing.
+void ApplyRaceStart(std::uint32_t race) {
+    const RaceDef* def = race ? FindRaceStart(race) : nullptr;
+    if (!def) return;
+    const bool female = Hooks().female && Hooks().female(kPlayer);
+    const int* start = female ? def->female : def->male;
+    for (int a = 0; a < kAttributeCount; ++a) {
+        const std::string key = StartKey(a);
+        const float was = State().HasVar(kOwner, key) ? State().Var(kOwner, key)
+                                                      : ActorAuthoredAttribute(kPlayer, a);
+        const float delta = static_cast<float>(start[a]) - was;
+        State().SetVar(kOwner, key, static_cast<float>(start[a]));
+        if (delta == 0.0f) continue;
+        const float base = ActorBaseAttribute(kPlayer, a);
+        SetActorAttribute(kPlayer, a, std::max(0.0f, base + delta));
+        RescorePickBuffs(a, delta);
+        Log("leveling: %s %s starts attribute %d at %d: %.0f -> %.0f", def->id.c_str(),
+            female ? "female" : "male", a, start[a], base, base + delta);
+    }
+}
+
 }  // namespace
 
 void SampleLeveling() {
     if (!Hooks().baseActorValue || !Hooks().playerLevel) return;
-    const void* race = Hooks().race ? Hooks().race(kPlayer) : nullptr;
+    const std::uint32_t race = Hooks().race ? Hooks().race(kPlayer) : 0;
     const bool raceChanged = race != g_race;
     g_race = race;
+    ApplyRaceStart(race);
     const bool first = !State().HasVar(kOwner, kLevelVar);
     SampleSkills(!first && !raceChanged);
     SampleLevel(!first);
@@ -178,6 +208,6 @@ void CompleteLevelUp(const std::vector<int>& attributes) {
     if (Counter(kPendingVar) < 0) State().SetVar(kOwner, kPendingVar, 0.0f);
 }
 
-void ResetLevelingForTest() { g_race = nullptr; }
+void ResetLevelingForTest() { g_race = 0; }
 
 }  // namespace tesruntime::mw

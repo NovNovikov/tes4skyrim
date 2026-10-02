@@ -23,7 +23,9 @@ constexpr int kSpecializationCount = 3;
 // credited to its namesake Morrowind skill's governing attribute and
 // specialization; a level gained queues one step. The first read of a game,
 // and any read after the player's race changed, only records what it sees.
+// The race and sex worn set the starting attributes, retroactively (RACE.txt).
 // Game thread.
+// See: docs/commentary/morrowind_runtime.md#race-attributes
 void SampleLeveling();
 
 // Level-ups whose attribute step has not been taken yet.
