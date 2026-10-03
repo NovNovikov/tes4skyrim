@@ -489,6 +489,7 @@ def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypa
                           parallax_var=SimpleNamespace(get=lambda: True),
                           tex_only_var=SimpleNamespace(get=lambda: True))
     runs = [('A.esm', ['meshes', 'import_']), ('B.esp', ['meshes', 'import_'])]
+    previous_token = None
     for rebuild in (False, True):
         cmds = runner.mod_run_argv(app, runs, 'A.esm', ['pack'], 'output',
                                    rebuild=rebuild,
@@ -504,6 +505,11 @@ def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypa
         for i in mesh_jobs + finalizers:
             assert args[i].parallax and args[i].textures_only
         assert all(args[i].plugin_assets_only for i in mesh_jobs)
+        tokens = {args[i].mesh_reuse_token for i in mesh_jobs}
+        assert len(tokens) == 1 and None not in tokens
+        token = tokens.pop()
+        assert token != previous_token
+        previous_token = token
 
 
 def test_mod_runs_process_shared_effects_once_and_keep_each_plugins_voices(monkeypatch):

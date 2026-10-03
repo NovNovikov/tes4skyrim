@@ -164,7 +164,7 @@ def _persist_mesh_manifests(mesh_stats, manifest_dir, partial: bool) -> None:
 
 def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
                        mesh_subdirs, parallax, textures_only,
-                       plugin_assets_only=False):
+                       plugin_assets_only=False, mesh_reuse_token=None):
     """Run the NIF batch over `mesh_src`; return its stats dict.
 
     The wearable plan names which _0/_1/plain variants each mesh is actually
@@ -231,13 +231,14 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
         textures_only=textures_only,
         scan_dir=None if textures_only else str(asset_dir),
         model_filter=model_filter,
+        reuse_token=mesh_reuse_token if plugin_assets_only else None,
     )
 
 
 def convert_meshes(source_file, extract_dir='export', output_dir='output',
                    mesh_subdirs=None, parallax=False, textures_only=False,
                    skip_hair=False, plugin_assets_only=False,
-                   defer_textures=False):
+                   defer_textures=False, mesh_reuse_token=None):
     """Convert extracted NIFs and copy textures into `output_dir/<source_name>/`.
 
     Needs extract_bsas run first. `mesh_subdirs` converts ONLY the NIFs under
@@ -276,7 +277,7 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
         stats['mesh_conversion'] = _convert_mesh_tree(
             mesh_src, plugin_dir / 'meshes' / ns, asset_dir, extract_dir,
             source_name, mesh_subdirs, parallax, textures_only,
-            plugin_assets_only)
+            plugin_assets_only, mesh_reuse_token)
         if parallax:
             _write_parallax_notice(plugin_dir)
         opacity = set(stats['mesh_conversion'].get('alpha_opacity_diffuse', ()))

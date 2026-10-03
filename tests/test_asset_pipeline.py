@@ -8,6 +8,105 @@ POST_PASSES = ('_profile_hair_and_grass', '_split_magic_art',
                '_copy_and_fix_textures')
 
 
+def _small_nif(path, name=b'Scene Root'):
+    from asset_convert.nif.pyffi_monkey_patch import apply_patches
+    apply_patches()
+    from pyffi.formats.nif import NifFormat
+    data = NifFormat.Data(version=0x14000005, user_version=11, user_version_2=11)
+    data.header.endian_type = 1
+    root = NifFormat.NiNode()
+    root.name = name
+    data.roots = [root]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('wb') as fh:
+        data.write(fh)
+
+
+def test_mod_mesh_reuse_keeps_output_and_reconverts_changed_inputs(tmp_path, monkeypatch):
+    from asset_convert.nif import nif_batch
+    from asset_convert.character import wearable_plan as wp
+    from asset_convert.nif.fixture_plan import FIXTURE_KEY
+    monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
+    src = tmp_path / 'export' / 'meshes' / 'tree.nif'
+    out = tmp_path / 'output' / 'meshes' / 'tes4'
+    _small_nif(src)
+    def run(token='run1', plan=None, **options):
+        return nif_batch.batch_convert(src.parent, out, reuse_token=token,
+                                       wearable_plan=plan, **options)
+    plan = {'tree.nif': wp.BASE, FIXTURE_KEY: {'tree.nif'}}
+    first = run(plan=plan)
+    assert first['converted'] == 1 and first['errors'] == 0
+    original = (out / src.name).read_bytes()
+    stamp = (out / src.name).stat().st_mtime_ns
+    # Another plugin can add unrelated models without changing this NIF.
+    same = run(plan={**plan, 'unrelated.nif': wp.W0,
+                     FIXTURE_KEY: {'tree.nif', 'unrelated.nif'}})
+    assert same['reused'] == 1 and same['converted'] == 0
+    assert (out / src.name).read_bytes() == original
+    assert (out / src.name).stat().st_mtime_ns == stamp
+    # Relevant context changes and A -> B -> A must each reconvert.
+    changed = {**plan, FIXTURE_KEY: set()}
+    assert run(plan=changed)['converted'] == 1
+    assert run(plan=plan)['converted'] == 1
+    assert run(plan=plan, parallax=True)['converted'] == 1
+    assert run(plan=plan)['converted'] == 1
+    (out / src.name).unlink()
+    assert run(plan=plan)['converted'] == 1
+    _small_nif(src, b'Changed Root')
+    assert run(plan=plan)['converted'] == 1
+    assert (out / src.name).read_bytes() != original
+    assert run(token='run2', plan=plan)['converted'] == 1
+
+
+def test_mod_mesh_reuse_preserves_weight_variants_and_retries_failure(tmp_path, monkeypatch):
+    from asset_convert.nif import nif_batch
+    from asset_convert.character import wearable_plan as wp
+    monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
+    src = tmp_path / 'export' / 'meshes' / 'armor.nif'
+    out = tmp_path / 'output' / 'meshes' / 'tes4'
+    _small_nif(src)
+    def run():
+        return nif_batch.batch_convert(src.parent, out, reuse_token='run',
+                                       wearable_plan={'armor.nif': wp.W0 | wp.W1})
+    first = run()
+    assert first['errors'] == 0 and first['converted'] == 1
+    assert not (out / src.name).exists()
+    assert run()['reused'] == 1
+    (out / 'armor_1.nif').unlink()
+    assert run()['converted'] == 1
+    assert (out / 'armor_1.nif').exists()
+    src.write_bytes(b'broken NIF')
+    assert run()['errors'] == 1
+    assert run()['errors'] == 1
+
+
+def test_reused_textured_mesh_keeps_texture_and_overlay_manifests(tmp_path, monkeypatch):
+    from asset_convert.nif import nif_batch
+    monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
+    src = tmp_path / 'src' / 'meshes' / 'a.nif'
+    _small_nif(src)
+    real_convert = nif_batch.convert_nif
+    def convert(*args, **kwargs):
+        result = real_convert(*args, **kwargs)
+        # Exercise transport of all worker metadata independently of shader
+        # heuristics: dropping these sets would break pruning and alpha repair.
+        result.update(textures={'tes4/transparent.dds'},
+                      alpha_opacity_diffuse={'tes4/transparent.dds'},
+                      overlay_diffuses={'tes4/overlay.dds'})
+        return result
+    monkeypatch.setattr(nif_batch, 'convert_nif', convert)
+    out = tmp_path / 'out' / 'meshes' / 'tes4'
+    def run():
+        return nif_batch.batch_convert(src.parent, out, reuse_token='run')
+    first = run()
+    reused = run()
+    assert first['errors'] == 0 and first['textures_used']
+    assert first['overlay_diffuses']
+    assert reused['reused'] == 1 and reused['errors'] == 0
+    for key in ('textures_used', 'alpha_opacity_diffuse', 'overlay_diffuses'):
+        assert reused[key] == first[key]
+
+
 @pytest.fixture
 def calls(tmp_path, monkeypatch):
     """Stub every step of convert_meshes; return the list of steps that ran."""

@@ -1214,13 +1214,15 @@ def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False,
     texture_owner = next((name for name in members if name.lower().endswith('.esm')),
                          members[0] if members else None)
     cmds = []
+    import uuid
+    mesh_reuse_token = uuid.uuid4().hex
     shared_sounds_planned = False
     for i, (name, key) in enumerate(jobs):
         cmd = build_cmd(app, key, name, out_dir, None)
         if key in ('meshes', 'creatures'):
             cmd.append('--plugin-assets-only')
         if key == 'meshes':
-            cmd.append('--defer-textures')
+            cmd += ['--defer-textures', '--mesh-reuse-token', mesh_reuse_token]
         if key == 'sounds':
             if shared_sounds_planned:
                 cmd.append('--skip-shared-sounds')

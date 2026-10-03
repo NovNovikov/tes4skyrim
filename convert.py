@@ -596,7 +596,8 @@ def _use_plugin_namespace(file_name: str) -> str:
 def phase_assets(file_name: str, config: dict, output_dir: str = None,
                  mesh_subdirs=None, winding_fix=None, parallax=False,
                  textures_only=False, skip_hair=False, plugin_assets_only=False,
-                 defer_textures=False, shared_texture_plugins=None):
+                 defer_textures=False, shared_texture_plugins=None,
+                 mesh_reuse_token=None):
     """Convert extracted NIF assets and copy textures to output (meshes only).
 
     `winding_fix` tri-states the collision winding repair: True/False force it,
@@ -640,6 +641,7 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
         skip_hair=skip_hair,
         plugin_assets_only=plugin_assets_only,
         defer_textures=defer_textures,
+        mesh_reuse_token=mesh_reuse_token,
     )
     total = sum(v for v in stats.values() if isinstance(v, int))
     print(f"[{file_name}] Meshes complete ({total} items processed)")
@@ -1144,7 +1146,8 @@ def _phase_runners(run) -> dict:
             textures_only=a.textures_only, skip_hair=a.skip_hair,
             plugin_assets_only=a.plugin_assets_only,
             defer_textures=a.defer_textures,
-            shared_texture_plugins=a.shared_texture_plugins),
+            shared_texture_plugins=a.shared_texture_plugins,
+            mesh_reuse_token=a.mesh_reuse_token),
         'speedtrees': lambda fn: phase_speedtrees(fn, cfg, output_dir=out),
         'creatures': lambda fn: phase_creatures(fn, run.tes5_data, cfg,
                                                 output_dir=out,
@@ -1184,6 +1187,7 @@ def _work(steps, order, run) -> dict:
     return {'plugins': list(order), 'steps': list(steps), 'masters': masters,
             'scope': {'only': a.only, 'mesh_subdirs': a.mesh_subdirs,
                       'defer_textures': a.defer_textures,
+                      'mesh_reuse_token': a.mesh_reuse_token,
                       'shared_texture_plugins': a.shared_texture_plugins,
                       'skip_shared_sounds': a.skip_shared_sounds},
             'same': [run.output_dir, run.tes4_data, a.config, a.textures_only,
