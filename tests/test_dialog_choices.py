@@ -52,6 +52,18 @@ def _master(tmp_path):
     return MasterIndex(str(path))
 
 
+def test_hidden_npc_continuation_is_removed_from_player_choices_only():
+    writer = PluginWriter(['Skyrim.esm'])
+    writer.add_raw_group('DIAL', _topic(0x01000100, _info(
+        0x01000101, [0x01000200, 0x01000300])))
+    writer.add_raw_group('DIAL', _topic(0x01000200, _info(0x01000201, [])))
+    writer.add_raw_group('DIAL', _topic(0x01000300))
+    assert prune_invalid_choices(writer, hidden_targets={0x01000200}) == 1
+    emitted = _infos(writer)
+    assert _choices(emitted[0]) == [0x01000300]
+    assert emitted[1].form_id == 0x01000201  # The response itself survives.
+
+
 def test_missing_choices_removed_forward_topic_and_utf8_kept(tmp_path):
     writer = PluginWriter(['Skyrim.esm', 'Converted.esm'])
     info = _info(0x02000800, [0x02000810, 0x02000820, 0])

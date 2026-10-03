@@ -13,7 +13,7 @@ from ..base.tes5_reader import FLAG_COMPRESSED, FLAG_DELETED, records, walk
 from ..base.writer import pack_subrecord
 
 
-def prune_invalid_choices(writer, master_index=None) -> int:
+def prune_invalid_choices(writer, master_index=None, hidden_targets=()) -> int:
     """Remove choices whose targets are absent/deleted or are not DIALs.
 
     Run after all dialogue and adopted overrides have been emitted: forward
@@ -54,7 +54,10 @@ def prune_invalid_choices(writer, master_index=None) -> int:
         raw = master_index.record(fid)
         return not (struct.unpack_from('<I', raw, 8)[0] & FLAG_DELETED)
 
-    invalid = {fid for fid in targets if not valid(fid)}
+    # NPC continuations are replayed from the preserved source graph. They
+    # must not become player-selectable choices merely because their DIALs
+    # now survive conversion.
+    invalid = {fid for fid in targets if not valid(fid)} | (targets & set(hidden_targets))
     if not invalid:
         return 0
 
