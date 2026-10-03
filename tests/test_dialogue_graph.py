@@ -8,7 +8,7 @@ from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.pipeline import (
     _info_begin_fragment, _info_end_fragment, info_needs_fragment,
-    scan_say_topic_fids,
+    build_script_context, convert_all_scripts, scan_say_topic_fids,
 )
 from tes5_import.base import text_reader
 from tes5_import.base.tes5_reader import records
@@ -18,6 +18,7 @@ from tes5_import.base.writer import (
 )
 from tes5_import.dialogue.runtime_graph import (
     bind_graph, generate_scripts, load_manifest, seal_manifest, sidecar_path, source_graph,
+    own_graph, load_script_graph,
 )
 from tes5_import.overrides.master_index import MasterIndex
 
@@ -122,6 +123,151 @@ def test_inherited_response_resolves_through_master_index(tmp_path):
     writer.add_raw_group('DIAL', _topic_blob(0x02000200, (0x02000201, 0)))
     bind_graph(child, tmp_path / 'Child.esp', writer, MasterIndex(str(master_path)))
     assert len(load_manifest(child, tmp_path)['infos']) == 2
+
+
+def test_empty_patch_scripts_do_not_require_inherited_bindings(tmp_path):
+    root = tmp_path / 'export'
+    _export(root / 'Base.esm', dials=[_dial(0x100, 'Reaction')],
+            infos=[_info(0x101, 0x100)])
+    child = _export(root / 'Empty.esp', ('Base.esm',))
+    output = tmp_path / 'out' / 'scripts' / 'Source'
+
+    stats = convert_all_scripts(str(child), str(output), workers=1)
+
+    assert stats['scpt_total'] == stats['info_total'] == stats['qust_total'] == 0
+    assert stats['scpt_err'] == stats['info_err'] == stats['qust_err'] == 0
+    assert not list(output.glob('*DialogueGraph*.psc'))
+
+
+@pytest.mark.parametrize('own_dialogue', [False, True])
+def test_imported_patch_generates_graph_only_for_changed_dialogue(tmp_path, own_dialogue):
+    root = tmp_path / 'export'
+    _export(root / 'Base.esm', dials=[_dial(0x100, 'Reaction')],
+            infos=[_info(0x101, 0x100)])
+    dials = [_dial(0x01000200, 'Head')] if own_dialogue else []
+    infos = [_info(0x01000201, 0x01000200, 0x100)] if own_dialogue else []
+    child = _export(root / 'Child.esp', ('Base.esm',), dials, infos)
+    output = tmp_path / 'out'
+    output.mkdir()
+    master = output / 'Base.esm'
+    master.write_bytes(pack_tes4_header(['Skyrim.esm'])
+                       + pack_top_group('DIAL', _topic_blob(0x01000100, (0x01000101, 0))))
+    writer = PluginWriter(['Skyrim.esm', 'Base.esm'])
+    if own_dialogue:
+        writer.add_raw_group('DIAL', _topic_blob(0x02000200, (0x02000201, 0)))
+    plugin = output / 'Child.esp'
+    legacy = sidecar_path(output, child)
+    legacy.write_text('{"old_duplicate": true}', encoding='utf-8')
+    quest = bind_graph(child, plugin, writer, MasterIndex(str(master)))
+    writer.write(str(plugin))
+    seal_manifest(child, plugin, active=bool(quest))
+    script_output = output / 'scripts' / 'Source'
+
+    context = build_script_context(str(child), str(script_output))
+
+    assert len(context['info_work']) == int(own_dialogue)
+    if own_dialogue:
+        manifest = load_manifest(child, output, required=True)
+        assert context['initargs'][-1]['infos'] == manifest['infos']
+        assert (script_output / (manifest['script'] + '.psc')).is_file()
+        assert (script_output / (manifest['script'] + 'Page0.psc')).is_file()
+    else:
+        assert quest is None
+        assert not legacy.exists()
+        assert not list(records(plugin.read_bytes(), b'QUST'))
+        assert not list(script_output.glob('*DialogueGraph*.psc'))
+
+
+def test_patch_reuses_master_routes_without_rewriting_master_scripts(tmp_path):
+    root = tmp_path / 'export'
+    base = _export(root / 'Base.esm', dials=[_dial(0x100, 'Reaction')],
+                   infos=[_info(0x101, 0x100)])
+    child = _export(root / 'Base.esp', ('Base.esm',))
+    (child / 'SCPT.txt').write_text(
+        '---RECORD_BEGIN---\nFormID=01000500\nEditorID=PatchTalk\n'
+        'SCTX=Begin PatchTalk\\nPlayer.StartConversation Player Reaction\\nEnd\n'
+        '---RECORD_END---\n', encoding='utf-8')
+    output = tmp_path / 'out'
+    output.mkdir()
+    writer = PluginWriter(['Skyrim.esm'])
+    writer.add_raw_group('DIAL', _topic_blob(0x01000100, (0x01000101, 0)))
+    plugin = output / 'Base.esm'
+    bind_graph(base, plugin, writer)
+    writer.write(str(plugin))
+    seal_manifest(base, plugin)
+    manifest = load_manifest(base, output, required=True)
+    scripts = output / 'scripts' / 'Source'
+    convert_all_scripts(str(base), str(scripts), workers=1)
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns)
+              for p in scripts.glob('*DialogueGraph*.psc')}
+    context = build_script_context(str(child), str(scripts))
+    assert context['initargs'][-1]['routes'] == {'reaction': manifest['script']}
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in scripts.glob('*DialogueGraph*.psc')} == before
+    assert not sidecar_path(output, child).exists()
+    # Separate plugin output still resolves the same master's bindings.
+    separate = output / 'Base.esp'
+    separate.mkdir()
+    master_folder = output / 'Base.esm'
+    # The fixture uses flat output, so move its master artefacts to normal layout.
+    plugin.rename(output / 'temporary.esm')
+    master_folder.mkdir()
+    (output / 'temporary.esm').rename(master_folder / 'Base.esm')
+    sidecar_path(output, base).rename(sidecar_path(master_folder, base))
+    inherited, generate = load_script_graph(child, separate, inherit=True)
+    assert inherited['routes'] == {'reaction': manifest['script']}
+    assert generate is False
+
+
+def test_unrelated_and_text_only_dialogue_changes_reuse_routing(tmp_path):
+    root = tmp_path / 'export'
+    _export(root / 'Base.esm', dials=[_dial(0x100, 'Reaction')],
+            infos=[_info(0x101, 0x100, **{'NAM1': 'Original'})])
+    child = _export(root / 'Text.esp', ('Base.esm',),
+                    [_dial(0x01000200, 'PlayerOnly', 0)],
+                    [_info(0x101, 0x100, **{'NAM1': 'Translated'}),
+                     _info(0x01000201, 0x01000200)])
+    assert own_graph(child) is None
+    writer = PluginWriter(['Skyrim.esm', 'Base.esm'])
+    assert bind_graph(child, tmp_path / 'Text.esp', writer) is None
+    assert writer.conversation_hidden_topics == {0x01000100}
+    # A new continuation does require an updated graph.
+    _export(child, ('Base.esm',), [_dial(0x01000200, 'Continuation', 0)],
+            [_info(0x101, 0x100, 0x01000200),
+             _info(0x01000201, 0x01000200)])
+    assert set(own_graph(child)['infos']) == {('base.esm', 0x101), ('text.esp', 0x201)}
+
+
+def test_same_stem_plugins_keep_separate_graph_scripts(tmp_path):
+    output = tmp_path / 'out'
+    output.mkdir()
+    scripts = output / 'scripts' / 'Source'
+    names = []
+    for name in ('Same.esm', 'Same.esp'):
+        folder = _export(tmp_path / 'export' / name,
+                         dials=[_dial(0x100, 'Head')], infos=[_info(0x101, 0x100)])
+        writer = PluginWriter(['Skyrim.esm'])
+        writer.add_raw_group('DIAL', _topic_blob(0x01000100, (0x01000101, 0)))
+        plugin = output / name
+        bind_graph(folder, plugin, writer)
+        writer.write(str(plugin))
+        seal_manifest(folder, plugin)
+        manifest = load_manifest(folder, output, required=True)
+        names.append(manifest['script'])
+        convert_all_scripts(str(folder), str(scripts), workers=1)
+    assert len(set(names)) == 2
+    assert all((scripts / (name + '.psc')).exists() for name in names)
+    assert all((scripts / (name + 'Page0.psc')).exists() for name in names)
+
+
+def test_patch_with_own_dialogue_still_requires_import_bindings(tmp_path):
+    root = tmp_path / 'export'
+    _export(root / 'Base.esm', dials=[_dial(0x100, 'Reaction')],
+            infos=[_info(0x101, 0x100)])
+    child = _export(root / 'Child.esp', ('Base.esm',),
+                    [_dial(0x01000200, 'Head')], [_info(0x01000201, 0x01000200)])
+    with pytest.raises(ValueError, match='bindings are missing'):
+        build_script_context(str(child), str(tmp_path / 'out' / 'scripts' / 'Source'))
 
 
 def test_shared_output_sidecars_are_distinct_and_stale_exports_rejected(tmp_path):

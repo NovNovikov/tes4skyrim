@@ -232,12 +232,17 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     subset build is the SAME conversion as the full one.
     See: docs/commentary/script_convert.md#script-output-dir
     """
-    from tes5_import.dialogue.runtime_graph import generate_scripts, load_manifest, source_graph
+    from tes5_import.dialogue.runtime_graph import (
+        generate_scripts, load_script_graph,
+    )
     by_type = load_records(export_dir, ('DIAL', 'INFO', 'QUST', 'SCPT', 'NPC_',
                                         'MESG'))
-    needs_graph = bool(source_graph(export_dir)['infos'])
-    graph = (load_manifest(export_dir, os.path.dirname(os.path.dirname(output_dir)),
-                           required=True) if needs_graph else {})
+    plugin_output = os.path.dirname(os.path.dirname(output_dir))
+    inherited_calls = any('startconversation' in str(value).lower()
+                          for sig in ('SCPT', 'INFO', 'QUST')
+                          for record in by_type[sig] for value in record.values())
+    graph, owns_graph = load_script_graph(export_dir, plugin_output,
+                                         inherit=inherited_calls)
     owner = owner_key(export_dir)
     shared = prepare_output_dir(output_dir, owner)
     bounds_cache = load_bounds_cache(export_dir)
@@ -263,7 +268,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     quest_script_vars = build_quest_script_vars(by_type)
     _write_conversation_driver(export_dir, output_dir, by_type,
                                quest_script_vars, say_durations, graph.get('script', ''))
-    if graph:
+    if owns_graph:
         for name, source in generate_scripts(graph).items():
             write_psc(output_dir, name, source)
     message_menus = build_message_plan(by_type['SCPT'], by_type['MESG'])

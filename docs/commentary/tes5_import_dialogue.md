@@ -20,10 +20,15 @@ record. Native player-menu TCLTs to hidden NPC topics are removed; the source
 edges remain in the runtime graph.
 
 The importer attaches a plugin-specific routing quest and writes
-`<plugin>.dialogue.json`. Step 8 generates its Papyrus routing pages from those
-exact bindings. Source and output SHA-256 fingerprints reject stale or incomplete
-imports before deleting previously generated scripts. Sidecars are per plugin,
-including when several plugins share an output folder. Regenerate step 6 and
+`<plugin>.dialogue.json` only when the plugin adds or changes conversation routing.
+Unchanged dependents reuse their masters' routing instead of copying the graph,
+quest and Papyrus pages. Text-only edits and unrelated player topics do not create
+a new graph. A successful reimport removes an obsolete duplicate sidecar.
+Scripted calls in dependents resolve the appropriate master's routing script;
+ESM and ESP files sharing a stem have distinct generated script names.
+Step 8 generates Papyrus routing pages only for graphs the plugin owns.
+Source and output SHA-256 fingerprints reject stale or incomplete imports before
+deleting previously generated scripts. Regenerate step 6 and
 step 8 for the master first, then its dependents; script generation alone cannot
 restore missing plugin records. The master supplies `TES4ConversationRunner`.
 
