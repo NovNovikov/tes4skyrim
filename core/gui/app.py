@@ -233,6 +233,7 @@ class GuiApp:
         self.file_combo = self.scope_combo = None
         self.run_btn = self.cancel_btn = self.upgrade_btn = None
         self.run_mod_btn = None
+        self.rebuild_mod_btn = None
         self.prog_bar = self.status_row = None
         self.menubar = None
         self.style = None
@@ -589,6 +590,9 @@ def build_run_buttons(app, parent, sep_gap: int) -> None:
     app.run_mod_btn = ttk.Button(frame, text="  Run Whole Mod",
                                  command=lambda: app.run_mod_clicked())
     app.run_mod_btn.pack(fill=tk.X, pady=(0, 6))
+    app.rebuild_mod_btn = ttk.Button(frame, text="  Rebuild Whole Mod",
+                                     command=lambda: app.rebuild_mod_clicked())
+    app.rebuild_mod_btn.pack(fill=tk.X, pady=(0, 6))
 
     row = ttk.Frame(frame, style="Panel.TFrame")
     row.pack(fill=tk.X)
@@ -1003,6 +1007,8 @@ def build_window():
 
     app.run_clicked = partial(runner.run_clicked, app, RC_MISSING_DEP)
     app.run_mod_clicked = partial(runner.run_mod_clicked, app, RC_MISSING_DEP)
+    app.rebuild_mod_clicked = partial(runner.run_mod_clicked, app,
+                                      RC_MISSING_DEP, rebuild=True)
     app.cancel_clicked = partial(runner.cancel_run, app)
     build_run_buttons(app, sb_body, widgets.SEP_GAP)
     _bind_global_actions(app)

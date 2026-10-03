@@ -519,6 +519,10 @@ def bind_set_running(app) -> None:
         if not state:
             app.cancel_evt.clear()
         app.run_btn.configure(state="disabled" if state else "normal")
+        for name in ('run_mod_btn', 'rebuild_mod_btn'):
+            button = getattr(app, name, None)
+            if button is not None:
+                button.configure(state="disabled" if state else "normal")
         app.cancel_btn.configure(state="normal" if state else "disabled",
                                  text="Cancel")
         app.file_combo.configure(state="disabled" if state else "normal")
@@ -1188,12 +1192,25 @@ def run_clicked(app, missing_dep) -> None:
                                   lambda ws: _run_finished(app, ws)))
 
 
-def run_mod_clicked(app, missing_dep) -> None:
+def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False):
+    """Commands for a mod run, with all exports first when rebuilding."""
+    if rebuild:
+        jobs = [(name, key) for key, *_ in STEPS
+                for name, steps in runs if key in steps]
+    else:
+        jobs = [(name, key) for name, steps in runs for key in steps]
+    if pack_with is not None:
+        jobs += [(pack_with, key) for key in pack_steps]
+    return [build_cmd(app, key, name, out_dir, None) for name, key in jobs]
+
+
+def run_mod_clicked(app, missing_dep, *, rebuild=False) -> None:
     """Run every plugin of the selected imported mod, masters first.
 
     Each plugin gets the steps it still owes (shared steps convert once, the
     pack runs once at the end); plugins owing nothing are skipped. Refuses
-    when the active source is not an imported mod.
+    when the active source is not an imported mod. Rebuild ignores version
+    history and runs each stage over the mod before moving to the next.
     """
     from core.gui.selection import plan_mod_run
 
@@ -1207,14 +1224,14 @@ def run_mod_clicked(app, missing_dep) -> None:
                  "Game folders convert one plugin per run.")
         return
     out_dir = app.output_var.get().strip()
-    runs, pack_with, pack_steps = plan_mod_run(app, plugins)
+    runs, pack_with, pack_steps = plan_mod_run(app, plugins, rebuild=rebuild)
     if not runs:
         app.info("Up To Date",
                  "Every plugin of this mod is already converted.")
         return
 
     label = row.get('label') or 'mod'
-    _begin_run(app, {"Command": "Mod run",
+    _begin_run(app, {"Command": "Rebuild Whole Mod" if rebuild else "Mod run",
                      "File": f"{label} ({len(runs)} plugins)",
                      "Steps": "; ".join(
                          f"{name}: {step_names(steps)}"
@@ -1230,13 +1247,8 @@ def run_mod_clicked(app, missing_dep) -> None:
 
     q = queue.Queue()
     want_summary = [False]
-    cmds = []
-    for name, steps in runs:
-        cmds += [build_cmd(app, step, name, out_dir, None)
-                 for step in steps]
-    if pack_with is not None:
-        cmds += [build_cmd(app, step, pack_with, out_dir, None)
-                 for step in pack_steps]
+    cmds = mod_run_argv(app, runs, pack_with, pack_steps, out_dir,
+                        rebuild=rebuild)
     start_worker(app, cmds, q, _run_env(app), missing_dep, want_summary)
     app.root.after(50, make_drain(app, q, want_summary,
                                   lambda ws: _run_finished(app, ws)))

@@ -394,6 +394,83 @@ def test_mod_run_plans_shared_steps_once(tmp_path, monkeypatch):
     assert pack_steps == ['pack', 'pack_zip']
 
 
+def test_rebuild_mod_ignores_history_and_selected_member_limits(tmp_path, monkeypatch):
+    """Rebuild a current master and patch even when the selected patch is empty."""
+    import struct
+    from types import SimpleNamespace
+
+    import version as v
+    import core.gui.selection as sel
+    from core.gui.config import STEPS
+
+    exp = _fake_group(tmp_path, ['A.esm', 'B.esp'])
+    data = tmp_path / 'Data'
+    data.mkdir()
+    hedr = b'HEDR' + struct.pack('<HfII', 12, 1.0, 0, 0)
+    for name, masters in [('A.esm', []), ('B.esp', ['A.esm'])]:
+        payload = hedr
+        for master in masters:
+            raw = master.encode('ascii') + b'\0'
+            payload += b'MAST' + struct.pack('<H', len(raw)) + raw
+        (data / name).write_bytes(
+            b'TES4' + struct.pack('<I', len(payload)) + bytes(16) + payload)
+    monkeypatch.setattr(v, 'SCRIPT_DIR', tmp_path)
+    monkeypatch.setattr(v, 'STATE_FILE', tmp_path / '.conversion_state.json')
+    monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
+    monkeypatch.setattr(sel, 'plugin_adds_records',
+                        lambda app, name, sigs: name == 'A.esm')
+    for name in ['A.esm', 'B.esp']:
+        for key, *_ in STEPS:
+            v.record_step_run(key, name, version=v.current_version())
+    disabled = SimpleNamespace(cget=lambda key: 'disabled')
+    app = SimpleNamespace(tes4_var=SimpleNamespace(get=lambda: str(data)),
+                          pack_default_var=SimpleNamespace(get=lambda: True),
+                          step_widgets={'import_': (disabled,)})
+
+    ordinary_runs, _, _ = sel.plan_mod_run(app, ['B.esp', 'A.esm'])
+    assert all(not {'export', 'import_', 'scripts'}.intersection(steps)
+               for name, steps in ordinary_runs)
+    runs, pack_with, pack_steps = sel.plan_mod_run(
+        app, ['B.esp', 'A.esm'], rebuild=True)
+    assert [name for name, steps in runs] == ['A.esm', 'B.esp']
+    assert dict(runs)['A.esm'] == [key for key, *_ in STEPS
+                                 if key not in ('pack', 'pack_zip')]
+    assert dict(runs)['B.esp'] == ['export', 'import_', 'sounds', 'scripts']
+    assert (pack_with, pack_steps) == ('A.esm', ['pack', 'pack_zip'])
+    app.pack_default_var = SimpleNamespace(get=lambda: False)
+    assert sel.plan_mod_run(app, ['B.esp', 'A.esm'], rebuild=True)[1:] == (None, [])
+
+
+def test_rebuild_mod_commands_export_first_and_keep_normal_import_options(monkeypatch):
+    """Rebuild changes scheduling, while Import keeps its usual cache handling."""
+    from types import SimpleNamespace
+    import core.gui.runner as runner
+
+    monkeypatch.setattr(runner, 'navmesh_pins_dir', lambda: 'pins')
+    app = SimpleNamespace(navmesh_gen_var=SimpleNamespace(get=lambda: 'corridor'),
+                          tes4_encoding_var=SimpleNamespace(get=lambda: 'cp1251'),
+                          winding_on=lambda: True,
+                          parallax_var=SimpleNamespace(get=lambda: False))
+    runs = [('A.esm', ['export', 'meshes', 'import_', 'scripts']),
+            ('B.esp', ['export', 'import_', 'scripts'])]
+    cmds = runner.mod_run_argv(app, runs, 'A.esm', ['pack', 'pack_zip'],
+                               'output', rebuild=True)
+    jobs = [(cmd[3], cmd[cmd.index('-f') + 1]) for cmd in cmds]
+    assert jobs == [('--export-only', 'A.esm'), ('--export-only', 'B.esp'),
+                    ('--meshes-only', 'A.esm'),
+                    ('--import-only', 'A.esm'), ('--import-only', 'B.esp'),
+                    ('--scripts-only', 'A.esm'), ('--scripts-only', 'B.esp'),
+                    ('--pack-only', 'A.esm'), ('--pack-zip-only', 'A.esm')]
+    for name in ['A.esm', 'B.esp']:
+        assert runner.build_cmd(app, 'import_', name, 'output') in cmds
+    ordinary = runner.mod_run_argv(app, runs, None, [], 'output')
+    assert [(cmd[3], cmd[cmd.index('-f') + 1]) for cmd in ordinary] == [
+        ('--export-only', 'A.esm'), ('--meshes-only', 'A.esm'),
+        ('--import-only', 'A.esm'), ('--scripts-only', 'A.esm'),
+        ('--export-only', 'B.esp'), ('--import-only', 'B.esp'),
+        ('--scripts-only', 'B.esp')]
+
+
 def test_group_members_do_not_pack_by_default(tmp_path, monkeypatch):
     """Pack steps cover the shared folder, so they are not pre-ticked.
 

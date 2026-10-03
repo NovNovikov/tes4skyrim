@@ -321,8 +321,12 @@ def _mod_plugin_steps(app, fname: str, keys: set, current,
             if k in keys and k not in skip and k not in PACKING_STEPS]
 
 
-def plan_mod_run(app, plugins: list):
+def plan_mod_run(app, plugins: list, *, rebuild=False):
     """Plan one run over every plugin of an imported mod.
+
+    Rebuild ignores conversion-version history and the selected member's
+    disabled checkboxes; another member may have content for those steps.
+    Shared plan requirements still apply, and navmesh caching is unaffected.
 
     Returns (runs, pack_with, pack_steps): runs is [(plugin, [steps])] in
     master-first order with empty plugins dropped, so shared steps convert
@@ -339,9 +343,9 @@ def plan_mod_run(app, plugins: list):
         list(plugins),
         lambda n: resolve_plugin_path(n, tes4_data, export_dir))
     defaults = default_on_steps(app.pack_default_var.get())
-    keys = {k for k in defaults if runnable(app, k)}
+    keys = {k for k in defaults if rebuild or runnable(app, k)}
     try:
-        current = version_info.current_version()
+        current = None if rebuild else version_info.current_version()
     except Exception:
         current = None
     runs, planned = [], set()
