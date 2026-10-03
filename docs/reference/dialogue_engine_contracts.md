@@ -66,6 +66,13 @@ cannot prove absence, so references to unindexed masters are preserved.
 The response text and UTF-8 writer are unchanged. This mirrors the engine's
 removal of invalid choices without entering its unsafe diagnostic path.
 
+This is a startup-safety fix, not a dialogue restoration. The
+[English source/output audit](english_dialogue_loss_audit.md) establishes that
+all 86 targets resolve in the original plugins, and identifies omitted
+multi-topic conversations with quest-stage result fragments. The source
+references must not be described as inherently broken or as depending on an
+absent third-party mod.
+
 ## The engine's own subtype and category tables
 
 Two static arrays in `.data`, found by cross-referencing the pointer to the
