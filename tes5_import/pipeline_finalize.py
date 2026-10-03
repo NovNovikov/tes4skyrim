@@ -40,6 +40,7 @@ from .base.object_scripts import write_udf_host_quests
 from .overrides.manifest import write_manifest
 from .overrides.nested import (build_nested_overrides)
 from .dialogue.arrest import morrowind_arrest_topic
+from .dialogue.choices import prune_invalid_choices
 from .dialogue.groups import build_dialog_groups
 from .runtime_sidecars import sweep_stale_sidecars
 from .base.owned_records import (
@@ -244,6 +245,11 @@ def run_finalize_phases(st, export_dir: str, phase_done,
     if st.ctx:
         st.ctx.report()
         _finalize_adoption(st.writer)
+
+    n_choices = prune_invalid_choices(
+        st.writer, st.ctx.master_index if st.ctx else None)
+    if n_choices:
+        print(f"  Removed {n_choices} dialogue choices without a live DIAL target")
 
     t3 = time.time()
     print(f"\nConverted {st.converted} records ({st.errors} errors) in {t3-st.t2:.2f}s")
