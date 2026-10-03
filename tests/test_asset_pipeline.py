@@ -93,6 +93,8 @@ def test_imported_mesh_reuse_between_invocations_tracks_texture_dependencies(tmp
         return nif_batch.batch_convert(src.parent, out, reuse_token=token)
     assert run()['converted'] == 1
     assert run()['reused'] == 1
+    monkeypatch.setenv('TESCONV_RUN_LOG', 'another-run.log')
+    assert run()['reused'] == 1
     texture.write_bytes(b'changed texture')
     assert run()['converted'] == 1
     assert run()['reused'] == 1

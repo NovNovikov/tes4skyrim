@@ -54,7 +54,9 @@ class RunReuse:
         self.mesh_root = Path(options[2])
         self.texture_roots = [self.mesh_root.parent / 'textures', *options[3]]
         self.resting = resting_items_plan._load(self.plan.get(resting_items_plan.RESTING_KEY))
-        env = {k: v for k, v in os.environ.items() if k.startswith('TESCONV_')}
+        operational = {'TESCONV_RUN_LOG', 'TESCONV_LOGS_DIR', 'TESCONV_WORKERS'}
+        env = {k: v for k, v in os.environ.items()
+               if k.startswith('TESCONV_') and k not in operational}
         # Pool initialization exports the resolved namespace to the environment.
         # It must not make the first batch's context differ from the next one.
         env['TESCONV_ASSET_NAMESPACE'] = current_namespace()
