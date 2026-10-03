@@ -12,7 +12,7 @@ import struct
 from collections import defaultdict
 from pathlib import Path
 
-from core.plugin_masters import export_source, master_chain, master_dir, masters_from_export_header
+from core.plugin_masters import export_root, export_source, master_chain, master_dir, masters_from_export_header
 from script_convert.constants import script_prefix, sanitize_name
 from ..base.text_reader import parse_export_file
 from ..base.tes5_reader import FLAG_DELETED, walk
@@ -23,7 +23,8 @@ def plugin_name(export_dir):
 
 
 def script_name(export_dir):
-    return script_prefix('_DialogueGraph') + sanitize_name(Path(plugin_name(export_dir)).stem)
+    plugin = Path(plugin_name(export_dir))
+    return script_prefix('_DialogueGraph') + sanitize_name(plugin.stem) + '_' + plugin.suffix[1:].upper()
 
 
 def sidecar_path(output_dir, export_dir):
@@ -74,9 +75,13 @@ def file_fingerprint(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def seal_manifest(export_dir, output_path):
+def seal_manifest(export_dir, output_path, active=True):
     """Publish the output hash only after the actual plugin was saved."""
     path = sidecar_path(Path(output_path).parent, export_dir)
+    if not active:
+        # Only discard the previous copy after the plugin was written successfully.
+        path.unlink(missing_ok=True)
+        return
     manifest = json.loads(path.read_text(encoding='utf-8'))
     manifest['output_fingerprint'] = file_fingerprint(output_path)
     temporary = path.with_suffix('.json.part')
@@ -84,14 +89,15 @@ def seal_manifest(export_dir, output_path):
     temporary.replace(path)
 
 
-def source_graph(export_dir):
+def source_graph(export_dir, *, include_own=True):
     """Effective source Type-1 nodes and their reachable continuations."""
     if export_source(str(export_dir)) == 'TES3':
         return {'dials': {}, 'infos': {}}
     from .conversations import _conds, head_is_npc_addressed
     dials, infos = {}, {}
     dirs = [(name, master_dir(export_dir, name)) for name in master_chain(export_dir)]
-    dirs.append((plugin_name(export_dir), str(export_dir)))
+    if include_own:
+        dirs.append((plugin_name(export_dir), str(export_dir)))
     for name, folder in dirs:
         if not os.path.isdir(folder):
             continue
@@ -159,10 +165,59 @@ def source_graph(export_dir):
             'infos': {k: infos[k] for k in sorted(infos) if infos[k]['_parent'] in selected}}
 
 
-def bind_graph(export_dir, output_path, writer, master_index=None):
-    """Bind source INFOs to final topics; report losses without stopping import."""
+def _routing_graph(export_dir):
+    """Return the effective graph and whether the master's routing is unchanged."""
+    if not any(parse_export_file(os.path.join(export_dir, sig + '.txt'))
+               for sig in ('DIAL', 'INFO')):
+        return None, True
     graph = source_graph(export_dir)
     if not graph['infos']:
+        return None, True
+    if masters_from_export_header(str(export_dir)):
+        def routing(g):
+            return (
+                [(key, row.get('EditorID', '').lower(), row.get('DATA.Type', '0'))
+                 for key, row in g['dials'].items()],
+                [(key, row['_parent'], row['_choices'],
+                  int(row.get('DATA.NextSpeaker', '0') or '0'))
+                 for key, row in g['infos'].items()])
+        if routing(graph) == routing(source_graph(export_dir, include_own=False)):
+            return graph, True
+    return graph, False
+
+
+def own_graph(export_dir):
+    """A new routing graph only when this plugin changes inherited conversations."""
+    graph, inherited = _routing_graph(export_dir)
+    return None if inherited else graph
+
+
+def load_script_graph(export_dir, output_dir, *, inherit=False):
+    """Return bindings and whether Scripts must generate this plugin's graph."""
+    if own_graph(export_dir):
+        return load_manifest(export_dir, output_dir, required=True), True
+    if not inherit:
+        return {}, False
+    from output_layout import plugin_out_root
+    routes = {}
+    for name in master_chain(export_dir):
+        folder = master_dir(export_dir, name)
+        # Shared imported-mod output first, then the master's separate output.
+        candidates = (Path(output_dir),
+                      plugin_out_root(Path(output_dir).parent, name, export_root(export_dir)))
+        for candidate in dict.fromkeys(candidates):
+            if sidecar_path(candidate, folder).is_file():
+                manifest = load_manifest(folder, candidate, required=True)
+                routes.update({topic: manifest['script']
+                               for topic in manifest['topic_edids']})
+                break
+    return {'routes': routes, 'topic_edids': sorted(routes)}, False
+
+
+def bind_graph(export_dir, output_path, writer, master_index=None):
+    """Bind source INFOs to final topics; report losses without stopping import."""
+    graph, inherited = _routing_graph(export_dir)
+    if not graph:
         return None
     slots = {name.lower(): i for i, name in enumerate(writer.masters)}
     slots[Path(output_path).name.lower()] = writer.own_index
@@ -172,6 +227,15 @@ def bind_graph(export_dir, output_path, writer, master_index=None):
         if owner not in slots:
             return 0
         return slots[owner] << 24 | local
+
+    if inherited:
+        from .converter import CONV_KEEP_EDIDS
+        writer.conversation_hidden_topics = {
+            output_id(key) for key, row in graph['dials'].items()
+            if int(row.get('DATA.Type', '0') or '0') == 1
+            and row.get('EditorID', '') not in CONV_KEEP_EDIDS
+        }
+        return None
 
     parents = {}
     for blob in writer._top_groups.get('DIAL', []):

@@ -266,8 +266,7 @@ def run_finalize_phases(st, export_dir: str, phase_done,
 
     os.makedirs(os.path.dirname(st.output_path) or '.', exist_ok=True)
     st.writer.write(st.output_path)
-    if graph_quest:
-        seal_manifest(export_dir, st.output_path)
+    seal_manifest(export_dir, st.output_path, active=bool(graph_quest))
     phase_done('write output file')
 
     mpath = write_manifest(st.output_path, os.path.basename(st.output_path),

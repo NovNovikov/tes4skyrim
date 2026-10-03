@@ -336,7 +336,8 @@ def start_conversation(ctx, call) -> str:
         graph = ctx.conversation_graph
         if topic.lower() in graph.get('topic_edids', ()):
             listener = ctx._cast(ctx.arg_expr(0, call.extends), 'Actor')
-            return f'{graph["script"]}.Play({ref}, {listener}, {call.arg(1)})'
+            driver = graph.get('routes', {}).get(topic.lower()) or graph['script']
+            return f'{driver}.Play({ref}, {listener}, {call.arg(1)})'
         lines = ctx.conversation_chains.get(topic.lower())
         if lines:
             return _replay_chain(ctx, ref, call, lines)

@@ -233,18 +233,16 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     See: docs/commentary/script_convert.md#script-output-dir
     """
     from tes5_import.dialogue.runtime_graph import (
-        generate_scripts, load_manifest, sidecar_path, source_graph,
+        generate_scripts, load_script_graph,
     )
     by_type = load_records(export_dir, ('DIAL', 'INFO', 'QUST', 'SCPT', 'NPC_',
                                         'MESG'))
     plugin_output = os.path.dirname(os.path.dirname(output_dir))
-    # Empty patches do not need their own bindings for inherited dialogue.
-    # An imported patch can still own a generated dialogue quest, so retain
-    # its scripts whenever Import has already published a binding manifest.
-    has_script_work = any(by_type[sig] for sig in ('SCPT', 'INFO', 'QUST'))
-    needs_graph = ((has_script_work or sidecar_path(plugin_output, export_dir).is_file())
-                   and bool(source_graph(export_dir)['infos']))
-    graph = load_manifest(export_dir, plugin_output, required=True) if needs_graph else {}
+    inherited_calls = any('startconversation' in str(value).lower()
+                          for sig in ('SCPT', 'INFO', 'QUST')
+                          for record in by_type[sig] for value in record.values())
+    graph, owns_graph = load_script_graph(export_dir, plugin_output,
+                                         inherit=inherited_calls)
     owner = owner_key(export_dir)
     shared = prepare_output_dir(output_dir, owner)
     bounds_cache = load_bounds_cache(export_dir)
@@ -270,7 +268,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     quest_script_vars = build_quest_script_vars(by_type)
     _write_conversation_driver(export_dir, output_dir, by_type,
                                quest_script_vars, say_durations, graph.get('script', ''))
-    if graph:
+    if owns_graph:
         for name, source in generate_scripts(graph).items():
             write_psc(output_dir, name, source)
     message_menus = build_message_plan(by_type['SCPT'], by_type['MESG'])
