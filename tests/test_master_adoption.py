@@ -3,11 +3,14 @@
 See: docs/commentary/tes5_import_override.md#generated-records-reuse-the-masters
 """
 
+import json
 import struct
 import sys
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -172,8 +175,66 @@ def test_races_group_over_the_masters_creatures_in_master_order():
     assert names == ['Wolf', 'Bear', 'Troll']
 
 
+def test_child_music_uses_the_converted_masters_install_name(tmp_path):
+    """A renamed localized master still supplies the child's music categories."""
+    folder = tmp_path / 'Nehrim.esm'
+    folder.mkdir()
+    (folder / 'music_tracks.json').write_text(
+        json.dumps({'plugin': 'Nehrim.esm (Deutsch)'}), encoding='utf-8')
+    writer = _writer({
+        0x01001000: _record('MUSC', 0x01001000, 'MUSNehrimesmDeutschDungeon', ''),
+        0x01001001: _record('MUSC', 0x01001001, 'MUSNehrimesmDeutschExplore', ''),
+        0x01001002: _record('MUSC', 0x01001002, 'MUSNehrimesmDeutschPublic', ''),
+    })
+    assert master_music_types(writer, output_root=tmp_path) == {
+        0: 0x01001001, 1: 0x01001002, 2: 0x01001000}
+
+
 def test_child_music_falls_back_to_the_masters_categories():
     """A child with no music of its own resolves each enum to its master's MUSC."""
     writer = _writer({0x01001000: _record('MUSC', 0x01001000, 'MUSNehrimesmDungeon', ''),
                       0x01001001: _record('MUSC', 0x01001001, 'MUSNehrimesmExplore', '')})
     assert master_music_types(writer) == {0: 0x01001001, 2: 0x01001000}
+
+
+@pytest.mark.parametrize('installed', ['localized', 'canonical', 'missing', 'other'])
+def test_child_uses_installed_converted_master_variant(tmp_path, monkeypatch, installed):
+    """Master records, companion IDs and music all come from the installed variant."""
+    from asset_convert.sources import skyrim_assets
+    from tes5_import.overrides.master_index import load_master_index
+    from tes5_import.overrides.manifest import load_master_manifests, write_manifest
+
+    output = tmp_path / 'output'
+    game = tmp_path / 'Data'
+    game.mkdir()
+    files = {}
+    for kind, name, fid in [('canonical', 'Nehrim.esm', 0x01001000),
+                            ('localized', 'Nehrim.esm (Deutsch)', 0x01002000)]:
+        folder = output / name
+        folder.mkdir(parents=True)
+        master = PluginWriter(masters=['Skyrim.esm'])
+        edid = 'MUS' + ''.join(c for c in name if c.isalnum()) + 'Explore'
+        master.add_record('MUSC', _record('MUSC', fid, edid, ''))
+        path = folder / 'Nehrim.esm'
+        master.write(str(path))
+        write_manifest(str(path), 'Nehrim.esm', {'00000080': {'fid': fid}})
+        (folder / 'music_tracks.json').write_text(
+            json.dumps({'plugin': name}), encoding='utf-8')
+        files[kind] = path
+    if installed in files:
+        (game / 'Nehrim.esm').write_bytes(files[installed].read_bytes())
+    elif installed == 'other':
+        # Same size is insufficient: an unrelated install must not select a variant.
+        raw = bytearray(files['localized'].read_bytes())
+        raw[-2] ^= 1
+        (game / 'Nehrim.esm').write_bytes(raw)
+    monkeypatch.setattr(skyrim_assets, 'find_skyrim_data', lambda: str(game))
+    masters = ['Skyrim.esm', 'Nehrim.esm']
+    index = load_master_index(masters, 1, str(output))
+    manifest = load_master_manifests(masters, 1, str(output))
+    writer = PluginWriter(masters=masters)
+    writer.adoption = MasterAdoption(index)
+    expected = 0x01002000 if installed == 'localized' else 0x01001000
+    assert manifest.output_formid('00000080') == expected
+    assert master_music_types(writer, output_root=output) == {0: expected}
+

@@ -427,6 +427,63 @@ def _race_export(tmp_path, names):
     return tmp_path
 
 
+@pytest.mark.parametrize('male,female', [
+    ('TES4MaleНорд', 'TES4FemaleНорд'),
+    ('TES4MaleNord', 'TES4FemaleNord'),
+])
+def test_generic_voice_uses_imported_race_identity(tmp_path, monkeypatch, male, female):
+    """Generic lines follow Import's voices; pinned speakers keep their own."""
+    from tes5_import.base import equivalents
+    from tes5_import.base.adopted_records import _adopt_voice
+    from tes5_import.base.writer import PluginWriter, pack_record, pack_string_subrecord
+    from tes5_import.overrides.master_index import MasterIndex
+    from tes5_import.pipeline_finalize import _write_voice_map
+    from asset_convert.audio.audio_converter import load_voice_map
+
+    monkeypatch.setattr(equivalents, 'VOICE_TYPE_MAP', {})
+    monkeypatch.setattr(equivalents, 'VTYP_EDID_BY_FID', {})
+    monkeypatch.setattr('tes5_import.base.adopted_records.VTYP_EDID_BY_FID',
+                        equivalents.VTYP_EDID_BY_FID)
+
+    master = PluginWriter(masters=['Skyrim.esm'])
+    for fid, edid in ((0x01000001, male), (0x01000002, female)):
+        master.add_record('VTYP', pack_record(
+            'VTYP', fid, 0, pack_string_subrecord('EDID', edid)))
+    master_path = tmp_path / 'Master.esm'
+    master.write(str(master_path))
+    index = MasterIndex(str(master_path))
+    _adopt_voice(index, male, 'Nord', 'Male')
+    _adopt_voice(index, female, 'Nord', 'Female')
+    source = tmp_path / 'shared-assets'
+    exports = tmp_path / 'records'
+    exports.mkdir()
+    _race_export(exports, [('Nord', 'Nord')])
+    output = tmp_path / 'output'
+    output.mkdir()
+    _write_voice_map(str(output / 'Test.esm'),
+                     {0xA1B2: 'generic', 0xA1B3: 'pinned\tTES4MaleCustom'})
+    voice_map = load_voice_map(output / 'Test.esm.voicemap.txt')
+    for gender in ('M', 'F'):
+        leaf = source / 'sound' / 'voice' / 'Test.esm' / 'Nord' / gender
+        leaf.mkdir(parents=True)
+        (leaf / 'old_0000a1b2_1.xwm').write_bytes(gender.encode())
+    (source / 'sound' / 'voice' / 'Test.esm' / 'Nord' / 'M'
+     / 'old_0000a1b3_1.xwm').write_bytes(b'pinned')
+    stale = output / 'sound' / 'Voice' / 'Test.esm' / 'TES4MaleOld'
+    stale.mkdir(parents=True)
+    (stale / 'generic_0000a1b2_1.xwm').write_bytes(b'stale')
+
+    stats = organize_voice_files(source, output, plugin_name='Test.esm',
+                                 convert_audio=False, voice_map=voice_map,
+                                 record_source_dir=exports)
+    root = output / 'sound' / 'Voice' / 'Test.esm'
+    assert stats['organized'] == 3 and stats['errors'] == 0
+    assert (root / male / 'generic_0000a1b2_1.xwm').read_bytes() == b'M'
+    assert (root / female / 'generic_0000a1b2_1.xwm').read_bytes() == b'F'
+    assert (root / 'TES4MaleCustom' / 'pinned_0000a1b3_1.xwm').read_bytes() == b'pinned'
+    assert not stale.exists()
+
+
 def test_race_folders_resolve_to_voice_types(tmp_path):
     """Every Oblivion voice folder resolves from the plugin's RACE records."""
     rv = load_race_voices(_race_export(tmp_path, _RACE_FOLDERS))
@@ -633,6 +690,35 @@ def test_organize_voice_files_prune_scope(tmp_path):
         "pruned a file under another plugin's voice root"
 
 
+def test_organize_voice_files_prunes_emptied_folders(tmp_path):
+    """A swept folder left with no files at all is removed, not left empty.
+
+    A voice-type rename (or a codepage fix relocating every folder) strands
+    whole directories; deleting their files but keeping the folders leaves
+    the old spelling lying next to the new one. The plugin root itself stays.
+    """
+    plugin = 'Test.esm'
+    voice_src = tmp_path / 'extract' / 'sound' / 'voice' / plugin / 'Nord' / 'M'
+    voice_src.mkdir(parents=True, exist_ok=True)
+    _make_wav(voice_src / 'q_t_0000a1b2_1.wav')
+    out_root = tmp_path / 'output' / 'sound' / 'Voice' / plugin
+    emptied = out_root / 'TES4FemaleNord'
+    emptied.mkdir(parents=True, exist_ok=True)
+    (emptied / 'someone_elses_0000ffff_1.fuz').write_bytes(b'stale')
+    kept = out_root / 'TES4MaleNord'
+    kept.mkdir(parents=True, exist_ok=True)
+    (kept / 'notes.txt').write_text('not a voice file')
+
+    organize_voice_files(source_dir=str(tmp_path / 'extract'),
+                         dest_dir=str(tmp_path / 'output'),
+                         plugin_name=plugin, convert_audio=True,
+                         ffmpeg_path=FFMPEG)
+
+    assert not emptied.exists(), 'emptied VTYP folder was left behind'
+    assert out_root.is_dir(), 'pruned the plugin voice root itself'
+    assert kept.is_dir(), 'pruned a folder that still holds files'
+
+
 def test_organize_voice_files_no_match_counted(tmp_path):
     """Files that don't match the voice filename pattern are counted as no_match."""
     plugin = 'Test.esm'
@@ -660,3 +746,68 @@ def test_organize_voice_files_missing_voice_dir(tmp_path):
         dest_dir=str(tmp_path / 'output'),
     )
     assert result['organized'] == 0
+
+
+def test_dependent_voices_use_selected_master_folders_exclusively(tmp_path, monkeypatch):
+    """English recordings and stale maps cannot create an English duplicate of a Russian master voice."""
+    from asset_convert.sources import skyrim_assets
+    from tes5_import.base import equivalents
+    from tes5_import.base.adopted_records import _adopt_race_voices
+    from tes5_import.base.writer import PluginWriter, pack_record, pack_string_subrecord
+    from tes5_import.dialogue.converter import build_npc_to_vtyp_map
+    from tes5_import.overrides.master_index import load_master_index
+
+    export, output, game = tmp_path / 'export', tmp_path / 'output', tmp_path / 'Data'
+    game.mkdir()
+    (export / 'A.esm').mkdir(parents=True)
+    (export / 'A.esm (RU)').mkdir()
+    _race_export(export / 'A.esm', [('Nord', 'Nord')])
+    _race_export(export / 'A.esm (RU)', [('Норд', 'Nord')])
+    russian = 'TES4MaleНорд'
+    for folder, voices in [('A.esm', ['TES4MaleNord']),
+                            ('A.esm (RU)', ['TES4MaleNord', russian])]:
+        target = output / folder
+        target.mkdir(parents=True)
+        master = PluginWriter(masters=['Skyrim.esm'])
+        for i, edid in enumerate(voices, 1):
+            master.add_record('VTYP', pack_record(
+                'VTYP', 0x01000000 + i, 0, pack_string_subrecord('EDID', edid)))
+        master.write(str(target / 'A.esm'))
+    (game / 'A.esm').write_bytes((output / 'A.esm (RU)' / 'A.esm').read_bytes())
+    monkeypatch.setattr(skyrim_assets, 'find_skyrim_data', lambda: str(game))
+    for name, parent in [('B.esm', 'A.esm'), ('Patch.esp', 'B.esm')]:
+        folder = export / name
+        folder.mkdir()
+        (folder / '_HEADER.txt').write_text(f'Master[0]={parent}\n', encoding='utf-8')
+    b = output / 'B.esm'
+    b.mkdir()
+    PluginWriter(masters=['Skyrim.esm', 'A.esm']).write(str(b / 'B.esm'))
+    monkeypatch.setattr(equivalents, 'VOICE_TYPE_MAP', {})
+    monkeypatch.setattr(equivalents, 'VTYP_EDID_BY_FID', {})
+    monkeypatch.setattr('tes5_import.base.adopted_records.VTYP_EDID_BY_FID',
+                        equivalents.VTYP_EDID_BY_FID)
+    index = load_master_index(['Skyrim.esm', 'A.esm', 'B.esm'], 2, str(output))
+    _adopt_race_voices(index, [export / 'B.esm'], output)
+    assert build_npc_to_vtyp_map({'NPC_': [{
+        'FormID': '02000001', 'RNAM.Race': '000224FD', 'ACBS.Flags': '0'}]}, 1
+    )[0x03000001] == 0x01000002
+    source, dest = tmp_path / 'assets', output / 'Pack'
+    for race, fid in [('Nord', 1), ('Nord', 2), ('Gnome', 3), ('Nord', 4), ('Норд', 5)]:
+        leaf = source / 'sound' / 'voice' / 'Patch.esp' / race / 'M'
+        leaf.mkdir(parents=True, exist_ok=True)
+        (leaf / f'old_{fid:08x}_1.xwm').write_bytes(bytes([fid]))
+    stale = dest / 'sound' / 'Voice' / 'Patch.esp' / 'TES4MaleNord'
+    stale.mkdir(parents=True)
+    (stale / 'old_00000001_1.xwm').write_bytes(b'stale English copy')
+    result = organize_voice_files(
+        source, dest, plugin_name='Patch.esp', convert_audio=False,
+        record_source_dir=export / 'Patch.esp', master_output_root=output,
+        voice_map={1: ('generic', []), 2: ('pinned', ['TES4MaleNord']),
+                   3: ('unknown', []), 4: ('invalid', ['TES4MaleGnome']),
+                   5: ('localized', [])})
+    root = dest / 'sound' / 'Voice' / 'Patch.esp'
+    assert result['organized'] == 3 and result['no_match'] == 2
+    assert [p.name for p in root.iterdir()] == [russian]
+    assert (root / russian / 'generic_00000001_1.xwm').read_bytes() == b'\1'
+    assert (root / russian / 'pinned_00000002_1.xwm').read_bytes() == b'\2'
+    assert (root / russian / 'localized_00000005_1.xwm').read_bytes() == b'\5'

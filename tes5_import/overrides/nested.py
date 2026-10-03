@@ -299,6 +299,7 @@ class OverrideContext:
         `num_tes4_masters`: indexed for adoption, never diffed against.
         """
         self.export_dir = export_dir
+        self.output_root = output_root
         self.master_index = load_master_index(
             masters, num_tes4_masters + inherited, output_root)
         self.master_manifest = load_master_manifests(

@@ -1010,7 +1010,8 @@ def _prescan_music_records(by_type: dict, writer, export_dir: str, plugin_out_di
             plugin_out_dir,
             export_dir=os.path.dirname(os.path.normpath(export_dir)),
             plugin=os.path.basename(output_path))
-        _by_enum = master_music_types(writer)
+        _by_enum = master_music_types(
+            writer, output_root=os.path.dirname(plugin_out_dir))
         if _music_manifest.get('tracks'):
             _plugin_name = _music_manifest.get('plugin') or os.path.basename(
                 os.path.normpath(plugin_out_dir))
