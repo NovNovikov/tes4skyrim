@@ -1,8 +1,8 @@
-"""TES4 text encoding: setting resolution, round-trip and auto-detect.
+"""TES4 source text encoding: setting resolution, decoding and auto-detect.
 
 The Russian install stores cp1251 bytes; decoding them as cp1252 (the old
 hardcoded behaviour) mangles every name and breaks voice-folder matching.
-Default behaviour must stay cp1252 so Western builds are byte-identical.
+Default source decoding stays cp1252 for Western installs.
 """
 import os
 import struct
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from asset_convert.audio.voice_races import _bsa_spelling, load_race_voices
 from core.plugin_masters import export_encoding
 from core.tes4_encoding import (ENCODING_ENV_VAR, choice, current, decode,
-                                encode, normalize, pin)
+                                normalize, pin)
 from tes4_export.tes4_reader import Record, configure_for_source, detect_codec
 
 
@@ -47,11 +47,11 @@ def test_pin_keeps_auto_for_detection(monkeypatch):
     assert choice() == "auto"
 
 
-def test_russian_round_trip(monkeypatch):
-    """cp1251 bytes decode to Cyrillic and encode back identically."""
+def test_russian_source_decoding(monkeypatch):
+    """cp1251 source bytes decode to the original Cyrillic text."""
     monkeypatch.setenv(ENCODING_ENV_VAR, "cp1251")
     raw = "Аргонианин".encode("cp1251")
-    assert encode(decode(raw)) == raw
+    assert decode(raw) == "Аргонианин"
 
 
 def test_western_default_unchanged(monkeypatch):

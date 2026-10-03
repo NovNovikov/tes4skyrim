@@ -749,7 +749,7 @@ def phase_import(file_name: str, tes4_data: str, tes5_data: str,
         return False
 
     from core.plugin_masters import export_encoding
-    print(f"  Text encoding: {pin(export_encoding(export_subdir))}")
+    print(f"  Source text encoding: {pin(export_encoding(export_subdir))}; Skyrim output: UTF-8")
 
     _install_navmesh_cache(file_name, config)
 

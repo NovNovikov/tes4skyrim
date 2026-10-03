@@ -9,15 +9,16 @@ Resolution order (see :func:`choice` and :func:`current`):
 
   1. ``TESCONV_TES4_ENCODING`` env var, set by ``--tes4-encoding``, the GUI's
      Settings menu, or pinned per plugin by the export stage. It travels in
-     the environment so export worker processes and the import stage agree.
+     the environment so workers agree on the source codec.
   2. The ``tes4Encoding`` key in conversion_config.json (export only).
   3. ``auto``: the export stage scans the plugin binary (see
      ``tes4_reader.detect_codec`` or ``tes3_reader.detect_codec``); every
      other stage defaults to cp1252.
 
-The export writes the resolved codec as ``ENCODING=`` into ``_HEADER.txt``;
-the import reads it back, so text round-trips byte-identically whatever the
-install language. An unknown name never crashes: it falls back to cp1252.
+The export writes the resolved source codec as ``ENCODING=`` into
+``_HEADER.txt`` for source-byte lookups such as BSA voice-folder spellings.
+Skyrim output strings are always UTF-8 (``tes5_import.base.writer``).
+An unknown source codec falls back to cp1252.
 
 See: docs/reference/pipeline.md#tes4-text-encoding
 """
@@ -36,7 +37,6 @@ __all__ = [
     "pin",
     "current",
     "decode",
-    "encode",
 ]
 
 #: Env var carrying the choice to every child process and pool worker.
@@ -85,15 +85,10 @@ def pin(codec: str) -> str:
 
 
 def current() -> str:
-    """The codec to decode/encode with right now (never ``auto``)."""
+    """The codec to decode source bytes with right now (never ``auto``)."""
     return normalize(choice())
 
 
 def decode(data: bytes) -> str:
     """Plugin bytes as text, in the current codec, never raising."""
     return bytes(data).decode(current(), errors="replace")
-
-
-def encode(text: str) -> bytes:
-    """Text as plugin bytes, in the current codec, never raising."""
-    return str(text or "").encode(current(), errors="replace")

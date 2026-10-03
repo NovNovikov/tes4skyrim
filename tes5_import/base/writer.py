@@ -17,7 +17,6 @@ import hashlib
 import struct
 import threading
 
-from core.tes4_encoding import encode
 from .tes5_reader import (GRP_HDR, GRP_TEMPORARY_CHILDREN, REC_HDR,
                           SUB_HDR, walk)
 
@@ -80,14 +79,14 @@ def pack_subrecord(sig: str, data: bytes) -> bytes:
     return sig_bytes + struct.pack('<H', len(data)) + data
 
 
-def pack_string_subrecord(sig: str, value: str) -> bytes:
-    """Pack a null-terminated string subrecord.
+def encode_string(value: str) -> bytes:
+    """Null-terminated TES5 text, always UTF-8 regardless of source codec."""
+    return str(value or '').encode('utf-8') + b'\x00'
 
-    Encoded in the run's TES4 codec (see core.tes4_encoding) -- the same codec
-    the export decoded with, so text round-trips byte-identically. xEdit's
-    default (wbEncoding := wbMBCSEncoding(1252)) matches the Western codec.
-    """
-    return pack_subrecord(sig, encode(value) + b'\x00')
+
+def pack_string_subrecord(sig: str, value: str) -> bytes:
+    """Pack a null-terminated UTF-8 string subrecord for Skyrim."""
+    return pack_subrecord(sig, encode_string(value))
 
 
 def pack_record(sig: str, form_id: int, flags: int, subrecords: bytes,

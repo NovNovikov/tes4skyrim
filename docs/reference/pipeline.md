@@ -253,9 +253,14 @@ into U+FFFD, which then matches no voice folder on disk.
 or FNAM/DESC/TEXT/RNAM/NAME payloads for TES3: any
 signal byte, or >= 10% high bytes over >= 8 fields and >= 64 bytes, means
 cp1251. Measured: EN Oblivion.esm 0.03%, RU 73.23% over 12,668 fields.
-The export pins the resolved codec and writes it as `ENCODING=` into
-`_HEADER.txt`; the import reads it back, so text round-trips byte-identically
-(`core.plugin_masters.export_encoding`, default cp1252 for old exports).
+The export pins the resolved source codec and writes it as `ENCODING=` into
+`_HEADER.txt` (`core.plugin_masters.export_encoding`, default cp1252 for old
+exports). This setting controls source decoding and source-byte lookups;
+export text files and Skyrim ESM/ESP strings are always UTF-8. Both new records
+and authored string overrides use `tes5_import.base.writer.encode_string`.
+Writing Cyrillic names as cp1251 mixes them with Skyrim's UTF-8 action captions
+in the HUD rollover text, corrupting captions such as Open and Talk while the
+name itself can still display correctly.
 Voice matching additionally indexes each race folder under its BSA-extracted
 latin-1 spelling, so loose and extracted folders resolve to the same VTYP.
 

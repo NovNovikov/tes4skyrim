@@ -41,7 +41,6 @@ silent.
 
 import struct
 
-from core.tes4_encoding import encode
 from ..base.text_reader import get_float, get_formid, get_int
 from ..base.tes5_reader import subrecords
 from ..dialogue.quest import quest_objectives, quest_targets
@@ -50,7 +49,7 @@ from ..actors.outfits import split_inventory
 from ..packages.actor_wiring import CSTY_DEFAULT
 from .vmad_swap import SCRIPT_SWAP_KEY, SCRIPTED_TYPES, swap_vmad_script
 
-from ..base.writer import RECORD_HEADER_SIZE
+from ..base.writer import RECORD_HEADER_SIZE, encode_string as _encode_string
 _COMPRESSED_FLAG = 0x00040000
 
 # Export key -> the output subrecord it writes, for keys whose value is a
@@ -204,11 +203,6 @@ def join_subrecords(header: bytes, subs: list) -> bytes:
     body = b''.join(sig + struct.pack('<H', len(p)) + p for sig, p in subs)
     return (header[:4] + struct.pack('<I', len(body))
             + header[8:RECORD_HEADER_SIZE] + body)
-
-
-def _encode_string(value: str) -> bytes:
-    """A string override as null-terminated plugin bytes, in the run's codec."""
-    return encode(value) + b'\x00'
 
 
 # --------------------------------------------------------------------------
