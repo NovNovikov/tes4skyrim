@@ -528,6 +528,14 @@ script and the read ref gains its own copy. Scope: 94 actors relocated across
 reference. Regression: `test_actor_script_relocated_to_placed_ref`,
 `test_shared_base_keeps_script_and_adds_ref`.
 
+🛑 **Correction (2026-10-02): the "100% of vanilla" census above is wrong.**
+Re-measured over Skyrim.esm: 27 of 62 `GetVMScriptVariable` targets carry the
+script only on their BASE, and for package conditions alone 8 of 28 do
+(`MG01FaraldaBridgeForcegreet` reads `MG05WinterholdTriggerRef::BridgeWarning`).
+A base-attached script does satisfy the condition. What kept these actors still
+was §8's PLDT type. The relocation is harmless and stays.
+See: [wiring audit](../audits/wiring.md#disproven-rules).
+
 ## 8. `PLDT` alias locations must be type 8, not type 9 (2026-07-20)
 <a id="player-target-is-the-reference"></a>
 ### A player package target is the REFERENCE, never the base NPC_

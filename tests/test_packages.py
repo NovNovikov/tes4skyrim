@@ -10,6 +10,7 @@ import pytest
 
 from tes5_import.base.conditions import (
     GET_VM_SCRIPT_VARIABLE,
+    UNRESOLVED_VAR_SENTINEL,
     convert_ctda_list_with_strings,
     papyrus_var_name,
 )
@@ -220,7 +221,6 @@ def test_unresolvable_script_variable_reads_zero_like_tes4():
     authored outcome. Dropping the condition failed OPEN: SE08's five
     Xedilian victims (base SE08XeddefenNPC01 has no SCRI) force-greeted and
     fled unconditionally."""
-    from tes5_import.base.conditions import _UNRESOLVED_VAR_SENTINEL
     rec = {
         'ConditionCount': '1',
         'Condition[0].Raw':
@@ -229,7 +229,7 @@ def test_unresolvable_script_variable_reads_zero_like_tes4():
     out = convert_ctda_list_with_strings(rec, {})
     assert len(out) == 1
     ctda, cis2 = out[0]
-    assert cis2 == _UNRESOLVED_VAR_SENTINEL
+    assert cis2 == UNRESOLVED_VAR_SENTINEL
     assert struct.unpack_from('<H', ctda, 8)[0] == 630   # GetVMScriptVariable
     assert struct.unpack_from('<I', ctda, 12)[0] & 0xFFFFFF == 0xBC72
     assert struct.unpack_from('<f', ctda, 4)[0] == 1.0    # authored compare

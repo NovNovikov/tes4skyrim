@@ -1,4 +1,10 @@
-"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI."""
+"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI.
+
+Conversion is pure-Python CPU work, so batches run across a ProcessPoolExecutor:
+the read-only CrossRefGraph and plan dicts reach each worker once through the
+pool initializer, and each job is a (kind, records) chunk whose .psc files the
+worker writes itself.
+"""
 
 import argparse
 import json
@@ -49,14 +55,9 @@ from tes5_import.dialogue.say_topics import build_force_flee_slots
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 
-# ===========================================================================
+# ---------------------------------------------------------------------------
 # Process-pool plumbing
-#
-# Script conversion is pure-Python CPU work (ScriptConverter holds the GIL),
-# so batches run across a ProcessPoolExecutor. The read-only CrossRefGraph and
-# plan dicts are shipped once per worker via the pool initializer; each job is
-# a (kind, records) chunk whose .psc files the worker writes directly.
-# ===========================================================================
+# ---------------------------------------------------------------------------
 
 _WORKER_CTX: dict = {}
 
@@ -122,7 +123,7 @@ def _load_music_cues(output_dir) -> dict:
     return cues
 
 
-def _script_worker_init(xref, output_dir, info_reveals, service_topics,
+def script_worker_init(xref, output_dir, info_reveals, service_topics,
                         stage_reveals, say_durations=None,
                         quest_script_vars=None,
                         quest_edid_by_fid=None, topic_unlock_globals=None,
@@ -225,7 +226,7 @@ def _chunk(records: list, size: int):
 def build_script_context(export_dir: str, output_dir: str) -> dict:
     """Everything a script-conversion worker needs, built ONCE per plugin.
 
-    Returns {'initargs': tuple for _script_worker_init, 'scpt_work': [...],
+    Returns {'initargs': tuple for script_worker_init, 'scpt_work': [...],
     'info_work': [...], 'qust_work': [...], 'stats': dict}.  Shared by
     convert_all_scripts and tools/script/convert_scripts_subset.py, so a
     subset build is the SAME conversion as the full one.
@@ -326,14 +327,14 @@ def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -
             + [('info', c) for c in _chunk(info_work, 128)]
             + [('qust', c) for c in _chunk(qust_work, 8)])
     if workers <= 1 or len(jobs) <= 2:
-        _script_worker_init(*initargs)
+        script_worker_init(*initargs)
         for job in jobs:
             _merge_stats(stats, _script_worker_run(job))
         _WORKER_CTX.clear()
     else:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=min(workers, len(jobs)),
-                                 initializer=_script_worker_init,
+                                 initializer=script_worker_init,
                                  initargs=initargs) as ex:
             for part in ex.map(_script_worker_run, jobs):
                 _merge_stats(stats, part)
@@ -517,6 +518,23 @@ _DECL_RE = re.compile(r'^\s*(?:\w+(?:\[\])?)\s+(?:Property\s+)?(\w+)\b',
 _SIG_PARAMS_RE = re.compile(r'\((.*)\)')
 
 
+def primed_converter(rec: dict, xref: CrossRefGraph, source: str) -> ScriptConverter:
+    """A converter primed for one record's script as the script stage primes it.
+
+    Preloads the record's SCRO refs, maps names `source` spells staler than the
+    SCRO table onto it (resolve_scro_aliases), and sets the quest poll delay and
+    whether the script sits on a book. Reads the state script_worker_init seeds.
+    """
+    formid = rec.get('FormID', '')
+    conv = ScriptConverter(xref)
+    preload_scro_refs(conv, rec, xref)
+    conv.set_scro_aliases(resolve_scro_aliases(source, scro_list(rec), xref))
+    conv.sc.quest_delay = _WORKER_CTX.get('quest_delays', {}).get(
+        formid.upper(), 0.0)
+    conv.sc.on_book = xref.attached_signatures(formid) == {'BOOK'}
+    return conv
+
+
 def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict):
     """Convert a batch of SCPT records (runs in parent or worker process)."""
     for rec in records:
@@ -528,15 +546,7 @@ def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict
 
         try:
             extends = xref.get_extends_class(formid)
-            conv = ScriptConverter(xref)
-            preload_scro_refs(conv, rec, xref)
-            # Recover names the source text spells staler than the SCRO table
-            # the engine runs off (see resolve_scro_aliases).
-            conv.set_scro_aliases(resolve_scro_aliases(
-                sctx, scro_list(rec), xref))
-            conv.sc.quest_delay = _WORKER_CTX.get('quest_delays', {}).get(
-                formid.upper(), 0.0)
-            conv.sc.on_book = xref.attached_signatures(formid) == {'BOOK'}
+            conv = primed_converter(rec, xref, sctx)
             name = sanitize_name(edid or f'Script_{formid}')
             papyrus = conv.convert_standalone(name, sctx, extends, edid)
 
@@ -733,10 +743,7 @@ def _info_batch(records: list, output_dir: str, xref: CrossRefGraph,
             body_lines = []
             prop_refs = {}
             if has_script:
-                conv = ScriptConverter(xref)
-                preload_scro_refs(conv, rec, xref)
-                conv.set_scro_aliases(resolve_scro_aliases(
-                    result_script, scro_list(rec), xref))
+                conv = primed_converter(rec, xref, result_script)
                 body_lines = conv.convert_fragment(result_script, 'TopicInfo')
                 prop_refs = dict(conv.sc.property_refs)
 

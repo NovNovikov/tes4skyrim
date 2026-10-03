@@ -345,11 +345,8 @@ _VM_VAR_FUNCS = {
     GET_SCRIPT_VARIABLE: GET_VM_SCRIPT_VARIABLE,
     GET_QUEST_VARIABLE: GET_VM_QUEST_VARIABLE,
 }
-# CIS2 name for a script variable that does not exist: no converted script
-# ever declares it, so the read yields 0 — the value TES4's GetScriptVariable
-# returns for a scriptless ref or a missing variable.  See
-# convert_script_var_ctda.
-_UNRESOLVED_VAR_SENTINEL = '::TES4NoSuchVariable_var'
+#: CIS2 for a variable no script declares: reads 0, as TES4's GetScriptVariable did for a missing one.
+UNRESOLVED_VAR_SENTINEL = '::TES4NoSuchVariable_var'
 
 
 def papyrus_var_name(var: str) -> str:
@@ -798,7 +795,11 @@ def convert_script_var_ctda(raw: bytes, script_vars: dict, offset: int,
     GetQuestVariable(quest, varIdx) -> GetVMQuestVariable(quest, '::var_var').
 
     `authored_name` is the variable name an export states outright, for a
-    condition that names no reference to resolve an index against.
+    condition that names no reference to resolve an index against. A variable
+    no script has (no script, no such index, deleted ref) reads
+    UNRESOLVED_VAR_SENTINEL, which returns 0 exactly as Oblivion did; dropping
+    the condition instead would fail open.
+    See: docs/commentary/tes5_import_package.md#status-after
     """
     data = raw + b'\x00' * max(0, 24 - len(raw))
     type_byte = data[0]
@@ -810,19 +811,7 @@ def convert_script_var_ctda(raw: bytes, script_vars: dict, offset: int,
     ref = _remap_formid(param1, offset)
     name = (authored_name
             or script_vars.get(param1 & 0x00FFFFFF, {}).get(param2))
-    if name:
-        cis2 = papyrus_var_name(name)
-    else:
-        # No such script variable on that ref/quest — the base has no script,
-        # the script has no variable at that index, or the ref was deleted
-        # (param1 = 0).  Oblivion's GetScriptVariable returns 0 in every one
-        # of those cases, and Skyrim's GetVMScriptVariable returns 0 for a
-        # name no attached script declares — so a NEVER-declared name
-        # reproduces the TES4 value exactly, and the authored comparison and
-        # Or-flag keep doing their job.  Dropping the condition instead
-        # failed OPEN: SE08's five Xedilian victims force-greeted and fled
-        # unconditionally, and 14 jailor packages ran with the player free.
-        cis2 = _UNRESOLVED_VAR_SENTINEL
+    cis2 = papyrus_var_name(name) if name else UNRESOLVED_VAR_SENTINEL
 
     if type_byte & CTDA_USE_GLOBAL:
         comp_raw = _remap_global(comp_raw, offset)

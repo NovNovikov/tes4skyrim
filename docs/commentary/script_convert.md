@@ -2285,6 +2285,14 @@ Reference events (`OnPackageEnd`, `OnActivate`) never fire on a base NPC_ VMAD â
 they must be relocated to the placed ACHR. This was the CharacterGen stage-10
 stall.
 
+ðŸ›‘ **Correction (2026-10-02): vanilla contradicts the general rule.** Skyrim.esm
+binds scripts with reference events to base `NPC_` records 856 times, 553 of
+them on no placed reference at all (`defaultGhostScript` on summoned dragon
+priests: `OnDying`, `OnHit`, `OnLoad`). Base-attached actor scripts do receive
+those events. The relocation is harmless and stays, but whatever made the
+CharacterGen stall go away was not this mechanism.
+See: [wiring audit](../audits/wiring.md#disproven-rules).
+
 ### Bare self-reference calls also force relocation (2026-08-01)
 
 `_relocate_actor_scripts_to_refs` originally moved a script for two reasons: a
