@@ -80,6 +80,12 @@ void InstallSpellCalls(GameHooks& hooks);
 // state barks test into their GLOBs. game_calls_state.cpp.
 // See: docs/commentary/morrowind_runtime.md#published-state
 void InstallStateCalls(GameHooks& hooks);
+// The value of the GLOB at `formId` in `plugin`, or null. Game thread.
+float* GlobalSlot(const std::string& plugin, std::uint32_t formId);
+// An actor's rank in a faction, -2 when it is no member or the native is
+// missing; and setting one, which joins the faction. False when it could not.
+int FactionRank(void* actor, void* faction);
+bool SetFactionRank(void* actor, void* faction, int rank);
 // PC Crime Level on the engine's crime gold, and the fine and jail opcodes.
 // See: docs/commentary/morrowind_runtime.md#crime-is-the-engines
 void InstallCrimeCalls(GameHooks& hooks);
@@ -125,7 +131,6 @@ bool IsActorRef(void* ref);
 // Keeps the player's and each watched actor's Sanctuary faction rank at its
 // summed Sanctuary. game_calls_sanctuary.cpp.
 void TickSanctuary(void* player);
-void InstallSanctuaryCalls();
 // `PlayGroup` / `LoopGroup`: the object animation queue on the mesh's own
 // sequences, and the tick that advances it. game_calls_anim.cpp.
 void InstallAnimCalls(GameHooks& hooks);

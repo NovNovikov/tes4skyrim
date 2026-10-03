@@ -24,8 +24,16 @@ On top of it: the [attribute buffs](../commentary/morrowind_runtime.md#attribute
 Morrowind's [attribute effects](../commentary/morrowind_runtime.md#attribute-effects),
 the [skill cap](../commentary/morrowind_runtime.md#skill-cap), and one ini switch,
 on by default, whose off reads every attribute as 100
-([sheet off](../commentary/morrowind_runtime.md#sheet-off)). The four kept
-skills are the next step.
+([sheet off](../commentary/morrowind_runtime.md#sheet-off)).
+
+**Built since (2026-10-02, unconfirmed in game):**
+- every converted game with attributes uses it ([TES4 tables](../commentary/morrowind_runtime.md#tes4-tables));
+- [class and birthsign menus](../commentary/morrowind_runtime.md#chargen-menus), without major and minor skills;
+- NPC attributes and kept skills as [stat faction ranks](../commentary/morrowind_runtime.md#npc-attributes), read by scripts and conditions (M3, M4, M5);
+- the [Statistics tab](../commentary/morrowind_runtime.md#statistics-tab) (M9).
+
+The player's kept skills still read their Skyrim stand-ins: nothing grows
+them yet.
 
 ## <a id="decisions"></a>Settled decisions
 
@@ -386,7 +394,7 @@ Today these conditions are dropped at import
 | Standing | Fame, Infamy (Oblivion) | `TES4Fame` / `TES4Infamy` globals ([B5](#bug-fame)) |
 | | Reputation (Morrowind) | Morrowind runtime `State().reputation` |
 | | Bounty per game | the game's crime factions (`TES4CrimeFactions`) and the Morrowind runtime's |
-| Oblivion | Oblivion Gates Shut, Artifacts Found, Lockpicks Broken, Jokes Told | stats the converter drops today (blank entries in `TES4_MISC_STAT_NAMES`); `ModPCMiscStat` for them goes to the store instead |
+| Oblivion | Oblivion Gates Shut, Artifacts Found | globals of ours: the Daedric quests' `ModPCMiscStat 19`, and `CloseCurrentOblivionGate`, whose engine code counted 13. Lockpicks Broken and Jokes Told only Oblivion's minigames counted, so they are dropped ([statistics tab](../commentary/morrowind_runtime.md#statistics-tab)) |
 | Nehrim | the four relabeled stats ([B2](#bug-nehrim-misc-stats)), bank balance, bank interest | labels from `sMisc*` game settings; bank from `ErothinBankQuest.PlayerKontostand`; interest by the journal's rule: 2% before MQ14 stage 20, 1% before MQ19 stage 70, then 3% |
 
 #### <a id="m10-input"></a>M10. Opening the sheet
@@ -456,7 +464,7 @@ leaves the game working.
 ### <a id="not-mvp"></a>Not in the MVP
 
 - Strict's gameplay bonuses and the kept skills' effects (magnitudes to decide).
-- Classes, birthsigns, major/minor skills.
+- Major and minor skills (classes and birthsigns are built).
 - Morrowind's own class-based leveling (replaced by Skyrim's).
 - Nehrim's Endurance-based health and Intelligence-based magicka (Skyrim's pools stay).
 - A sheet for players without a Morrowind install.

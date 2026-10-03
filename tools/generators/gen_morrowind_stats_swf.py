@@ -56,7 +56,10 @@ INNER_FRAME = (4, 24, STATS_W - 8, STATS_H - 28)
 DYNAMIC_BOX = (8, 8, 212, 62)
 INFO_BOX = (8, 78, 212, 62)
 ATTRIBUTE_BOX = (8, 148, 212, 152)
-SKILL_BOX = (228, 8, 248, 292)
+SKILL_BOX = (228, 34, 248, 266)
+
+#: The Skills and Statistics tabs above the right pane, in CLIENT space.
+TABS = ((228, 8, 122, 22), (354, 8, 122, 22))
 
 #: A dynamic stat row inside its box: 4 px in, 18 px apart; the label 70 wide, the bar from 74 to 204.
 BOX_PAD = 4
@@ -355,6 +358,9 @@ def compose_stats(art):
     for box in (DYNAMIC_BOX, INFO_BOX, ATTRIBUTE_BOX, SKILL_BOX):
         bx, by, bw, bh = client(box)
         panel.alpha_composite(art.compose_box(bw, bh), (bx, by))
+    for tab in TABS:
+        tx, ty, tw, th = client(tab)
+        panel.alpha_composite(art.compose_button(tw, th), (tx, ty))
     for row, rgb in enumerate(BAR_COLORS):
         bx, by, bw, bh = bar_rect(row)
         panel.alpha_composite(art.compose_stat_bar(bw, bh, rgb),
@@ -390,6 +396,8 @@ def stats_fields(colors: dict) -> list:
     x, y, w, _h = skill_view()
     out += paired_rows(ids, [(x, y + r * ROW_H, w, ROW_H)
                              for r in range(SKILL_FIELDS)], 'Skill', colors)
+    out += [(field(next(ids), line_in(client(tab)), origin, colors, align=ALIGN_CENTER), f'Tab{i}')
+            for i, tab in enumerate(TABS)]
     return out
 
 
@@ -524,6 +532,8 @@ def stats_lines() -> list:
     lines += rect_lines('SkillView', skill_view(), origin)
     lines += rect_lines('SkillScroll', skill_scroll(), origin)
     lines += rect_lines('AttrRow', row_rect(ATTRIBUTE_BOX, BOX_PAD), origin)
+    for i, tab in enumerate(TABS):
+        lines += rect_lines(f'Tab{i}', client(tab), origin)
     return lines + [f'constexpr int kCaptionPad = {CAPTION_PAD};',
                     f'constexpr int kRowH = {ROW_H};',
                     f'constexpr int kBarRows = {len(BAR_COLORS)};',

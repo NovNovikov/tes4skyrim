@@ -172,6 +172,14 @@ struct GameHooks {
     // See: docs/commentary/morrowind_runtime.md#race-attributes
     std::uint32_t (*race)(const std::string& actor) = nullptr;
     bool (*female)(const std::string& actor) = nullptr;
+    // That race's name, "" when unknown.
+    std::string (*raceName)(const std::string& actor) = nullptr;
+    // The stage of the quest at `formId` in `plugin`, -1 when it does not
+    // resolve; the crime gold on the faction there, false when it does not.
+    // See: docs/commentary/morrowind_runtime.md#statistics-tab
+    int (*questStageOf)(const std::string& plugin, std::uint32_t formId) = nullptr;
+    bool (*factionCrimeGold)(const std::string& plugin, std::uint32_t formId,
+                             float* out) = nullptr;
     // How far the player's Skyrim skill (by actor value name) is toward its
     // next point, 0..1; negative when it cannot be read.
     // See: docs/commentary/morrowind_runtime.md#skill-tooltips
@@ -181,6 +189,12 @@ struct GameHooks {
     // written back. Game thread.
     // See: docs/commentary/morrowind_runtime.md#tes4-tables
     void (*syncAttributeGlobals)() = nullptr;
+    // The value of the GLOB at `formId` in `plugin`, read and written in
+    // place; null when it does not resolve. Game thread.
+    float* (*globalSlot)(const std::string& plugin, std::uint32_t formId) = nullptr;
+    // `EnableClassMenu` (1) / `EnableBirthMenu` (2): the runtime's own menu.
+    // See: docs/commentary/morrowind_runtime.md#chargen-menus
+    void (*showChargenMenu)(int kind) = nullptr;
     void  (*advanceSkill)(const char* skill, float amount) = nullptr;
     void  (*showBarterMenu)(const std::string& actor) = nullptr;
     void  (*showTrainingMenu)(const std::string& actor) = nullptr;
@@ -428,6 +442,8 @@ public:
     float Var(const std::string& owner, const std::string& name) const;
     void  SetVar(const std::string& owner, const std::string& name,
                  float value);
+    // Every variable name `owner` holds, lowercase, in order.
+    std::vector<std::string> VarNames(const std::string& owner) const;
 
     // --- the topics the player has heard of -----------------------------------
     // DialogueManager::mKnownTopics: a topic is LISTED only when the speaker
@@ -499,6 +515,9 @@ public:
     // --- reputation, crime, faction reactions, running scripts -------------
     int   reputation = 0;
     float crimeLevel = 0.0f;
+    // The player's class name as chosen, capitals kept (the chargen vars
+    // hold it lowercased). Never a tab or newline.
+    std::string className;
     int  FactionReaction(const std::string& a, const std::string& b) const;
     void SetFactionReaction(const std::string& a, const std::string& b,
                             int value);

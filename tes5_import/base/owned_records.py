@@ -55,6 +55,27 @@ _OWNED_GLOBALS = (
     ('TES4ControlsDisabled', 's', 0.0),
 ) + tuple((edid, 'f', PLAYER_ATTRIBUTE_DEFAULT) for edid in PLAYER_ATTRIBUTE_GLOBALS)
 
+#: FACT DATA flag Hidden From PC.
+FACTION_HIDDEN = 0x1
+
+
+def adopt_or_write(writer, master_index, sig: str, edid: str, build) -> tuple:
+    """(FormID, written): a master's record of `edid`, else ``build(fid)`` written as this plugin's."""
+    fid = master_index.find_by_edid(sig.encode(), edid) if master_index else 0
+    if fid:
+        return fid, False
+    fid = writer.derive_formid(sig, edid)
+    writer.add_record(sig, build(fid))
+    return fid, True
+
+
+def owner_row(name: str, fid: int, plugin: str, masters: list) -> str:
+    """`name=Owner.esm|FormID`, the owner read off `fid`'s master slot."""
+    slot = fid >> 24
+    owner = masters[slot] if slot < len(masters) else plugin
+    return f'{name}={owner}|{fid:08X}'
+
+
 def _emit_global(writer: PluginWriter, edid: str, type_char: str, value: float = 0.0) -> int:
     """Write one GlobalVariable, register it by name, and return its FormID."""
     fid = writer.derive_formid('GLOB', edid)
@@ -122,12 +143,37 @@ def create_message_menu_records(writer: PluginWriter, plan: dict) -> dict:
     return name_to_fid
 
 
+#: The global a converted chargen call asks MorrowindRuntime's menu through: each plugin its own.
+CHARGEN_REQUEST_GLOBAL = 'TES4ChargenRequest'
+
+
+def _chargen_page(fid: int, name: str, title: str, buttons: list) -> bytes:
+    """One chargen MESG page."""
+    subs = pack_string_subrecord('EDID', name)
+    subs += pack_string_subrecord('DESC', title)
+    subs += pack_subrecord('INAM', struct.pack('<I', 0))
+    subs += pack_subrecord('DNAM', struct.pack('<I', 1))
+    for button in buttons:
+        subs += pack_string_subrecord('ITXT', button)
+    return pack_record('MESG', fid, 0, subs)
+
+
+def _short_global(fid: int, edid: str) -> bytes:
+    """A short GLOB at 0."""
+    subs = pack_string_subrecord('EDID', edid)
+    subs += pack_subrecord('FNAM', struct.pack('<B', ord('s')))
+    subs += pack_subrecord('FLTV', struct.pack('<f', 0.0))
+    return pack_record('GLOB', fid, 0, subs)
+
+
 def create_chargen_menu_records(writer: PluginWriter, plan: dict) -> dict:
-    """MESG pages for the TES4 chargen menus (ShowBirthsignMenu/ShowClassMenu).
+    """MESG pages for the TES4 chargen menus (ShowBirthsignMenu/ShowClassMenu),
+    their choice globals, and this plugin's own request global.
 
     Allocates FIXED ids from a reserved window, not derive_formid(): the pages
     are a contiguous, order-significant block.  A page or global a master
-    already defines keeps the master's FormID.
+    already defines keeps the master's FormID, and is not written again for a
+    menu built only from the masters' records (`own` false).
 
     See: docs/commentary/tes5_import_dialogue.md#synthesized-menus-factions-and-formlists
     """
@@ -135,16 +181,11 @@ def create_chargen_menu_records(writer: PluginWriter, plan: dict) -> dict:
     k = 0
     for key in sorted(plan):
         for name, title, buttons in plan[key]['pages']:
-            fid = adopted_formid(writer, 'MESG', name) or writer.chargen_fid_base + k
+            adopted = adopted_formid(writer, 'MESG', name)
+            name_to_fid[name] = adopted or writer.chargen_fid_base + k
             k += 1
-            subs = pack_string_subrecord('EDID', name)
-            subs += pack_string_subrecord('DESC', title)
-            subs += pack_subrecord('INAM', struct.pack('<I', 0))
-            subs += pack_subrecord('DNAM', struct.pack('<I', 1))
-            for button in buttons:
-                subs += pack_string_subrecord('ITXT', button)
-            writer.add_record('MESG', pack_record('MESG', fid, 0, subs))
-            name_to_fid[name] = fid
+            if not adopted or plan[key].get('own', True):
+                writer.add_record('MESG', _chargen_page(name_to_fid[name], name, title, buttons))
 
     assert k <= 0x40, f'chargen menu pages overflow the fixed-id window ({k})'
     for slot, key in ((0x40, 'birthsign'), (0x41, 'class')):
@@ -152,12 +193,14 @@ def create_chargen_menu_records(writer: PluginWriter, plan: dict) -> dict:
         if not menu:
             continue
         gname = menu['choice_global']
-        fid = adopted_formid(writer, 'GLOB', gname) or writer.chargen_fid_base + slot
-        subs = pack_string_subrecord('EDID', gname)
-        subs += pack_subrecord('FNAM', struct.pack('<B', ord('s')))
-        subs += pack_subrecord('FLTV', struct.pack('<f', 0.0))
-        writer.add_record('GLOB', pack_record('GLOB', fid, 0, subs))
-        name_to_fid[gname] = fid
+        adopted = adopted_formid(writer, 'GLOB', gname)
+        name_to_fid[gname] = adopted or writer.chargen_fid_base + slot
+        if not adopted or menu.get('own', True):
+            writer.add_record('GLOB', _short_global(name_to_fid[gname], gname))
+    if plan:
+        fid = writer.derive_formid('GLOB', CHARGEN_REQUEST_GLOBAL)
+        writer.add_record('GLOB', _short_global(fid, CHARGEN_REQUEST_GLOBAL))
+        name_to_fid[CHARGEN_REQUEST_GLOBAL] = fid
     return name_to_fid
 
 

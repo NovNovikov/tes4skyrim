@@ -18,7 +18,9 @@ constexpr IdRva kBuild1597[] = {
     {53978, 0x927620},  // kVmMagicEffectApplyProcess
     {54675, 0x94aa70},  // kActorGetValue
     {54678, 0x94ac20},  // kActorGetBaseValue
+    {54686, 0x94af60},  // kActorGetFactionRank
     {54743, 0x94c360},  // kActorSetValue
+    {54750, 0x94c9c0},  // kActorSetFactionRank
     {54927, 0x958350},  // kActorGetLevel
     {54930, 0x958390},  // kActorGetRace
     {55377, 0x96ddb0},  // kDebugNotification
@@ -26,6 +28,7 @@ constexpr IdRva kBuild1597[] = {
     {55469, 0x9731b0},  // kGameGetPlayer
     {55566, 0x9794b0},  // kGameGetForm
     {56632, 0x9ae930},  // kRefGetParentCell
+    {68552, 0xc11f30},  // kControlMapAllowTextInput
     {69161, 0xc28bf0},  // kBSFixedStringCtor
     {69161, 0xc28bf0},  // kFixedStringCtor
     {82086, 0xebf9c0},  // kMenuManagerRegister
@@ -34,6 +37,7 @@ constexpr IdRva kBuild1597[] = {
     {217097, 0x16cdfd0},  // kVmMagicEffectApplySink
     {400327, 0x1ebeb20},  // kMenuManagerSingleton
     {400445, 0x1ec0a70},  // kUIManagerSingleton
+    {400863, 0x2ec5bd0},  // kControlMapSingleton
     {402775, 0x2f257a0},  // kGFxLoaderSingleton
     {412058, 0x3032c50},  // kScaleformAllocator
 };
@@ -47,7 +51,9 @@ constexpr IdRva kBuildVR[] = {
     {53978, 0x962070},  // kVmMagicEffectApplyProcess
     {54675, 0x984e60},  // kActorGetValue
     {54678, 0x984f60},  // kActorGetBaseValue
+    {54686, 0x985220},  // kActorGetFactionRank
     {54743, 0x9865d0},  // kActorSetValue
+    {54750, 0x986c30},  // kActorSetFactionRank
     {54927, 0x9922d0},  // kActorGetLevel
     {54930, 0x992310},  // kActorGetRace
     {55377, 0x9a7e90},  // kDebugNotification
@@ -55,6 +61,7 @@ constexpr IdRva kBuildVR[] = {
     {55469, 0x9ad050},  // kGameGetPlayer
     {55566, 0x9b3b80},  // kGameGetForm
     {56632, 0x9e9460},  // kRefGetParentCell
+    {68552, 0xc4e8d0},  // kControlMapAllowTextInput
     {69161, 0xc6db20},  // kBSFixedStringCtor
     {69161, 0xc6db20},  // kFixedStringCtor
     {82086, 0xf1be20},  // kMenuManagerRegister
@@ -63,6 +70,7 @@ constexpr IdRva kBuildVR[] = {
     {217097, 0x17564b8},  // kVmMagicEffectApplySink
     {400327, 0x1f83200},  // kMenuManagerSingleton
     {400445, 0x1f850f8},  // kUIManagerSingleton
+    {400863, 0x2f8aaa0},  // kControlMapSingleton
     {402775, 0x2fea518},  // kGFxLoaderSingleton
     {412058, 0x318ce40},  // kScaleformAllocator
 };

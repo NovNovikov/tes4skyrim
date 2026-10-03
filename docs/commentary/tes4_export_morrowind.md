@@ -781,6 +781,15 @@ every player, and Ordinators set fight 100 and attacked on sight. A `set`
 cannot repair it either: the compiler's `getGlobalType` returns `' '` for an
 unknown global, so the patch's own `OrdinatorUniform` script fails to compile.
 
+BSGN is always filled for the same reason: a birthsign is read, by the
+runtime's one birthsign menu, never placed, and Morroblivion's 13 signs are
+Oblivion's records with Oblivion's effects. The patch carries Morrowind's 13,
+which take Oblivion's slots by name in the menu (`message_menus._birthsign_plan`,
+later wins); their spells resolve to Morroblivion's copies where it has them
+(`elfborn ability` is `Morrowind_ob.esm|01060332`) and to the patch's own
+otherwise (`star-curse`). See
+[morrowind_runtime.md](morrowind_runtime.md#chargen-menus).
+
 ### <a id="split-pairs"></a>Two-handed pairs are split back into left and right
 
 **Code:** `tes4_export/morroblivion_pairs.py`.

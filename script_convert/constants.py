@@ -41,6 +41,9 @@ SPLIT_SKILLS = {name: ('OneHanded', 'TwoHanded') for name in ('blade', 'blunt', 
 #: Misc stats Oblivion content writes; its engine keeps the rest. See: docs/commentary/script_convert.md#pc-misc-stat-names
 TES4_SCRIPT_OWNED_MISC_STATS = frozenset({14, 15, 16, 19, 27})
 
+#: A page value a quest script variable holds: (quest EditorID, variable, label). Nehrim's journal bank page.
+PAGE_VARIABLES = (('ErothinBankQuest', 'PlayerKontostand', 'Bank balance'),)
+
 from script_convert.reserved_names import papyrus_reserved
 
 

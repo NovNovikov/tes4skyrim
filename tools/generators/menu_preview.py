@@ -26,9 +26,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from asset_convert.ui.menu_art import ICON_SETS, STYLES, menu_art
+from asset_convert.ui.menu_art import ICON_SETS, STYLES, effect_icons, menu_art
 from asset_convert.ui.skyrim_skills import skill_table_text
 from asset_convert.ui.swf import TWIPS, BitReader
+from tools.generators import gen_morrowind_chargen_swf as cg
 from tools.generators import gen_morrowind_menu_swf as dlg
 from tools.generators import gen_morrowind_stats_swf as st
 
@@ -396,17 +397,32 @@ def stats_state(art, tip: dict, skills: dict) -> dict:
         state[f'BarValue{row}'] = {'text': f'{now}/{most}'}
         state[f'BarCover{row}'] = {'x': x + filled, 'width': max(1, w - filled),
                                    'visible': filled < w}
-    for row, (name, value) in enumerate((('Level', 3), ('Reputation', 2), ('Bounty', 0))):
+    for row, (name, value) in enumerate((('Level', 3), ('Race', 'Dark Elf'), ('Class', 'Battlemage'))):
         state[f'InfoName{row}'], state[f'InfoValue{row}'] = {'text': name}, {'text': str(value)}
     for row, (name, value) in enumerate(ATTRIBUTES):
         state[f'AttrName{row}'], state[f'AttrValue{row}'] = {'text': name}, {'text': str(value)}
-    for row, (name, value) in enumerate(skill_rows(skills)[:st.SKILL_FIELDS]):
+    tab = 1 if tip is STATISTICS else 0
+    for i, label in enumerate(('Skills', 'Statistics')):
+        state[f'Tab{i}'] = {'text': label,
+                            'color': art.colors['normal_pressed' if i == tab else 'normal']}
+    rows = STATISTIC_ROWS if tab else skill_rows(skills)
+    for row, (name, value) in enumerate(rows[:st.skill_view()[3] // st.ROW_H]):
         state[f'SkillName{row}'] = {'text': name}
         state[f'SkillValue{row}'] = {'text': '' if value is None else str(value)}
         if value is None:
             state[f'SkillName{row}']['color'] = art.colors['header']
-    state.update(tip)
+    state.update(tip_hidden() if tab else tip)
     return state
+
+
+#: The Statistics tab's sample rows (None marks a heading), and the marker that asks for them.
+STATISTIC_ROWS = (('Birth Sign', 'The Lady'), ('', None),
+                  ('Oblivion', None), ('Bounty', 40), ('Shivering Isles Bounty', 0),
+                  ('Fame', 3), ('Oblivion Gates Shut', 4), ('', None),
+                  ('Nehrim', None), ('Total XP', 4120), ('Learning Points', 7),
+                  ('Magical symbols found', 2), ('Bank balance', 1250), ('', None),
+                  ('Morroblivion', None), ('Reputation', 2), ('Bounty', 0))
+STATISTICS = {}
 
 
 #: The level-up sample: each attribute's multiplier, and the two already chosen.
@@ -462,8 +478,71 @@ def dialogue_state(font) -> dict:
     return state
 
 
-def scenes(art) -> list:
-    """`(file name, movie, state)` for every sample this writes."""
+#: The class menu sample: a few classes, the chosen one, and a custom class's picks.
+CLASS_ROWS = ('Acrobat', 'Agent', 'Archer', 'Assassin', 'Barbarian', 'Bard', 'Battlemage')
+SIGN_ROWS = ('The Apprentice', 'The Atronach', 'The Lady', 'The Lord', 'The Lover',
+             'The Mage', 'The Ritual')
+
+
+def list_state(art, rows: tuple, chosen: int) -> dict:
+    """A list's rows with `chosen` lit, as the plugin colors them."""
+    state = {f'Row{i}': {'text': name} for i, name in enumerate(rows)}
+    state[f'Row{chosen}']['color'] = art.colors['normal_pressed']
+    return state
+
+
+def class_state(art, custom: bool) -> dict:
+    """The class menu on Battlemage, or on a custom class with two picks made."""
+    state = list_state(art, CLASS_ROWS, 6)
+    state.update({f'Class_{name}': {'visible': name == 'battlemage'} for name in st.CLASSES})
+    state.update({'SpecHeader': {'text': 'Specialization:'}, 'SpecName': {'text': 'Magic'},
+                  'FavHeader': {'text': 'Favorite Attributes:'},
+                  'Fav0': {'text': 'Strength'}, 'Fav1': {'text': 'Intelligence'},
+                  'OkCaption': {'text': 'OK'}})
+    names = [name for name, _value in ATTRIBUTES]
+    if custom:
+        state.update({f'Pick{a}': {'text': name} for a, name in enumerate(names)})
+        state.update({'Pick0': {'text': 'Strength', 'color': art.colors['normal_pressed']},
+                      'Pick1': {'text': 'Intelligence', 'color': art.colors['normal_pressed']},
+                      'PickHeader': {'text': 'Favorite Attributes:'},
+                      'NameLabel': {'text': 'Name'}, 'NameText': {'text': 'SpellBlade_'},
+                      'SpecName': {'text': 'Combat'}})
+        state.update(hidden('Description'))
+    else:
+        state['Description'] = {'text': 'Wizard-warriors trained in both lethal spellcasting '
+                                        'and heavily armored combat.'}
+        state.update(hidden('PickHeader', 'NameLabel', 'NameText', 'NameBox',
+                            *[f'Pick{a}' for a in range(len(names))]))
+    return state
+
+
+#: The Lady's lines as the shared table writes them for Morrowind, and the icon they show.
+LADY_LINES = (('h', '', 'Abilities:'), ('s', '', "Lady's Favor"),
+              ('e', 'icons_s_tx_s_ftfy_attrib', 'Fortify Personality 25 pts'),
+              ('s', '', "Lady's Grace"),
+              ('e', 'icons_s_tx_s_ftfy_attrib', 'Fortify Endurance 25 pts'))
+LADY_ICONS = {'icons_s_tx_s_ftfy_attrib': 'icons\\s\\Tx_S_Ftfy_Attrib.dds'}
+
+
+def birth_state(art) -> dict:
+    """The birthsign menu on The Lady, its lines placed as the plugin places them."""
+    state = list_state(art, SIGN_ROWS, 2)
+    birth = cg.origin(cg.BIRTH_W, cg.BIRTH_H)
+    state['Sign_lady'] = {'x': birth[0] + cg.BIRTH_IMAGE[0]}
+    left = birth[0] + cg.birth_line(0)[0]
+    for row, (kind, key, text) in enumerate(LADY_LINES):
+        color = art.colors['header'] if kind == 'h' else art.colors['normal']
+        shift = cg.ICON_INDENT if kind == 'e' else 0
+        state[f'Line{row}'] = {'text': text, 'color': color, 'x': left + shift}
+        if key:
+            state[f'Icon{row}_{key}'] = {'x': left + cg.ICON_LEFT}
+    state['OkCaption'] = {'text': 'OK'}
+    return state
+
+
+def scenes(art, export_root: str) -> list:
+    """`(file name, movie, state)` for every sample this writes; the birthsign
+    menu's effect icon comes from whichever install holds it."""
     font = ImageFont.truetype(dlg.MW_FONT_PATH, dlg.FONT_PX)
     stats = st.stats_window(art)
     attr_x, attr_y, _w, _h = st.on_stage(st.row_rect(st.ATTRIBUTE_BOX, st.BOX_PAD),
@@ -480,7 +559,12 @@ def scenes(art) -> list:
             ('stats.png', stats, stats_state(art, tip_hidden(), skills)),
             ('stats_attribute_tip.png', stats, stats_state(art, attribute_tip, skills)),
             ('stats_skill_tip.png', stats, stats_state(art, skill_tip, skills)),
-            ('levelup.png', st.levelup_dialog(art), levelup_state(font))]
+            ('stats_statistics.png', stats, stats_state(art, STATISTICS, skills)),
+            ('levelup.png', st.levelup_dialog(art), levelup_state(font)),
+            ('class.png', cg.class_window(art), class_state(art, False)),
+            ('class_custom.png', cg.class_window(art), class_state(art, True)),
+            ('birthsign.png', cg.birth_window(art, effect_icons(export_root, LADY_ICONS)),
+             birth_state(art))]
 
 
 def main() -> int:
@@ -493,7 +577,7 @@ def main() -> int:
     args = ap.parse_args()
     art = menu_art(args.export_root, args.style, args.icons)
     os.makedirs(args.out, exist_ok=True)
-    for name, movie, state in scenes(art):
+    for name, movie, state in scenes(art, args.export_root):
         path = os.path.join(args.out, name)
         render(movie, state).convert('RGB').save(path)
         print(f'wrote {path}')

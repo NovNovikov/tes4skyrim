@@ -32,6 +32,7 @@ from asset_convert.ui.morrowind_menu_art import (FRAME, TEXTURES, MorrowindArt,
                                                  MorrowindIcons)
 from asset_convert.ui.skyrim_menu_art import SkyrimArt
 from asset_convert.ui.ui_menus import to_image
+from script_convert.message_menus import birthsign_key
 
 #: conversion_config.json keys for the two choices, and the values each takes.
 MENU_STYLE_KEY, MENU_ICONS_KEY = 'menuStyle', 'menuIcons'
@@ -110,6 +111,15 @@ class GameFiles:
         rel = _norm(rel)
         return rel in self.archives or (self.root / rel).is_file()
 
+    def under(self, folder: str) -> set:
+        """Every stored path directly in `folder`, archived or loose."""
+        folder = _norm(folder) + chr(92)
+        found = {p for p in self.archives if p.startswith(folder) and chr(92) not in p[len(folder):]}
+        loose = self.root / folder
+        if loose.is_dir():
+            found |= {folder + f.name.lower() for f in loose.iterdir() if f.is_file()}
+        return found
+
     def read(self, rel: str):
         """`rel`'s bytes, or None."""
         rel = _norm(rel)
@@ -132,6 +142,10 @@ class FileChain:
     def __bool__(self) -> bool:
         """Whether any install is in the chain."""
         return bool(self.sources)
+
+    def under(self, folder: str) -> set:
+        """Every stored path directly in `folder` in any install."""
+        return set().union(*(source.under(folder) for source in self.sources))
 
     def read(self, rel: str):
         """`rel`'s bytes from the first install holding it, or None."""
@@ -156,6 +170,18 @@ def art_sources(export_root: str) -> tuple:
         if files.has(OBLIVION_MARK):
             oblivion.append(files)
     return FileChain(morrowind), FileChain(oblivion)
+
+
+def effect_icons(export_root, paths: dict) -> dict:
+    """`{key: image}` for each magic effect icon (`{key: install path}`) an install
+    holds: Morrowind's under `icons\\`, Oblivion's under `textures\\menus\\icons\\`."""
+    chains = art_sources(str(export_root))
+    out = {}
+    for key, path in paths.items():
+        data = next((d for d in (chain.read(path) for chain in chains) if d), None)
+        if data:
+            out[key] = to_image(data)
+    return out
 
 
 def available(export_root) -> dict:
@@ -188,6 +214,16 @@ def _fit(image, size: tuple):
     return out
 
 
+def sign_pictures(files, folder: str) -> dict:
+    """{sign key: picture fitted into the class picture's shape} for every texture in `folder`."""
+    out = {}
+    for path in sorted(files.under(folder)):
+        data = files.read(path) if path.endswith('.dds') else None
+        if data:
+            out.setdefault(birthsign_key(path), _fit(to_image(data), CLASS_PIXELS))
+    return out
+
+
 class OblivionIcons:
     """Icons from Oblivion-format menu art (`textures\\menus`); None where it has none."""
 
@@ -217,6 +253,10 @@ class OblivionIcons:
         """The gold icon, or a drawn coin."""
         return self._load('icons', 'clutter', 'icongold.dds') or _drawn_coin()
 
+    def birthsigns(self) -> dict:
+        """{sign key: painting} for every sign an install paints."""
+        return sign_pictures(self.files, chr(92).join(('textures', 'menus', 'birthsign')))
+
 
 class NoIcons:
     """No install supplies icons: none, and a drawn coin."""
@@ -236,6 +276,10 @@ class NoIcons:
     def coin(self):
         """A drawn coin."""
         return _drawn_coin()
+
+    def birthsigns(self) -> dict:
+        """None."""
+        return {}
 
 
 # ---------------------------------------------------------------------------

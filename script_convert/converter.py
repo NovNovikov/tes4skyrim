@@ -25,6 +25,7 @@ from script_convert import resolve_name as _resolve_name
 from script_convert import assemble as _assemble
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
+from script_convert.misc_stats import page_stat_global
 from script_convert.poll_interval import update_interval
 from script_convert.emit import dispatch as _dispatch
 from script_convert.cross_ref import CrossRefGraph
@@ -67,7 +68,7 @@ _EXTRA_COMMAND_NAMES = frozenset({
     'createfullactorcopy', 'forcecloseobliviongate', 'getactionref',
     'getangle', 'getbookread', 'getcontainer', 'getcrimeknown',
     'getincell', 'getinsamecell', 'getisid', 'getisrace', 'getisref',
-    'getissex', 'getpcisrace', 'getpcissex', 'getpos', 'getquestrunning',
+    'getissex', 'getpcisrace', 'getpcissex', 'getplayerbirthsign', 'getpos', 'getquestrunning',
     'getrandompercent', 'getself', 'getstage', 'getstagedone',
     'getstartingangle', 'isactionref', 'isexpelled', 'isinfaction',
     'isquestcompleted', 'message', 'messagebox', 'placeatme', 'pme', 'say',
@@ -778,9 +779,21 @@ class ScriptConverter:
         # whether the rendering happens to contain a decimal point.
         self._value_type = _symbols.type_of_expr(stmt.value, self.type_of)
         try:
-            return self._assign(stmt, target, extends)
+            return self._mirror_page_stat(stmt, target, self._assign(stmt, target, extends))
         finally:
             self._value_type = ''
+
+    def _mirror_page_stat(self, stmt, target: str, line: str) -> str:
+        """`line`, followed by a write of the new value into the mirror global of
+        a variable a game's statistics page showed (misc_stats.PAGE_VARIABLES).
+
+        See: docs/commentary/morrowind_runtime.md#statistics-tab
+        """
+        mirror = page_stat_global(_expr.emit_source(stmt.target))
+        if not mirror or line.lstrip().startswith(';'):
+            return line
+        self.sc.property_refs[mirror] = 'GlobalVariable'
+        return f'{line}\n{mirror}.SetValue({target})'
 
     def _assign(self, stmt, target: str, extends: str) -> str:
 

@@ -115,6 +115,32 @@ constexpr std::uint32_t kEventMouseDown = 2;
 constexpr std::uint32_t kEventMouseUp = 3;
 constexpr std::size_t kMouseEventXOffset = 0x4;
 constexpr std::size_t kMouseEventButtonOffset = 0x10;
+// A GFxKeyEvent (type 5 down) holds the key code (Windows' virtual key) at
+// +4, the ASCII character at +8 and the modifier bits at +0x10 (CommonLibSSE
+// GFxKeyEvent, sizeof 0x14).
+constexpr std::uint32_t kEventKeyDown = 5;
+constexpr std::size_t kKeyEventCodeOffset = 0x4;
+constexpr std::size_t kKeyEventAsciiOffset = 0x8;
+constexpr std::size_t kKeyEventModsOffset = 0x10;
+// A GFxCharEvent (type 13, Scaleform's numbering, which types 1-6 above
+// follow) holds the typed character, case and all, as a UTF-32 code at +4.
+// Skyrim sends it only while text input is allowed.
+constexpr std::uint32_t kEventChar = 13;
+constexpr std::size_t kCharEventCodeOffset = 0x4;
+
+// The ControlMap (SKSE's InputManager) singleton POINTER (0x30fda10 on
+// 1.6.1170), and ControlMap::AllowTextInput(this, bool) (0xcd5910): a counter
+// byte at +0x128 that it raises or lowers; while it is above 0 the game sends
+// menus character events. Read off the function on 1.6.1170, where a menu
+// closing calls it with false.
+constexpr std::uint64_t kControlMapSingleton = 400863;
+constexpr std::uint64_t kControlMapAllowTextInput = 68552;
+// TESRace's TESFullName (at +0x20) holds its name's BSFixedString at +8.
+constexpr std::size_t kOffRaceFullName = 0x28;
+// TESQuest's current stage, a u16: Quest.GetCurrentStageID tail-calls a
+// getter that is only `movzx eax, word [rcx+0x228]` on 1.6.1170, 1.5.97 and
+// VR alike.
+constexpr std::size_t kOffQuestCurrentStage = 0x228;
 
 // TESNPC's primary vtable (0x17e4d50 on 1.6.1170), whose slot 0x1b8 is
 // Activate(this, ref, activator, ...). `TESObjectREFR::ActivateRef` dispatches
@@ -533,14 +559,18 @@ constexpr std::uint64_t kSpellCast = 55747;
 // `movss xmm0,[r8+0x34]`, a two-instruction leaf, so the field is read.
 constexpr std::size_t kOffGlobalValue = 0x34;
 
-// The player's faction standing, pushed onto the converted FACT. Live-image
-// RVAs (1.6.1170), GOG 1.6.659 in brackets:
+// The player's faction standing, pushed onto the converted FACT, and a TES4
+// actor's stat faction ranks. Live-image RVAs (1.6.1170), GOG 1.6.659 in
+// brackets:
+//   int  Actor.GetFactionRank(Faction)        0x9e87a0  [0x989af0]
+//        tail-calls the rank lookup with (actor, faction, actor == player).
 //   void Actor.SetFactionRank(Faction, int)   0x9ea340  [0x98b690]
 //        `lea r9` form; the rank rides at [rsp+0x28] and is read as a byte.
 //        Adds the actor to the faction when it is not already in it.
 //   void Faction.SetPlayerExpelled(bool)      0xa1dc80  [0x9befc0]
 //        stored-after form; sets or clears bit 4 of the faction's +0x58 flags.
 // See: docs/commentary/morrowind_runtime.md#player-factions
+constexpr std::uint64_t kActorGetFactionRank = 54686;
 constexpr std::uint64_t kActorSetFactionRank = 54750;
 constexpr std::uint64_t kFactionSetPlayerExpelled = 55843;
 

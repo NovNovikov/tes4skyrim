@@ -307,6 +307,11 @@ class MorrowindIcons:
         """The gold coin the level-up dialog spends."""
         return load(self.root, 'tx_goldicon', ICONS)
 
+    def birthsigns(self) -> dict:
+        """{sign key: picture}; imported late, as menu_art imports this module."""
+        from asset_convert.ui.menu_art import sign_pictures
+        return sign_pictures(self.root, TEXTURES + chr(92) + 'birthsigns')
+
 
 class MorrowindArt:
     """Morrowind's look: each `compose_*` above bound to one install, and its colors.

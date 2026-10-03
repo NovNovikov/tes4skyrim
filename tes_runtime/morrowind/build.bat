@@ -65,8 +65,9 @@ echo [build] compiling plugin...
 cl %CXXFLAGS% %INCLUDES% plugin\plugin.cpp plugin\store.cpp plugin\scope.cpp ^
    "%COMMON%\log.cpp" "%COMMON%\paths.cpp" "%COMMON%\addresses.cpp" "%COMMON%\hook.cpp" ^
    plugin\menu.cpp plugin\menu_widgets.cpp plugin\leveling.cpp plugin\attribute_buffs.cpp ^
-   plugin\stat_tip.cpp plugin\stats_sheet.cpp ^
+   plugin\stat_tip.cpp plugin\stats_sheet.cpp plugin\stat_rows.cpp ^
    plugin\levelup_menu.cpp plugin\scaleform_log.cpp ^
+   plugin\chargen_menu.cpp plugin\chargen_tables.cpp ^
    "%COMMON%\ui_message.cpp" "%COMMON%\crafting_client.cpp" ^
    "%COMMON%\glide.cpp" "%COMMON%\main_tick.cpp" ^
    plugin\filter.cpp plugin\session.cpp plugin\activation.cpp ^
@@ -113,6 +114,7 @@ REM reused from obj\, which holds the DLL's objects.
 if not exist objt mkdir objt
 echo [build] compiling tests...
 cl %CXXFLAGS% %INCLUDES% plugin\store.cpp plugin\scope.cpp plugin\filter.cpp ^
+   plugin\chargen_tables.cpp ^
    "%COMMON%\log.cpp" "%COMMON%\paths.cpp" ^
    plugin\session.cpp plugin\store_test.cpp plugin\filter_test.cpp ^
    plugin\session_test.cpp plugin\game_actor.cpp ^
@@ -131,21 +133,21 @@ if errorlevel 1 (
     echo [build] ERROR: test compilation failed
     exit /b 1
 )
-link /nologo /OUT:store_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
+link /nologo /OUT:store_test.exe objt\store.obj objt\chargen_tables.obj objt\scope.obj objt\log.obj objt\paths.obj ^
      objt\script_tables.obj objt\store_test.obj obj\mw\*.obj ^
      kernel32.lib user32.lib shell32.lib ole32.lib
 if errorlevel 1 (
     echo [build] ERROR: store_test link failed
     exit /b 1
 )
-link /nologo /OUT:filter_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
+link /nologo /OUT:filter_test.exe objt\store.obj objt\chargen_tables.obj objt\scope.obj objt\log.obj objt\paths.obj ^
      objt\script_tables.obj objt\filter.obj objt\filter_test.obj obj\mw\*.obj ^
      kernel32.lib user32.lib shell32.lib ole32.lib
 if errorlevel 1 (
     echo [build] ERROR: filter_test link failed
     exit /b 1
 )
-link /nologo /OUT:session_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
+link /nologo /OUT:session_test.exe objt\store.obj objt\chargen_tables.obj objt\scope.obj objt\log.obj objt\paths.obj ^
      objt\script_tables.obj objt\filter.obj objt\session.obj ^
      objt\session_test.obj objt\script_context.obj ^
      objt\dialogue_state.obj objt\game_actor.obj ^
@@ -162,7 +164,7 @@ if errorlevel 1 (
     echo [build] ERROR: session_test link failed
     exit /b 1
 )
-link /nologo /OUT:script_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
+link /nologo /OUT:script_test.exe objt\store.obj objt\chargen_tables.obj objt\scope.obj objt\log.obj objt\paths.obj ^
      objt\game_actor.obj objt\dialogue_state.obj objt\script_context.obj ^
      objt\script_runner.obj objt\script_ops_world.obj ^
      objt\script_ops_events.obj objt\script_ops_sound.obj ^
@@ -180,7 +182,7 @@ if errorlevel 1 (
     echo [build] ERROR: script_test link failed
     exit /b 1
 )
-link /nologo /OUT:leveling_test.exe objt\store.obj objt\scope.obj objt\log.obj objt\paths.obj ^
+link /nologo /OUT:leveling_test.exe objt\store.obj objt\chargen_tables.obj objt\scope.obj objt\log.obj objt\paths.obj ^
      objt\game_actor.obj objt\dialogue_state.obj objt\script_context.obj ^
      objt\script_runner.obj objt\script_ops_world.obj ^
      objt\script_ops_events.obj objt\script_ops_sound.obj ^

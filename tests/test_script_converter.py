@@ -566,11 +566,19 @@ class TestActorValueMap:
         assert conv_line(converter, 'player.modav Luck 1', 'Quest').strip() == \
             'TES4_Attributes.Modify(TES4PlayerLuck, 1)'
 
-    def test_npc_attribute_keeps_the_stub(self, converter):
-        """No script reaches an NPC's attribute: reads 100, writes drop."""
-        assert conv_expr(converter, 'OtherRef.GetAV Strength >= 30', 'Quest') == '100.0 >= 30'
-        result = conv_line(converter, 'OtherRef.SetAV Strength 50', 'Quest')
-        assert result.lstrip().startswith(';') and 'SetActorValue' not in result
+    def test_npc_attribute_reads_its_stat_faction(self, converter):
+        """Another actor's attribute is its stat faction rank; the player global rides along."""
+        assert conv_expr(converter, 'OtherRef.GetAV Strength >= 30', 'Quest') == (
+            'TES4_Attributes.ReadActor(OtherRef, TES4AttributeStrength, TES4PlayerStrength) >= 30')
+        assert conv_line(converter, 'OtherRef.ModAV Luck 2', 'Quest').strip() == (
+            'TES4_Attributes.ModifyActor(OtherRef, TES4AttributeLuck, TES4PlayerLuck, 2)')
+
+    def test_npc_kept_skill_reads_its_stat_faction(self, converter):
+        """An NPC's Athletics is its rank; the player's still reads the Skyrim stand-in."""
+        assert conv_line(converter, 'OtherRef.SetAV Athletics 40', 'Quest').strip() == (
+            'TES4_Attributes.WriteSkill(OtherRef, TES4SkillAthletics, "Stamina", 40)')
+        assert conv_expr(converter, 'player.GetAV Athletics > 5', 'Quest') == (
+            'Game.GetPlayer().GetActorValue("Stamina") > 5')
 
     def test_skill_read_still_maps(self, converter):
         """Skills survive the attribute no-op -- only attributes are stubbed."""
@@ -2149,19 +2157,22 @@ class TestObseBlockAndCallFixes:
 
     def test_nested_call_keeps_outer_arguments(self, converter):
         """A command inside one argument does not erase the ones after it."""
-        body = self._poll(converter, 'Call G 30 * ( getPCMiscStat 8 - x ), 1, 1, -1')
-        assert 'Locks Picked") - x), 1, 1, -1)' in body
+        body = self._poll(converter, 'Call G 30 * ( getPCMiscStat 15 - x ), 1, 1, -1')
+        assert 'Houses Owned") - x), 1, 1, -1)' in body
 
     def test_misc_stat_by_name(self, converter):
-        """The TES4 index becomes Skyrim's stat name; an untracked one reads 0."""
-        assert 'Game.QueryStat("Locations Discovered")' in self._poll(converter, 'set n to getPCMiscStat 7')
+        """The TES4 index becomes Skyrim's stat name; one no Skyrim stat stands for is our global."""
+        assert ('(Game.QueryStat("Locations Discovered") + TES4MiscStat07.GetValueInt())'
+                in self._poll(converter, 'set n to getPCMiscStat 7'))
         assert 'Game.IncrementStat("Houses Owned", 2)' in self._poll(converter, 'ModPCMiscStat 15 2')
-        assert 'QueryStat' not in self._poll(converter, 'set n to getPCMiscStat 13')
+        body = self._poll(converter, 'set n to getPCMiscStat 13')
+        assert 'QueryStat' not in body and 'TES4MiscStat13.GetValueInt()' in body
 
-    def test_engine_kept_stat_write_is_dropped(self, converter):
-        """Nehrim's EP write to stat 22 never reaches Days as a Vampire."""
-        assert 'IncrementStat' not in self._poll(converter, 'ModPCMiscStat 22 x')
-        assert 'Game.QueryStat("Days as a Vampire")' in self._poll(converter, 'set n to getPCMiscStat 22')
+    def test_engine_kept_stat_write_is_our_global(self, converter):
+        """Nehrim's EP write to stat 22 lands in our global, never Days as a Vampire."""
+        body = self._poll(converter, 'ModPCMiscStat 22 x')
+        assert 'IncrementStat' not in body and 'TES4MiscStat22.Mod(x)' in body
+        assert converter._property_refs['TES4MiscStat22'] == 'GlobalVariable'
 
 
 class TestSplitSkillReads:
@@ -3196,10 +3207,10 @@ class TestTES4SpeedAttribute:
         assert write.strip() == ('TES4Polyfill.SetTES4Speed(Game.GetPlayer(), TES4Polyfill.GetTES4Speed('
                                  'Game.GetPlayer(), 100.0, 90.0, 130.0) + (100), 100.0, 90.0, 130.0)')
 
-    def test_unknown_subject_keeps_the_stub(self, converter):
-        """With no actor record to read a baseline from, nothing changes."""
-        assert conv_line(converter, 'OtherRef.SetAV Speed 5', 'ObjectReference').startswith(
-            ';TES4 attribute Speed')
+    def test_unknown_subject_writes_its_stat_faction(self, converter):
+        """With no actor record to read a walk baseline from, Speed is the stat faction's."""
+        assert conv_line(converter, 'OtherRef.SetAV Speed 5', 'ObjectReference').strip() == (
+            'TES4_Attributes.WriteActor(OtherRef, TES4AttributeSpeed, TES4PlayerSpeed, 5)')
 
 
 class TestLocalVariableShadowsPlayer:
@@ -3334,8 +3345,40 @@ class TestChargenMenus:
                       ('TES4Msg_ChargenBirthsign_02', 'Title', ['J', 'K'])],
             'actions': [['SpellA'], [], [], [], [], [], [], [], [],
                         ['SpellJ1', 'SpellJ2'], []],
+            'choice_global': 'TES4ChargenBirthsignChoice',
         },
     }
+
+    def test_unchosen_class_and_sign_read_the_choice_globals(self, converter):
+        """Morroblivion opens each menu only while nothing is chosen: `GetPCIsClass
+        CharactergenClass` (the player record's starting class) and
+        `GetPlayerBirthsign == 0`. Both read the menus' choice globals, which stay 0
+        until a pick; a listed class is its row."""
+        converter.chargen_menus = dict(self.PLAN, **{'class': {
+            'choice_global': 'TES4ChargenClassChoice', 'start': 'charactergenclass',
+            'edid_to_index': {'mage': 2}}})
+        assert conv_expr(converter, 'GetPCIsClass CharactergenClass', 'Quest') == \
+            '(TES4ChargenClassChoice.GetValueInt() == 0)'
+        assert conv_expr(converter, 'player.GetIsClass Mage', 'Quest') == \
+            '(TES4ChargenClassChoice.GetValueInt() == 3)'
+        assert conv_expr(converter, 'GetPlayerBirthsign == 0', 'Quest') == \
+            'TES4ChargenBirthsignChoice.GetValueInt() == 0'
+        assert converter._property_refs['TES4ChargenClassChoice'] == 'GlobalVariable'
+
+    def test_runtime_menu_is_asked_first(self, converter):
+        """MorrowindRuntime's menu is asked for; the message pages show only when it
+        does not answer (-1), and only then does the script grant the spells and
+        write the choice -- the runtime did both for its own menu."""
+        converter.chargen_menus = self.PLAN
+        out = conv_lines(converter, 'ShowBirthsignMenu', 'Quest')
+        ask = ('Int TES4_menuPick1 = TES4_Chargen.Ask(TES4ChargenRequest, 2, '
+               'TES4ChargenBirthsignChoice)')
+        assert ask in out
+        branch = out.index('If TES4_menuPick1 == -1')
+        assert out.index(ask) < branch < out.index('.Show()')
+        assert branch < out.index('AddSpell(SpellA') < out.index('TES4_ChargenMenuBusy = False')
+        assert branch < out.index('.SetValue(TES4_menuPick1 + 1)')
+        assert converter._property_refs['TES4ChargenRequest'] == 'GlobalVariable'
 
     def test_menu_emission(self, converter):
         converter.chargen_menus = self.PLAN
@@ -3431,6 +3474,15 @@ class TestChargenMenus:
             < out.index('.SetValue(TES4_menuPick1 + 1)')
         assert (converter._property_refs['TES4ChargenBirthsignChoice']
                 == 'GlobalVariable')
+
+    def test_page_variable_write_is_mirrored(self, converter):
+        """A write to a variable a game's statistics page showed also writes its
+        mirror global, which the Statistics tab reads; other writes do not."""
+        out = conv_lines(converter, 'set ErothinBankQuest.PlayerKontostand to 5', 'Quest')
+        mirror = 'TES4PageStat_ErothinBankQuest_PlayerKontostand'
+        assert f'{mirror}.SetValue(' in out
+        assert converter._property_refs[mirror] == 'GlobalVariable'
+        assert 'TES4PageStat' not in conv_lines(converter, 'set OtherQuest.Value to 5', 'Quest')
 
     def test_menu_show_retries_on_display_failure(self, converter):
         """Show() returns -1 when the box cannot display (a menu/dialogue
@@ -4524,11 +4576,13 @@ class TestGetDestroyedReadsWhatSetDestroyedWrote:
 
     def test_gate_close_marks_the_gate_destroyed(self, converter):
         """The engine call that closes a gate feeds the same FormList, which is
-        what lets the gate's own `getdestroyed` poll advance the quest."""
+        what lets the gate's own `getdestroyed` poll advance the quest, and
+        counts Oblivion Gates Shut, as Oblivion.exe's own call did."""
         src = ("scn T\nbegin onActivate\n"
                "  CloseCurrentOblivionGate\nend\n")
         out = converter.convert_standalone('T', src, 'ObjectReference', 'T')
-        assert 'TES4Polyfill.CloseCurrentOblivionGate(TES4DestroyedRefs)' in out
+        assert 'TES4Polyfill.CloseCurrentOblivionGate(TES4DestroyedRefs, TES4MiscStat13)' in out
+        assert 'GlobalVariable Property TES4MiscStat13 Auto' in out
 
 
 class TestDisablingAGateStillAdvancesTheQuest:
@@ -5037,6 +5091,20 @@ class TestQuestStartDoesNotClobberSeededWrites:
         out = _comment_dangling(text).split('\n')
         assert out[2] == '  TES4_ArenaScript.TES4Start(Arena as TES4_ArenaScript)'
         assert out[3].lstrip().startswith(';')
+
+    def test_static_script_call_survives_any_prefix(self, monkeypatch):
+        """Nehrim's own scripts are NEHRIM_, but its static scripts stay TES4_."""
+        from asset_convert.game_paths import NAMESPACE_ENV, current_namespace, set_namespace
+        from script_convert.pipeline import _comment_dangling
+        previous = current_namespace()
+        monkeypatch.setenv(NAMESPACE_ENV, previous)
+        set_namespace('nehrim')
+        try:
+            out = _comment_dangling('Function F()\n  TES4_Attributes.WriteActor(a, b, c, 1)\n'
+                                    'EndFunction')
+        finally:
+            set_namespace(previous)
+        assert out.split('\n')[1] == '  TES4_Attributes.WriteActor(a, b, c, 1)'
 
     def test_converted_fragment_is_hoisted(self, converter):
         """The emitter itself applies the hoist, not just the function."""

@@ -4,12 +4,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <string>
 #include <vector>
 
 #include "activation.h"
 #include "actor_stats.h"
 #include "attribute_buffs.h"
+#include "chargen_menu.h"
 #include "conversation.h"
 #include "dialogue_state.h"
 #include "leveling.h"
@@ -23,6 +25,7 @@
 #include "paths.h"
 #include "scope.h"
 #include "script_tables.h"
+#include "stat_rows.h"
 #include "stat_tip.h"
 #include "stats_layout.h"
 
@@ -75,6 +78,11 @@ constexpr Rect kSkillView{sl::kSkillViewX, sl::kSkillViewY, sl::kSkillViewW,
                           sl::kSkillViewH};
 constexpr Rect kSkillScroll{sl::kSkillScrollX, sl::kSkillScrollY,
                             sl::kSkillScrollW, sl::kSkillScrollH};
+constexpr Rect kTabs[] = {{sl::kTab0X, sl::kTab0Y, sl::kTab0W, sl::kTab0H},
+                          {sl::kTab1X, sl::kTab1Y, sl::kTab1W, sl::kTab1H}};
+constexpr const char* kTabGmst[][2] = {{"sSkills", "Skills"}, {"sStatistics", "Statistics"}};
+constexpr int kStatisticsTab = 1;
+
 constexpr Rect kBarFill[] = {
     {sl::kBarFill0X, sl::kBarFill0Y, sl::kBarFill0W, sl::kBarFill0H},
     {sl::kBarFill1X, sl::kBarFill1Y, sl::kBarFill1W, sl::kBarFill1H},
@@ -96,9 +104,14 @@ struct Row {
 
 std::vector<Row> g_rows;
 int g_scroll = 0;
+// The right pane's tab, and the one under the pointer.
+int g_tab = 0;
+int g_hoverTab = -1;
 bool g_captionDirty = false;
 bool g_keyWasDown = false;
 int g_untilSample = 0;
+// The class and birthsign menus installed, so the tick serves their requests.
+bool g_chargen = false;
 ThumbDrag g_drag;
 
 CustomMenu& Menu() {
@@ -159,13 +172,14 @@ void PushBar(int row) {
     Menu().SetNumber(Path(cover, "._visible").c_str(), rest > 0.5 ? 1 : 0);
 }
 
+// OpenMW's level, race and class box, as wide as the attribute rows. A
+// custom class's name is kept short enough to fit (chargen_menu.cpp).
 void PushInfo() {
     const std::string rows[][2] = {
         {GmstText("sLevel", "Level"),
          std::to_string(Hooks().playerLevel ? Hooks().playerLevel() : 1)},
-        {GmstText("sReputation", "Reputation"), std::to_string(State().reputation)},
-        {GmstText("sBounty", "Bounty"),
-         std::to_string(static_cast<int>(PlayerCrimeLevelNow()))}};
+        {GmstText("sRace", "Race"), Hooks().raceName ? Hooks().raceName(kPlayer) : ""},
+        {GmstText("sClass", "Class"), ChosenClassText()}};
     for (int row = 0; row < sl::kInfoRows; ++row) {
         SetText(Indexed("InfoName", row, ".text"), rows[row][0]);
         SetText(Indexed("InfoValue", row, ".text"), rows[row][1]);
@@ -180,9 +194,20 @@ void PushAttributes() {
     }
 }
 
+// The Statistics tab's rows.
+void BuildStatisticRows() {
+    g_rows.clear();
+    for (const StatisticRow& row : StatisticRows()) g_rows.push_back({row.name, row.value, row.heading});
+}
+
 // Skyrim's skills, each group under its heading and by name, as OpenMW lays
 // the stats window's skills out; then the factions the player belongs to.
+// The Statistics tab's rows instead while it is the one shown.
 void BuildRows() {
+    if (g_tab == kStatisticsTab) {
+        BuildStatisticRows();
+        return;
+    }
     g_rows.clear();
     for (int spec = 0; spec < kSpecializationCount; ++spec) {
         std::vector<Row> skills;
@@ -260,8 +285,19 @@ void PushCaption() {
     g_captionDirty = false;
 }
 
+void PushTabs() {
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        const std::string field = "Tab" + std::to_string(tab);
+        SetText(Path(field, ".text"), Gmst(kTabGmst[tab]));
+        unsigned color = tab == g_hoverTab ? Colors().normalOver : Colors().normal;
+        if (tab == g_tab) color = Colors().normalPressed;
+        Menu().SetNumber(Path(field, ".textColor").c_str(), color);
+    }
+}
+
 void PushAll() {
     PickColors(Menu());
+    PushTabs();
     Tip().Hide();
     SetText("_root.Title.text", PlayerName());
     g_captionDirty = true;
@@ -281,6 +317,13 @@ void Scroll(int pixels) {
 // ------------------------------------------------------------- the input
 
 void OnClick(double x, double y) {
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        if (!kTabs[tab].Contains(x, y) || tab == g_tab) continue;
+        g_tab = tab;
+        g_scroll = 0;
+        PushAll();
+        return;
+    }
     const int range = ListRange();
     if (!kSkillScroll.Contains(x, y) || range <= 0) return;
     const double fraction = static_cast<double>(g_scroll) / range;
@@ -300,6 +343,14 @@ int SkillAt(double x, double y) {
 }
 
 void OnHover(double x, double y) {
+    int hoverTab = -1;
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        if (kTabs[tab].Contains(x, y)) hoverTab = tab;
+    }
+    if (hoverTab != g_hoverTab) {
+        g_hoverTab = hoverTab;
+        PushTabs();
+    }
     const int attribute = g_drag.Active() ? -1 : AttributeAt(x, y);
     if (attribute >= 0) {
         Tip().HoverAttribute(attribute, x, y);
@@ -353,12 +404,13 @@ bool Sample() {
     return SheetEnabled() && PendingLevelUps() > 0;
 }
 
-// K toggles the window; a pending level-up opens its step before anything
-// else.
+// K toggles the window; a script's class or birthsign menu, then a pending
+// level-up step, open before anything else.
 void Tick() {
     const bool down = HotkeyDown();
     const bool pressed = down && !g_keyWasDown && SheetEnabled();
     g_keyWasDown = down;
+    if (g_chargen && TickChargen()) return;
     if (Menu().IsOpen()) {
         if (pressed) Menu().Close();
         return;
@@ -394,6 +446,7 @@ void InstallCharacterSheet() {
     LoadSkyrimSkills(SidecarDir() + kSkillTable);
     const bool stats = Menu().Install();
     const bool levelUp = InstallLevelUpMenu();
+    g_chargen = InstallChargenMenus();
     MenuInput input;
     input.click = OnClick;
     input.hover = OnHover;

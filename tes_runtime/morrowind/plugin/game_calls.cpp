@@ -636,6 +636,18 @@ std::uint32_t RaceOf(const std::string& actor) {
     return race ? FormIdOf(race) : 0;
 }
 
+std::string RaceNameOf(const std::string& actor) {
+    void* ref = OwnerRef(actor);
+    void* race = ref && g_getRace ? g_getRace(PapyrusVm(), 0, ref) : nullptr;
+    const char* name = race ? At<const char*>(race, ids::kOffRaceFullName) : nullptr;
+    return name ? name : "";
+}
+
+int QuestStageOf(const std::string& plugin, std::uint32_t formId) {
+    void* quest = FormFromFile(plugin.c_str(), formId & kLocalMask);
+    return quest ? At<std::uint16_t>(quest, ids::kOffQuestCurrentStage) : -1;
+}
+
 // TESNPC::GetSex, read in place: an NPC_ base whose +0x38 bit 0 is set.
 bool FemaleOf(const std::string& actor) {
     void* ref = OwnerRef(actor);
@@ -1032,6 +1044,8 @@ void InstallGameCalls() {
     hooks.statPercent = StatPercent;
     hooks.baseActorValue = BaseActorValue;
     hooks.race = RaceOf;
+    hooks.raceName = RaceNameOf;
+    hooks.questStageOf = QuestStageOf;
     hooks.female = FemaleOf;
     hooks.advanceSkill = AdvanceSkill;
     hooks.showBarterMenu = ShowBarterMenu;

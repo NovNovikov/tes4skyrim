@@ -17,7 +17,10 @@ level-up dialog -- are composed here in the `menuStyle` the config chooses
 (`--menu-style` overrides it) and go straight into the archive: Morrowind's
 art is Bethesda's, so the repo never holds a built copy. A forced Morrowind
 style with no registered install skips the menus and the rest still packages.
+So is the ONE class and birthsign table every game's menus share, from the
+exported game the config's `chargenSource` names.
 See: docs/commentary/morrowind_runtime.md#menu-styles
+See: docs/commentary/morrowind_runtime.md#chargen-menus
 
 Usage:
   python tools/release/package_runtime_dll.py   # -> output/Finished Mods/TESRuntime.zip
@@ -35,10 +38,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from asset_convert.ui.menu_art import (ICON_SETS, MENU_ICONS_KEY, MENU_STYLE_KEY,
-                                       STYLES, menu_art, resolve)
+                                       STYLES, effect_icons, menu_art, resolve)
 from asset_convert.ui.morrowind_menu_art import MissingArtError
 from asset_convert.ui.skyrim_skills import SKILL_TABLE, skill_table_text
 from output_layout import finished_dir, write_mod_zip
+from core.chargen_source import CHARGEN_SOURCE_KEY, SHARED_CHARGEN, shared_lines
+from tools.generators.gen_morrowind_chargen_swf import (BIRTH_MOVIE, CLASS_MOVIE,
+                                                        birth_window, class_window)
 from tools.generators.gen_morrowind_menu_swf import dialogue_window
 from tools.generators.gen_morrowind_stats_swf import (LEVELUP_MOVIE,
                                                       STATS_MOVIE,
@@ -58,7 +64,11 @@ CONFIG_FILE = SCRIPT_DIR / "conversion_config.json"
 #: MorrowindRuntime's menus as the game loads them, each with the function that composes it.
 MENUS = ((Path("Interface") / "morrowind_dialogue.swf", dialogue_window),
          (Path("Interface") / STATS_MOVIE, stats_window),
-         (Path("Interface") / LEVELUP_MOVIE, levelup_dialog))
+         (Path("Interface") / LEVELUP_MOVIE, levelup_dialog),
+         (Path("Interface") / CLASS_MOVIE, class_window))
+
+#: The birthsign menu, which also carries the shared table's effect icons.
+BIRTH_MENU = Path("Interface") / BIRTH_MOVIE
 
 #: Where tes_runtime/build.bat puts every finished DLL.
 DIST_DIR = SRC_DIR / "dist"
@@ -89,13 +99,32 @@ MODS = {
 }
 
 
-def configured_choice() -> tuple:
-    """The config's `(menuStyle, menuIcons)`; None for either left unset."""
+def configured(key: str):
+    """The config's value for `key`; None when unset or unreadable."""
     try:
         cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         cfg = {}
-    return cfg.get(MENU_STYLE_KEY), cfg.get(MENU_ICONS_KEY)
+    return cfg.get(key)
+
+
+def configured_choice() -> tuple:
+    """The config's `(menuStyle, menuIcons)`; None for either left unset."""
+    return configured(MENU_STYLE_KEY), configured(MENU_ICONS_KEY)
+
+
+def chargen_table(export_root: Path, chosen=None) -> list:
+    """The shared class and birthsign table as `[(archive path, bytes)]`, from
+    the game `chosen` (the config's chargenSource when None); [] with no game.
+
+    See: docs/commentary/morrowind_runtime.md#chargen-menus
+    """
+    source, lines, _icons = shared_lines(export_root, chosen or configured(CHARGEN_SOURCE_KEY))
+    if not lines:
+        print("  - class and birthsign table (no exported game has either, skipped)")
+        return []
+    print(f"  classes and birthsigns: {source}")
+    return [(SHARED_CHARGEN, ('\n'.join(lines) + '\n').encode('utf-8'))]
 
 
 def morrowind_menus(export_root: Path, choice: tuple = (None, None)) -> "list | None":
@@ -106,9 +135,11 @@ def morrowind_menus(export_root: Path, choice: tuple = (None, None)) -> "list | 
     caller skips the menus instead of failing.
     See: docs/commentary/morrowind_runtime.md#menu-styles
     """
+    icons = effect_icons(export_root, shared_lines(export_root, configured(CHARGEN_SOURCE_KEY))[2])
     try:
         art = menu_art(str(export_root), *choice)
         menus = [(arc, build(art).serialize(compress=True)) for arc, build in MENUS]
+        menus.append((BIRTH_MENU, birth_window(art, icons).serialize(compress=True)))
     except MissingArtError:
         return None
     table = skill_table_text()
@@ -155,6 +186,7 @@ def package(out_root: Path, mod_name: str = MOD_NAME,
             style, icons = resolve(str(export_root), *choice)
             print(f"  menus: {style} look, {icons or 'no'} icons")
             members += [(str(arc), data) for arc, data in menus]
+        members += [(str(arc), data) for arc, data in chargen_table(export_root)]
     write_mod_zip(zip_path, members, lambda _i, arc: print(f"  + {arc}"))
 
     size = zip_path.stat().st_size

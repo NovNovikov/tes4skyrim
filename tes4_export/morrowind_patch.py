@@ -69,11 +69,11 @@ PATCH_SOURCES = ('Morrowind.esm', 'Tribunal.esm', 'Bloodmoon.esm')
 #: The BSAs holding the assets those ESMs name.
 PATCH_ARCHIVES = ('Morrowind.bsa', 'Tribunal.bsa', 'Bloodmoon.bsa')
 
-#: Base object types a placement can name; cells and terrain are never filled.
-GAP_TYPES = frozenset(BASE_TYPES) - {'CELL', 'LAND', 'WRLD'}
+#: Filled from vanilla even where Morroblivion supplies the id: read, not placed. Its signs are Oblivion's.
+ALWAYS_FILLED = frozenset({'GLOB', 'BSGN'})
 
-#: Filled from vanilla even where Morroblivion supplies the id: read, not placed.
-ALWAYS_FILLED = frozenset({'GLOB'})
+#: Base object types a placement can name, and the always-filled ones; cells and terrain are never filled.
+GAP_TYPES = (frozenset(BASE_TYPES) - {'CELL', 'LAND', 'WRLD'}) | ALWAYS_FILLED
 
 #: What a voiced bark needs -- its topic stream and who may speak it -- plus the creature sound generators.
 BARK_TYPES = frozenset({'DIAL', 'INFO', 'NPC_', 'CREA', 'SNDG'})

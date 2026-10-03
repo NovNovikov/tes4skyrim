@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 namespace tesruntime::mw {
@@ -67,6 +68,20 @@ bool PlayerAttributesKnown();
 // by as much. Returns what the global should hold: the attribute as read.
 // See: docs/commentary/morrowind_runtime.md#tes4-tables
 float SettleAttributeGlobal(int attribute, float read, float written);
+
+// The class menu's choice: its name, specialization (0..2) and two favored
+// attributes (TES3 order, -1 for none). Each favored attribute starts 10
+// higher, retroactively as a race's start does.
+// See: docs/commentary/morrowind_runtime.md#chargen-menus
+void ChooseClass(const std::string& name, int specialization, int first, int second);
+void ChooseBirthsign(const std::string& name);
+
+// What was chosen: the names lowercase ("" for none), the specialization,
+// and a favored attribute (-1 for none).
+std::string ChosenClass();
+std::string ChosenBirthsign();
+int ChosenSpecialization();
+int FavoredAttribute(int slot);
 
 // Forgets the race the last read saw, so a case starts from a first read.
 void ResetLevelingForTest();

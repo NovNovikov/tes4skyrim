@@ -138,8 +138,12 @@ mnemonic similarity score as a second check.
 used beside it is also right on that build, and offsets are not ids. So the
 header holds just the ids the plugin's `pre_ae_ids.txt` lists, the ones whose
 paths were checked per build. MorrowindRuntime's list covers the character
-sheet, the attribute globals, the skill cap and attribute magic. What those
-checks found:
+sheet, the attribute globals, the skill cap and attribute magic, with
+`Actor.Get/SetFactionRank` (54686, 54750) for a TES4 NPC's attributes. The
+two natives were matched by masked body bytes at similarity 1.00 (and
+GetFactionRank by its registration string too); SetFactionRank's
+registration was then read in both exes, and its callback is the address
+matched (SE `0x94c9c0`, VR `0x986c30`). What those checks found:
 
 | What | AE 1.6.1170 | SE 1.5.97 | VR 1.4.15 |
 |---|---|---|---|
@@ -165,6 +169,8 @@ row was read out of the disassembly:
 |---|---|---|---|
 | `kTrainingMenuTrain` (52667) | `0x8ce8e0` | `0x8fb9c0` | It is the 4th call of its caller (52662, proven by vtable slot) in all three builds. On SE and VR it runs the same steps as AE's `0x96e710`: the session limit (player `+0x930` SE, `+0x1030` VR), the trainer's maximum, the gold check, taking the gold, then incrementing the menu's skill. The skill is at `+0x40` on SE and at `+0x50` on VR, where IMenu is 0x10 longer. AE compiles it differently, so the shape check alone rejects it |
 | `kMenuManagerRegister` (82086) | `0xebf9c0` | `0xf1be20` | The jump that follows a menu-name string load (`MessageBoxMenu`, `Console`, `TweenMenu`, …) lands on one function in each build, at 14 of 14 such sites. On AE that function is `0xfa5480`, which `ids.h` records |
+| `kControlMapAllowTextInput` (68552) | `0xc11f30` | `0xc4e8d0` | The one match in each build for AE's body (`0xcd5910`: raise or lower the byte at `rcx+0x128`) with the offset left free: SE `+0x120` (its SE id 67252 agrees), VR `+0x140`. Too small for the shape match |
+| `kControlMapSingleton` (400863) | `0x2ec5bd0` | `0x2f8aaa0` | The global loaded into `rcx` before the calls to that function: 18 of its call sites on SE (SE id 514705 agrees), 20 on VR |
 
 ## <a id="two-id-generations"></a>There are TWO id generations
 

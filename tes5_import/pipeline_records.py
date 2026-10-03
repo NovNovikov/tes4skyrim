@@ -42,7 +42,8 @@ from .registry import IMPORT_DISPATCH, TYPE_MAP
 from .overrides.nested import (build_nested_overrides)
 from .dialogue.quest import compute_quest_priorities, convert_QUST
 from .dialogue.morrowind_sidecar import is_tes3_export, write_morrowind_sidecar
-from .actors.attribute_tables import write_attribute_tables
+from .actors.attribute_tables import (write_attribute_tables, write_chargen_table,
+                                      write_stats_table)
 from .record_types.bodypart_falloutnv import write_falloutnv_sidecars
 from .record_types.world_falloutnv import is_fallout_source
 from .record_types.sound import convert_SOUN
@@ -124,7 +125,7 @@ def _record_climates(st) -> None:
 
 def _stage_runtime_sidecars(st, export_dir: str) -> None:
     """The runtime DLLs' sidecars: FO3/FNV limbs and guns, Morrowind's tables,
-    and a TES4 source's character-sheet tables."""
+    a TES4 source's character-sheet tables, and the chargen menus' table."""
     write_falloutnv_sidecars(st.by_type, st.writer, st.output_path)
     staged = write_morrowind_sidecar(
         export_dir, st.output_path, os.path.basename(st.output_path),
@@ -132,6 +133,9 @@ def _stage_runtime_sidecars(st, export_dir: str) -> None:
         master_index=getattr(st.ctx, 'master_index', None) if st.ctx else None)
     if not is_tes3_export(export_dir) and not is_fallout_source():
         staged += write_attribute_tables(st.by_type, st.writer, st.output_path)
+    if not is_fallout_source():
+        staged += write_chargen_table(st.chargen_plan, st.writer, st.output_path)
+        staged += write_stats_table(st.by_type, st.writer, st.output_path, export_dir)
     if staged:
         print(f'  Staged {staged} runtime sidecar file(s)')
 

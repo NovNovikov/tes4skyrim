@@ -23,6 +23,7 @@ from asset_convert.ui.morrowind_menu_art import (BORDER, BOX_BORDER,
                                                  compose_bar, compose_box,
                                                  compose_button, compose_frame,
                                                  compose_head, compose_stat_bar)
+from tools.generators import gen_morrowind_chargen_swf as chargen_swf
 from tools.generators import gen_morrowind_stats_swf as stats_swf
 from tools.generators.gen_morrowind_menu_swf import STYLE_MARKER, dialogue_window
 from tools.release import package_runtime_dll as pkg
@@ -95,11 +96,16 @@ def test_the_built_menu_is_never_tracked():
         f'player\'s own install when TESRuntime.zip is packaged')
 
 
+def _menu_paths() -> list:
+    """Every movie the package composes, the birthsign menu's included."""
+    return [arc for arc, _build in pkg.MENUS] + [pkg.BIRTH_MENU]
+
+
 def test_the_build_folder_holds_only_the_movies():
     """The generators write their movies and nothing else there."""
     if not os.path.isdir(_SHIPPED):
         pytest.skip('menu not built yet')
-    assert set(os.listdir(_SHIPPED)) <= {arc.name for arc, _build in pkg.MENUS}
+    assert set(os.listdir(_SHIPPED)) <= {arc.name for arc in _menu_paths()}
 
 
 # ---------------------------------------------------------------------------
@@ -121,19 +127,19 @@ def test_packaging_without_an_install_ships_the_skyrim_style(tmp_path):
     """
     names = _packaged(tmp_path)
     assert 'SKSE/Plugins/TESRuntime.dll' in names
-    assert all(arc.as_posix() in names for arc, _build in pkg.MENUS)
+    assert all(arc.as_posix() in names for arc in _menu_paths())
 
 
 def test_a_forced_morrowind_style_without_an_install_skips_the_menus(tmp_path):
     """Morrowind's look asked for with no install: everything else still packages."""
     names = _packaged(tmp_path, (STYLE_MORROWIND, None))
     assert 'SKSE/Plugins/TESRuntime.dll' in names
-    assert not any(arc.as_posix() in names for arc, _build in pkg.MENUS)
+    assert not any(arc.as_posix() in names for arc in _menu_paths())
 
 
 def test_packaging_adds_every_composed_menu(tmp_path, monkeypatch):
     """With an install, the dialogue, stats and level-up movies go straight in."""
-    fake = [(arc, arc.name.encode()) for arc, _build in pkg.MENUS]
+    fake = [(arc, arc.name.encode()) for arc in _menu_paths()]
     monkeypatch.setattr(pkg, 'morrowind_menus', lambda _root, _choice: fake)
     monkeypatch.setattr(pkg, 'resolve', lambda _root, *_choice: (STYLE_SKYRIM, None))
     names = _packaged(tmp_path)
@@ -156,6 +162,12 @@ def test_stats_layout_header_is_the_generators():
     """The committed header is what the generator writes, so plugin and movie agree."""
     committed = (ROOT / stats_swf.HEADER_PATH).read_text(encoding='ascii')
     assert committed == stats_swf.layout_header()
+
+
+def test_chargen_layout_header_is_the_generators():
+    """The class and birthsign menus' header is what their generator writes."""
+    committed = (ROOT / chargen_swf.HEADER_PATH).read_text(encoding='ascii')
+    assert committed == chargen_swf.layout_header()
 
 
 def test_every_class_image_is_named_once():
@@ -254,7 +266,8 @@ def test_both_styles_offer_the_same_parts():
 def test_skyrim_style_builds_every_menu_without_an_install():
     """No game art at all: every movie still builds, marked for the plugin's palette."""
     art = SkyrimArt(NoIcons())
-    for build in (dialogue_window, stats_swf.stats_window, stats_swf.levelup_dialog):
+    for build in (dialogue_window, stats_swf.stats_window, stats_swf.levelup_dialog,
+                  chargen_swf.class_window, chargen_swf.birth_window):
         movie = build(art)
         assert movie.serialize(compress=True)[:3] == b'CWS'
         assert any(tag.code == 26 and STYLE_MARKER.encode() in tag.data for tag in movie.tags)

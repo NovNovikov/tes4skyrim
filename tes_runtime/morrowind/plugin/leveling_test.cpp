@@ -12,6 +12,7 @@
 
 #include "actor_stats.h"
 #include "attribute_buffs.h"
+#include "chargen_tables.h"
 #include "dialogue_state.h"
 #include "leveling.h"
 #include "script_tables.h"
@@ -221,6 +222,64 @@ void RaceCases() {
           "the start stays the last known race's");
 }
 
+// After RaceCases the player wears a race no table knows, with one Health pick.
+void ClassCases() {
+    std::printf("a class's favored attributes start 10 higher, the picks re-scored\n");
+    const float strength = ActorBaseAttribute("player", kStrength);
+    const float endurance = ActorBaseAttribute("player", kEndurance);
+    const float health = FakeBase("player", "Health");
+    ChooseClass("Barbarian", kCombat, kStrength, kEndurance);
+    HoldAttributeBuffs();
+    Check(ActorBaseAttribute("player", kStrength) == strength + 10.0f &&
+              ActorBaseAttribute("player", kEndurance) == endurance + 10.0f,
+          "Strength and Endurance +10");
+    Check(BaseIs("Health", health + 1.0f), "the Health pick earns Endurance's 10 more: +1");
+    Check(ChosenClass() == "Barbarian" && ChosenSpecialization() == kCombat &&
+              FavoredAttribute(1) == kEndurance,
+          "the choice is kept, as it was named");
+    std::printf("another class moves only what differs; a race change keeps it\n");
+    ChooseClass("Mage", 1, kIntelligence, kWillpower);
+    SampleLeveling();
+    HoldAttributeBuffs();
+    Check(ActorBaseAttribute("player", kEndurance) == endurance &&
+              ActorBaseAttribute("player", kStrength) == strength,
+          "Strength and Endurance back");
+    Check(BaseIs("Health", health), "and the pick with them");
+    Check(ChosenClass() == "Mage", "the last class is the one chosen");
+    std::printf("a custom class keeps its capitals through a save\n");
+    ChooseClass("SpellBlade McKay", 1, kIntelligence, kStrength);
+    const std::string saved = State().Serialize();
+    State().Deserialize(saved);
+    Check(ChosenClass() == "SpellBlade McKay", "the name as typed comes back");
+    State().className.clear();
+    Check(ChosenClass() == "spellblade mckay", "a save from before answers it lowercased");
+    std::printf("a chargen row parses\n");
+    const ClassRow row = ParseClassRow("Battle mage|1|0,1|Wizard\\nwarriors");
+    Check(row.name == "Battle mage" && row.specialization == 1 && row.favored[1] == 1 &&
+              row.description == "Wizard\nwarriors",
+          "class: name, specialization, favored, description");
+    const SignRow sign = ParseSignRow(
+        "The Lady|lady|Charge|Lady's Favor;Lady's Grace|a;b|"
+        "h~~Abilities:;s~~Lady's Favor;e~icons_s_fortify~Fortify Personality 25 pts");
+    Check(sign.image == "lady" && sign.spells.size() == 2 && sign.spellIds[1] == "b",
+          "sign: picture, spells, ids");
+    Check(sign.lines.size() == 3 && sign.lines[0].kind == 'h' && sign.lines[0].icon.empty() &&
+              sign.lines[2].icon == "icons_s_fortify" &&
+              sign.lines[2].text == "Fortify Personality 25 pts",
+          "sign: its spell list's lines, each effect with its icon");
+    Check(IndexOfName({"Agent", "Mage"}, "mAGE") == 1 && IndexOfName({"Agent"}, "Bard") == -1,
+          "a pick is the asking plugin's index of its name, or none");
+    std::printf("a statistics page row parses\n");
+    const PageStatRow bank = ParsePageRow("Bank balance|Nehrim.esm|0001A2B3");
+    Check(bank.label == "Bank balance" && bank.global.plugin == "Nehrim.esm" && bank.rules.empty(),
+          "a mirrored variable: its global");
+    const PageStatRow rate =
+        ParsePageRow("Interest|Nehrim.esm@00000101,20,2;Nehrim.esm@00000102,70,1|3");
+    Check(rate.rules.size() == 2 && rate.rules[1].quest.plugin == "Nehrim.esm" &&
+              rate.rules[1].stage == 70 && rate.rules[1].value == 1.0f && rate.otherwise == 3.0f,
+          "a stage rule: each quest, stage and value, then the otherwise");
+}
+
 void GoverningCases() {
     std::printf("each Skyrim skill's governing attribute\n");
     Check(GoverningAttribute(6) == kStrength, "One-Handed: Long Blade's Strength");
@@ -256,6 +315,7 @@ int main() {
     MagicCases();
     SheetOffCases();
     RaceCases();
+    ClassCases();
     GoverningCases();
     GlobalCases();
     std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);

@@ -3942,10 +3942,10 @@ player's base was last built on (`start0..7` in the leveling state; before
 any, the `player` record's own). A difference moves the BASE by exactly that
 much, so every level-up gain is kept, and **re-scores every pick buff that
 attribute already earned** as if it had always stood there:
-`picks × perPick × delta / 100`, the same linear rule a Fortify uses. This is
-the one retroactive change: a level-up or a script's `SetStrength` never
-re-scores. Class and birthsign menus will feed the same start
-(`docs/plans/character_sheet.md#m3-store`).
+`picks × perPick × delta / 100`, the same linear rule a Fortify uses. A chosen
+class's favored attributes move the same way ([chargen menus](#chargen-menus)).
+These are the only retroactive changes: a level-up or a script's
+`SetStrength` never re-scores.
 
 ### <a id="menu-styles"></a>Menu styles: Morrowind's look or Skyrim's (2026-10-02, unconfirmed in game)
 
@@ -4163,10 +4163,10 @@ Strength on CarryWeight, Endurance on Health, and so on
 (`magic.ATTRIBUTE_TO_AV`).
 - **On the player,** an effect now moves the sheet's attribute, and the buffs
   follow it.
-- **On an Oblivion NPC,** an effect now does nothing. The runtime keeps
-  attributes only for actors a Morrowind record made, and nothing reads an
-  Oblivion NPC's. The tick drops such an actor from its watch list instead
-  of holding it forever.
+- **On an Oblivion NPC,** an effect moves its stat faction rank while it
+  lasts ([NPC attributes](#npc-attributes)). An actor in no stat faction
+  (a vanilla Skyrim NPC) has none to move, and the tick drops it from its
+  watch list.
 
 Skill effects (FOSK and the rest) keep their Skyrim skills.
 
@@ -4176,10 +4176,13 @@ On these two builds the runtime loads a generated table of addresses
 (`ids_pre_ae.h`, [pre-AE tables](../reference/address_library_formats.md#pre-ae-tables)).
 It holds only the ids in `pre_ae_ids.txt`, the ones whose struct offsets were
 checked on both builds. These features run:
-- the character sheet and the level-up step;
+- the character sheet, its Statistics tab and the level-up step;
+- the class and birthsign menus;
 - the attribute globals that converted TES4 scripts and conditions read;
 - the skill cap, on skill use and at trainers;
-- attribute magic, Morrowind's and TES4's.
+- attribute magic, Morrowind's and TES4's, on the player and (through
+  `Actor.Get/SetFactionRank`) on TES4 NPCs. The same two natives let the
+  Sanctuary tick hold its faction rank there too.
 
 Everything else stays unresolved and off on those builds: Morrowind
 dialogue and activation, object scripts' world commands, flight, crime and
@@ -4192,3 +4195,243 @@ travel. Per-build differences the code handles:
 
 VR menus take controller pointer input, and nothing here has been seen
 working in VR yet.
+
+### <a id="npc-attributes"></a>NPC attributes are faction ranks (2026-10-02, unconfirmed in game)
+
+**Code:** `tes5_import/actors/stat_factions.py`; `TES4_Attributes.psc`;
+`conditions._stat_faction_rank`; `plugin/game_calls_attributes.cpp`.
+
+Skyrim has no attribute actor values, so each TES4 attribute, and each kept
+skill (Athletics, Hand-to-Hand, Acrobatics), is a hidden conversion-owned
+faction (`TES4AttributeStrength`, `TES4SkillAthletics`, ...). Every converted
+TES4 NPC_ joins all eleven at its authored value; a creature joins the eight
+attribute factions. The value is the data in the record, so it needs no DLL:
+- a subject (NPC) condition on an attribute or kept skill is
+  `GetFactionRank` on its faction; the player's run-on-target ones keep the
+  attribute globals (and the kept skills their Skyrim stand-ins);
+- a script reads and writes the rank (`TES4_Attributes.ReadActor`,
+  `WriteActor`, `ModifyActor`, and `...Skill` for the kept skills). These
+  decide at run time, since a reference variable can hold the player, who
+  keeps the attribute globals and whose kept skills still read Skyrim's
+  stand-ins (Stamina, UnarmedDamage). An actor in none of the factions (a
+  vanilla Skyrim NPC) reads the old stub, 100, and a write joins it.
+  `SetFactionRank` joins a non-member itself (ids.h).
+
+**Magic on an NPC.** The runtime's attribute tick (attribute effects above)
+sums a TES4 NPC's attribute effects as it does a Morrowind NPC's and holds
+them on its ranks: each rank moves by what its effect changed since the last
+tick, clamped to 0..127, and what is held is kept under `statfx|<FormID>`,
+so the authored base is always the rank less it and a save carries both.
+Damage is capped by that base. Speed writes still go through the walk
+formula (`SpeedMult`), as the player's do.
+
+**Membership makes nobody allies.** 200 of Skyrim.esm's 1,084 factions list
+themselves as Ally (BanditFaction among them), which they would not need to
+if sharing a faction did it.
+
+**A rank is a signed byte**, so a value above 127 is stored as 127. About 60
+Oblivion, Nehrim and Morroblivion creatures are authored above it (up to
+255); every authored gate tests 100 or less.
+
+### <a id="chargen-menus"></a>Class and birthsign menus (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/chargen_menu.cpp`, `plugin/chargen_tables.cpp`;
+`core/chargen_source.py`, `script_convert/context_setup.chargen_records`,
+`message_menus.build_chargen_menus`; `tes5_import/actors/attribute_tables.chargen_lines`;
+`tools/release/package_runtime_dll.chargen_table`; `core/gui/morrowind.add_chargen_menu`;
+`tools/generators/gen_morrowind_chargen_swf.py`.
+
+Two windows of our own, built like the level-up dialog: a class menu
+(OpenMW's `PickClassDialog` and `CreateClassDialog` in one window, without
+major and minor skills) and a birthsign menu (`BirthDialog`). The console
+opens them with `showmenu MorrowindClassMenu` / `showmenu MorrowindBirthMenu`.
+
+**One menu for every game.** A player can have several converted games
+installed, and there is ONE class menu and ONE birthsign menu. Their rows
+are the shared `SKSE/Plugins/MorrowindRuntime/chargen.txt`, which the
+packaged runtime carries: `package_runtime_dll` builds it from the exported
+game that `chargenSource` in conversion_config.json names (Settings ▸
+Classes and birthsigns in the GUI, listing every exported plugin whose own
+records hold a playable class or a birthsign, Fallout excluded). Unset, it is
+the first such game whose table is complete: birthsigns, and every class
+naming its favored attributes (an export from before the TES3 CLAS export
+carried them reads -1). A menu that game has none of (Nehrim has no playable
+classes) comes from the next game that has it. Each plugin's own `chargen.txt` names only its request and
+choice globals and its own entries in menu order (`class.<i>=name`), so the
+runtime can answer a script in that plugin's terms.
+
+**One plan, masters included.** The importer, the script converter and the
+shared table all read one plan, built from the plugin's own BSGN, CLAS and SPEL and
+its direct masters', one row per record (a dependent's copy overrides). It
+used to read the plugin alone, so Morroblivion, whose birthsigns and
+playable classes are all Oblivion.esm's, converted `ShowClassMenu` and
+`ShowBirthsignMenu` to nothing. A menu built only from the masters' records
+adopts the master's MESG pages and choice globals by EditorID and does not
+write them again, so no FormID moves; a TES3 source writes no birthsign
+pages, which would come first and move its class pages' fixed ids.
+
+**Who opens them.**
+- A TES3 script's `EnableClassMenu` / `EnableBirthMenu` asks for the menu
+  directly.
+- A converted TES4 script calls `TES4_Chargen.Ask(TES4ChargenRequest, kind,
+  choice)`. Each plugin owns its own `TES4ChargenRequest` global, so the
+  runtime knows who asked. The script writes the kind (1 class, 2
+  birthsign); the runtime answers by writing minus the kind, opens the menu,
+  writes the choice global and clears the request. The choice is the asking
+  plugin's own index of the pick's NAME + 1, so its `GetIsPlayerBirthsign`
+  conditions still match; a pick the plugin does not list is -1, which `Ask`
+  turns into 0 and returns -2. A request no runtime answers within a second
+  returns -1 and falls back to the message pages, so the game plays without
+  the DLL or with the sheet off; only then does the script grant the spells
+  and write the choice itself. A request still taken after a load (the menu
+  is gone, the script still waits) is opened again.
+- Either menu waits until no other menu pauses the game, closing Skyrim's
+  dialogue menu first, as `Message.Show()` did.
+- A script often asks only while nothing is chosen yet: Morroblivion's
+  `fbmwChargen` stage 2 runs `ShowClassMenu` under `if GetPCIsClass
+  CharactergenClass` (the class its player record, `0x7` `CNAM`, starts in)
+  and stage 3 `ShowBirthsignMenu` under `if GetPlayerBirthsign == 0`. The
+  Skyrim player never has a TES4 class and OBSE's function had no conversion,
+  so both menus were skipped. The player's class is the class choice global
+  (`commands._player_class_test`: a listed class is its row; the record's
+  starting class is "no choice yet", 0), and `GetPlayerBirthsign` is the
+  birthsign choice global, 0 until a pick.
+
+**Spells.** The runtime grants a chosen sign's spells for every game and
+takes the last sign's back, as OpenMW rebuilds them. A row names each spell by
+its TES3 id, or for a TES4 sign as `Owner.esm@FormID`, the owner read off the
+sign record's own master list (a converted TES4 spell keeps its local FormID).
+
+**The class menu.** The list holds the shared classes (by display name) and a
+last "custom class" row (`sCustomClassName`). It opens on the player's class,
+else the first row, as OpenMW's dialogs do. A class shows its
+specialization, its two favored attributes, its description and its
+picture: the level-up picture of its name, else its specialization's. A
+custom class shows, where the description was, its name in an edit box
+(OpenMW's `CreateClassDialog`: the `sName` label, the box, a caret) and the
+eight attributes, of which two are picked as the level-up dialog's coins are.
+Its specialization follows the picks: the one most of the skills they govern
+belong to (the SKIL table), a tie going to the first pick's. OK needs both
+picks and a name. The list scrolls by the wheel over its rows or its
+scrollbar, by the arrows and track, and by dragging the thumb. Each window
+keeps an 8 px margin on every side.
+
+**Typing a name.** Typed through key-down events alone (key code at `+4`,
+ASCII at `+8`, modifiers at `+0x10`, CommonLibSSE `GFxKeyEvent`), a name took
+capitals only by rule, at each word's start; the case typed did not come
+through. While the class menu is open, the runtime raises the game's text
+input (`ControlMap::AllowTextInput`, a counter byte at `+0x128` on 1.6.1170,
+`+0x120` on 1.5.97, `+0x140` on VR; see
+[address_library_formats.md](../reference/address_library_formats.md#hand-proven)),
+and the game then sends Scaleform character events (type 13, the character
+at `+4`) with its case. Backspace and Enter stay on key events. Until the
+first character event arrives, a key still types its own letter, so typing
+works if character events never come. A name is limited to what fits beside
+its label in the stats window. The co-save keeps the name as typed (`Q`
+row); the chargen variables hold it lowercased, which older saves answer.
+
+**The birthsign menu's spell list** is OpenMW's `BirthDialog::updateSpells`:
+Abilities, Powers and Spells (`sBirthsignmenu1`, `sPowers`,
+`sBirthsignmenu2`) each over its spells' names, each spell's effects under it
+beside the effect's icon, written by `MWSpellEffect::updateWidgets`: an
+ability's constant effects have no duration or range ("Fortify Personality 25
+pts"), a power's and a spell's do ("Restore Health 2 pts for 30 secs on
+Self"). `core/birthsign_text.py` writes the lines when the runtime is
+packaged, into the shared table (`kind~icon~text`). A Morrowind sign's
+spells come from the TES3 binaries with the game's own settings (the
+export averages an effect's magnitude range); the effect names, units and
+magnitude display types are OpenMW's (`getMagicEffectString`,
+`getMagnitudeDisplayType`, the hard-coded effect flags). A TES4 sign's come
+from its export: the MGEF's name, its last word replaced by the attribute or
+skill it uses. Each effect icon is read from whichever install holds it
+(Morrowind's `icons\`, Oblivion's `textures\menus\icons\`); the movie holds
+each once per line, off the stage until the runtime moves one in. The movie
+has 9 lines; the most any sign shows is 8 (Morrowind's Tower).
+
+**What a class does.** Each favored attribute starts 10 higher (OpenMW's
+`MechanicsManager::buildPlayer`), held apart from the race start so either
+can change alone, and re-scored retroactively like a race. Major and minor
+skills are not built. The specialization is kept for the sheet. The
+choice rides the co-save under `chargen|player`.
+
+**Pictures.** The class pictures are the level-up dialog's. Birthsign
+pictures are every texture in the icon set's birthsign folder (Morrowind's
+`textures\birthsigns`, or Oblivion's and Nehrim's `textures\menus\birthsign`),
+keyed by sign with one rule shared by the movie and the sidecar
+(`message_menus.birthsign_key`: `tx_birth_apprent` and
+`birthsign_the apprentice` are both `apprentice`). The movie parks them off
+the stage, and the runtime moves the chosen one in, since which pictures a
+movie holds depends on the art installed.
+
+### <a id="statistics-tab"></a>The Statistics tab (2026-10-02, unconfirmed in game)
+
+**Code:** `plugin/stats_sheet.cpp`, `plugin/stat_rows.cpp`;
+`tes5_import/actors/misc_stats.py`, `record_types/crime.bounty_rows`;
+`script_convert/misc_stats.py`, `commands.pc_misc_stat`, `converter._mirror_page_stat`.
+
+The stats window's right pane has two tabs above it: Skills (Skyrim's 18 and
+the player's factions, as before) and Statistics. The box on the left holds
+Level, Race and Class, as OpenMW's does (the race's name is TESRace's
+`TESFullName`, `+0x28`). The Statistics tab lists the birthsign, then under
+each converted game's name: its bounty per realm, its Fame and Infamy, its
+general statistics and the rows of its own statistics page. Morrowind_ob's
+heading is Morroblivion. Reputation is Morrowind's own stat, so it leads the
+Morrowind or Morroblivion group (a group of its own when neither game stages
+a `stats.txt`) and shows for no other game. No row is cut: a label is short
+enough to fit, and a custom class's name is kept short enough at entry.
+
+**Bounty per game.** Each plugin's `stats.txt` lists the crime realms it owns
+(`bounty.<i>=name|Plugin|FormID`, main realm first, see
+[tes_runtime_crime.md](tes_runtime_crime.md#bounty-realms)). The main realm's
+row is `sMiscBounty`, the second's `sMiscSEBounty`, the two bounties
+Oblivion's own page showed ("Shivering Isles Bounty"; the realm's own name,
+"Realm of Sheogorath Bounty", did not fit). A game with neither setting
+names its realm. The value is that faction's crime gold. Morroblivion, TR
+and the compat patch share Morrowind_ob's realm, so it shows once.
+
+**Which statistics.** Oblivion's own content writes only stats 14, 15, 16,
+19 and 27. Its engine keeps the rest. Four of those five map to Skyrim's
+stats. A conversion-owned global, `TES4MiscStat<NN>`, holds every other
+index a plugin's scripts read or write, and the tab lists each one something
+writes:
+- a script's `ModPCMiscStat`;
+- a command whose engine code counted it (`misc_stats.COMMAND_STATS`):
+  Oblivion.exe's `CloseCurrentOblivionGate` (`0x515d20`) adds 1 to Oblivion
+  Gates Shut (13, the player's `+0x68c`) whenever it closes a gate, which no
+  script does; the polyfill now does the same, for Oblivion's 16 calls.
+- Nothing writes Picks Broken (9) or Jokes Told (25): Oblivion's lockpicking
+  and persuasion minigames counted them, and Skyrim has neither, so they are
+  not listed.
+
+`ModPCMiscStat` writes the global with `GlobalVariable.Mod`. `GetPCMiscStat`
+reads it, plus Skyrim's own stat of that name where one exists. Before this,
+those writes were dropped. Nehrim writes 3, 13, 18, 22 and 24 (22 and 24 are
+its experience and learning points).
+
+**Labels** are the `sMisc*` settings Oblivion.exe reads (its strings, matched
+to xEdit's `wbMiscStatEnum` order; Fame and Infamy are `sMiscFame` and
+`sMiscInfamy`). A game's rows take the deepest of its own plugins' labels
+(its master and what is built on it, `LayersRelated`), so Translation.esp's
+English beats Nehrim's German and neither renames Oblivion's rows; xEdit's
+name otherwise. Nehrim's labels for stats 22 and 24 ("Overall amount of
+experience points", "Current amount of learning points", and the German) are
+too long for a row, so `misc_stats.SHORT_LABELS` shortens them to "Total XP"
+and "Learning Points" ("Gesamt-EP", "Lernpunkte"). Each TES4 plugin's
+`stats.txt` carries its standing globals, `misc.<index>=setting|default|
+Plugin|FormID` for each stat its scripts write, and `label.<setting>=text`
+for the settings it authors. Each global is listed once, under the
+earliest-loaded plugin that lists it: Translation.esp's scripts write
+Nehrim's stats 22 and 24 too, and they show under Nehrim.
+
+**A game's own page.** Nehrim's journal (`GlobaltagebuchScript`, step 50)
+showed the bank balance, `ErothinBankQuest.PlayerKontostand`, and the
+interest percent, which it set to 2 before MQ14 stage 20, 1 before MQ19
+stage 70, and 3 after. The runtime cannot read a Papyrus variable (the VM's
+variable lookup has no Address Library id), so the converter follows every
+write of a variable `misc_stats.PAGE_VARIABLES` names with a write of its
+mirror global, `TES4PageStat_<Quest>_<Variable>`; all 22 writes are the
+remote `Set ErothinBankQuest.PlayerKontostand to` form. The interest is a
+`PAGE_STAGE_RULES` row (`page.<i>=label|Quest@FormID,stage,value;...|otherwise`)
+that the runtime evaluates against each quest's current stage, the u16 at
+TESQuest `+0x228` that `Quest.GetCurrentStageID` returns on 1.6.1170, 1.5.97
+and VR alike. Both labels are English.

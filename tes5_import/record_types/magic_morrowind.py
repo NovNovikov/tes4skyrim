@@ -18,8 +18,9 @@ See: docs/commentary/tes5_import_magic.md#runtime-effects-read-the-active-effect
 
 import struct
 
-from ..base.conditions import build_ctda
-from ..base.owned_records import FALL_DAMAGE_ENTRY, hidden_perk, multiply_entry
+from ..base.conditions import FUNC_GET_FACTION_RANK, build_ctda
+from ..base.owned_records import (FACTION_HIDDEN, FALL_DAMAGE_ENTRY, adopt_or_write,
+                                  hidden_perk, multiply_entry, owner_row)
 from ..base.writer import pack_record, pack_string_subrecord, pack_subrecord
 from .magic import (A_ABSORB, A_BOUND_WEAPON, A_CALM, A_CLOAK,
                     A_COMMAND_SUMMONED, A_CURE_DISEASE, A_CURE_PARALYSIS,
@@ -203,8 +204,8 @@ MW_EFFECT_ARCHETYPES.update(
     {index: (A_BOUND_WEAPON, AV_NONE)
      for index in MW_BOUND_WEAPONS + MW_BOUND_ARMOR})
 
-#: CTDA functions: GetFactionRank, GetRandomPercent.
-FUNC_GET_FACTION_RANK, FUNC_GET_RANDOM_PERCENT = 73, 77
+#: CTDA function GetRandomPercent.
+FUNC_GET_RANDOM_PERCENT = 77
 
 #: CTDA comparison bits: less-than.
 _OP_LT = 0x80
@@ -217,10 +218,6 @@ SANCTUARY_CAP = 100
 
 #: The conversion-owned FACT whose rank MorrowindRuntime keeps at an actor's summed Sanctuary.
 SANCTUARY_FACTION = 'MWSanctuaryFaction'
-
-#: FACT DATA flag Hidden From PC.
-_FACTION_HIDDEN = 0x1
-
 
 def _dodge_entry(faction: int, chance: int) -> bytes:
     """Zeroes a weapon hit `chance`% of the time on an owner ranked `chance` in `faction`.
@@ -255,31 +252,21 @@ _effect_perks: dict = {}
 _sanctuary_faction: list = []
 
 
-def _adopt_or_write(writer, master_index, sig: str, edid: str, build) -> tuple:
-    """(FormID, written): a master's record of `edid`, else ``build(fid)`` written as this plugin's."""
-    fid = master_index.find_by_edid(sig.encode(), edid) if master_index else 0
-    if fid:
-        return fid, False
-    fid = writer.derive_formid(sig, edid)
-    writer.add_record(sig, build(fid))
-    return fid, True
-
-
 def _faction_record(fid: int) -> bytes:
     """The hidden, rankless FACT only MorrowindRuntime puts actors in."""
     subs = pack_string_subrecord('EDID', SANCTUARY_FACTION)
-    subs += pack_subrecord('DATA', struct.pack('<I', _FACTION_HIDDEN))
+    subs += pack_subrecord('DATA', struct.pack('<I', FACTION_HIDDEN))
     return pack_record('FACT', fid, 0, subs)
 
 
 def register_effect_perks(writer, master_index=None) -> int:
     """Adopt each effect perk and the Sanctuary faction a master has, else write them; returns how many were written."""
     _effect_perks.clear()
-    faction, written = _adopt_or_write(writer, master_index, 'FACT', SANCTUARY_FACTION,
+    faction, written = adopt_or_write(writer, master_index, 'FACT', SANCTUARY_FACTION,
                                        _faction_record)
     _sanctuary_faction[:] = [faction]
     for index, (edid, entries) in sorted(MW_EFFECT_PERKS.items()):
-        fid, wrote = _adopt_or_write(
+        fid, wrote = adopt_or_write(
             writer, master_index, 'PERK', edid,
             lambda new, edid=edid, entries=entries: hidden_perk(new, edid, entries(faction)))
         written += wrote
@@ -288,17 +275,10 @@ def register_effect_perks(writer, master_index=None) -> int:
 
 
 def effect_form_rows(plugin: str, masters: list) -> list:
-    """`sanctuary=plugin|FormID` naming the Sanctuary faction, for MorrowindRuntime.
-
-    `plugin` is the file being written and `masters` its master list, which
-    name the file a master's adopted faction lives in.
-    """
+    """`sanctuary=plugin|FormID` naming the Sanctuary faction, for MorrowindRuntime."""
     if not _sanctuary_faction:
         return []
-    fid = _sanctuary_faction[0]
-    slot = fid >> 24
-    owner = masters[slot] if slot < len(masters) else plugin
-    return [f'sanctuary={owner}|{fid:08X}']
+    return [owner_row('sanctuary', _sanctuary_faction[0], plugin, masters)]
 
 
 def mw_effect_perk(index: int) -> int:

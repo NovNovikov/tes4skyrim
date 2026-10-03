@@ -107,11 +107,10 @@ void Sum(Sums& sums, const RuntimeEffect& row, float magnitude) {
 }
 
 // The damage an attribute carries after this tick: never below 0, never more
-// than the base it damages.
-float AccrueDamage(const std::string& actor, int attribute, float perSecond) {
+// than `most`, the base it damages.
+float AccrueDamage(const std::string& actor, int attribute, float perSecond, float most) {
     const std::string owner = kDamageOwner + actor;
     const float was = State().Var(owner, DamageKey(attribute));
-    const float most = ActorBaseAttribute(actor, attribute);
     const float now = std::clamp(was + perSecond * TickDelta(), 0.0f, std::max(0.0f, most));
     if (now != was) State().SetVar(owner, DamageKey(attribute), now);
     return now;
@@ -127,8 +126,9 @@ std::string ActorKey(void* ref) {
 }
 
 // Sums one actor's attribute effects into g_effects; true while any is
-// active or any damage is left.
-bool TickActor(void* ref, const std::string& actor) {
+// active or any damage is left. `base` is what damage is capped by, the
+// stat store's when null.
+bool TickActor(void* ref, const std::string& actor, const Attributes* base = nullptr) {
     Sums sums;
     ForEachActiveEffect(ref, [&sums](const RuntimeEffect& row, float magnitude) {
         Sum(sums, row, magnitude);
@@ -136,9 +136,53 @@ bool TickActor(void* ref, const std::string& actor) {
     Attributes& out = g_effects[actor];
     bool live = false;
     for (int a = 0; a < kAttributeCount; ++a) {
-        const float damaged = AccrueDamage(actor, a, sums.damage[a]);
+        const float most = base ? (*base)[a] : ActorBaseAttribute(actor, a);
+        const float damaged = AccrueDamage(actor, a, sums.damage[a], most);
         out[a] += sums.add[a] - sums.take[a] - damaged;
         live = live || sums.add[a] || sums.take[a] || sums.damage[a] || damaged > 0.0f;
+    }
+    return live;
+}
+
+// A TES4 actor keeps its attributes as stat faction ranks (no Morrowind
+// record made it). Magic moves each rank by its effect, and what is held on
+// the rank is kept under this prefix and the FormID, so the authored base is
+// always the rank less it and a save carries both.
+// See: docs/commentary/morrowind_runtime.md#npc-attributes
+constexpr const char* kRankOwner = "statfx|";
+constexpr int kRankMax = 127;
+
+void* StatFactionForm(int attribute) {
+    static void* forms[kAttributeCount] = {};
+    if (!forms[attribute]) forms[attribute] = Form(StatFaction(attribute));
+    return forms[attribute];
+}
+
+// Holds a TES4 actor's attribute effects on its stat ranks; true while any
+// effect or damage is left. False at once for an actor in no stat faction.
+bool TickStatActor(void* ref, std::uint32_t id) {
+    const std::string owner = kRankOwner + std::to_string(id);
+    const std::string actor = "#" + std::to_string(id);
+    Attributes base{};
+    void* factions[kAttributeCount] = {};
+    bool ranked = false;
+    for (int a = 0; a < kAttributeCount; ++a) {
+        void* faction = StatFactionForm(a);
+        const int rank = faction ? FactionRank(ref, faction) : -1;
+        if (rank < 0) continue;
+        factions[a] = faction;
+        base[a] = static_cast<float>(rank) - State().Var(owner, DamageKey(a));
+        ranked = true;
+    }
+    if (!ranked) return false;
+    const bool live = TickActor(ref, actor, &base);
+    for (int a = 0; a < kAttributeCount; ++a) {
+        if (!factions[a]) continue;
+        const int target = std::clamp(static_cast<int>(std::lround(base[a] + g_effects[actor][a])),
+                                      0, kRankMax);
+        const float held = static_cast<float>(target) - base[a];
+        if (held == State().Var(owner, DamageKey(a))) continue;
+        if (SetFactionRank(ref, factions[a], target)) State().SetVar(owner, DamageKey(a), held);
     }
     return live;
 }
@@ -265,24 +309,12 @@ void InstallSkillCap() {
 // and only a script's write tells them apart.
 constexpr const char* kGlobalOwner = "attrglobal|";
 
-// Each attribute global's form, looked up once: a GLOB never unloads.
-std::unordered_map<std::string, std::uint8_t*> g_globalForms;
-
-std::uint8_t* GlobalForm(const FormRef& ref, const std::string& key) {
-    auto found = g_globalForms.find(key);
-    if (found != g_globalForms.end()) return found->second;
-    auto* form = static_cast<std::uint8_t*>(
-        FormFromFile(ref.plugin.c_str(), ref.formId & 0x00FFFFFF));
-    if (form) g_globalForms.emplace(key, form);
-    return form;
-}
-
 void SyncAttributeGlobals() {
     for (const AttributeGlobal& row : AttributeGlobals()) {
         const std::string key = row.form.plugin + '|' + std::to_string(row.form.formId & 0x00FFFFFF);
-        std::uint8_t* form = GlobalForm(row.form, key);
-        if (!form) continue;
-        float& value = *reinterpret_cast<float*>(form + ids::kOffGlobalValue);
+        float* slot = GlobalSlot(row.form.plugin, row.form.formId);
+        if (!slot) continue;
+        float& value = *slot;
         const float written = State().HasVar(kGlobalOwner, key) ? State().Var(kGlobalOwner, key)
                                                                 : std::nanf("");
         value = SettleAttributeGlobal(row.attribute, value, written);
@@ -295,7 +327,8 @@ void SyncAttributeGlobals() {
 // The player every tick, since a save can carry an effect the apply sink never
 // saw; every other actor until nothing is left on it. One whose reference is
 // not loaded keeps its place and its damage; a loaded one no Morrowind record
-// made (an Oblivion NPC) has no attributes to sum and is let go.
+// made (a TES4 NPC) holds its effects on its stat faction ranks, and one in
+// none of them is let go.
 void TickAttributeEffects(void* player) {
     g_effects.clear();
     if (!player || !SheetEnabled()) return;
@@ -304,7 +337,9 @@ void TickAttributeEffects(void* player) {
         void* ref = RefByRuntimeId(*it);
         const std::string actor = ActorKey(ref);
         const bool foreign = actor.empty() && IsActorRef(ref);
-        if (foreign || (!actor.empty() && !TickActor(ref, actor))) {
+        const bool done = foreign ? !TickStatActor(ref, *it)
+                                  : !actor.empty() && !TickActor(ref, actor);
+        if (done) {
             it = g_watched.erase(it);
         } else {
             ++it;

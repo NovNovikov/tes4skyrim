@@ -91,7 +91,7 @@ constexpr const char* kMouseY = "_root._ymouse";
 
 // How many windows can register. Each needs its own creator function,
 // because MenuManager calls the creator with no argument.
-constexpr std::size_t kMaxMenus = 4;
+constexpr std::size_t kMaxMenus = 6;
 
 using SetStringFn = void (*)(void* value, const char* text);
 using SetVariableFn = void (*)(void* movie, const char* path, void* value,
@@ -108,8 +108,11 @@ using RegisterFn = void (*)(void* manager, const char* name, CreatorFn creator);
 using LoadMovieFn = bool (*)(void* loader, void* menu, void** viewOut,
                              const char* name, int scaleMode, float bgAlpha);
 using AllocFn = void* (*)(void* allocator, std::size_t size, void* tag);
+using AllowTextInputFn = void (*)(void* controlMap, bool allow);
 
 void**         g_menuManager = nullptr;
+void**           g_controlMap = nullptr;
+AllowTextInputFn g_allowTextInput = nullptr;
 RegisterFn     g_register = nullptr;
 LoadMovieFn    g_loadMovie = nullptr;
 void**         g_gfxLoader = nullptr;
@@ -175,6 +178,13 @@ void ArmMenu(EngineMenu* menu) {
         At<std::int32_t>(menu, kVrOffMenuSlot) = -1;
         At<std::uint8_t>(menu, kVrOffMenuShown) = 1;
     }
+}
+
+// Raises or lowers the game's text input; false when it cannot be reached.
+bool AllowTextInput(bool allow) {
+    if (!g_allowTextInput || !g_controlMap || !*g_controlMap) return false;
+    g_allowTextInput(*g_controlMap, allow);
+    return true;
 }
 
 void LogEventKindOnce(std::uint32_t type) {
@@ -256,8 +266,8 @@ void* CreatorFor() {
     return g_menus[N] ? g_menus[N]->Create() : nullptr;
 }
 
-constexpr CreatorFn kCreators[kMaxMenus] = {&CreatorFor<0>, &CreatorFor<1>,
-                                            &CreatorFor<2>, &CreatorFor<3>};
+constexpr CreatorFn kCreators[kMaxMenus] = {&CreatorFor<0>, &CreatorFor<1>, &CreatorFor<2>,
+                                            &CreatorFor<3>, &CreatorFor<4>, &CreatorFor<5>};
 
 // The engine entry points every window shares, resolved once.
 bool ResolveEngine() {
@@ -278,6 +288,10 @@ bool ResolveEngine() {
         Log("menu: GFxValue::SetString unresolved -- windows will draw their "
             "chrome but every text field will stay EMPTY");
     }
+    g_controlMap = reinterpret_cast<void**>(
+        Resolve("ControlMap singleton", ids::kControlMapSingleton, nullptr));
+    g_allowTextInput = reinterpret_cast<AllowTextInputFn>(
+        Resolve("ControlMap::AllowTextInput", ids::kControlMapAllowTextInput, nullptr));
     if (!g_menuManager || !g_register || !g_loadMovie || !g_gfxLoader ||
         !g_allocator) {
         Log("menu: NOT installed -- manager=%p register=%p loadMovie=%p "
@@ -385,12 +399,17 @@ void CustomMenu::OnOpen(EngineMenu* menu) {
     for (const auto& field : mPending) {
         ApplyText(field.first.c_str(), field.second.c_str());
     }
+    if (mInput.typed && !mTextInput) {
+        mTextInput = AllowTextInput(true);
+        Log("menu: '%s' text input %s", mName, mTextInput ? "raised" : "UNAVAILABLE");
+    }
     if (mInput.opened) mInput.opened();
 }
 
 void CustomMenu::OnClose() {
     if (!mOpen) return;
     mOpen = false;
+    if (mTextInput) mTextInput = !AllowTextInput(false);
     Log("menu: '%s' closed", mName);
     if (mInput.closed) mInput.closed();
 }
@@ -423,6 +442,14 @@ std::uint32_t CustomMenu::OnScaleformEvent(EngineMenu* menu, char* data) {
         if (left() && known) mInput.click(x, y);
     } else if (type == ids::kEventMouseUp && mInput.release && left()) {
         mInput.release();
+    } else if (type == ids::kEventKeyDown && mInput.key) {
+        const char* key = static_cast<char*>(event);
+        mInput.key(*reinterpret_cast<const std::uint32_t*>(key + ids::kKeyEventCodeOffset),
+                   key[ids::kKeyEventAsciiOffset],
+                   *reinterpret_cast<const std::uint8_t*>(key + ids::kKeyEventModsOffset));
+    } else if (type == ids::kEventChar && mInput.typed) {
+        mInput.typed(*reinterpret_cast<const std::uint32_t*>(static_cast<char*>(event) +
+                                                             ids::kCharEventCodeOffset));
     }
     return ids::kResultHandled;
 }

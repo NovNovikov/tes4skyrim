@@ -20,11 +20,17 @@
 namespace tesruntime::mw {
 
 // What the mouse did, in STAGE pixels, and when the movie came and went.
-// Every pointer may be null. `release` is the left button coming up.
+// Every pointer may be null. `release` is the left button coming up; `key` a
+// key going down: Scaleform's key code (Windows' virtual key), the character
+// the event carries (0 when none) and its modifier bits (0x01 Shift).
+// `typed` is a character typed, as UTF-32: a menu that takes it has the
+// game's text input raised while it is open.
 struct MenuInput {
     void (*hover)(double x, double y) = nullptr;
     void (*click)(double x, double y) = nullptr;
     void (*release)() = nullptr;
+    void (*key)(std::uint32_t code, char ascii, std::uint8_t mods) = nullptr;
+    void (*typed)(std::uint32_t character) = nullptr;
     void (*wheel)(double x, double y, double delta) = nullptr;
     void (*cancel)() = nullptr;
     void (*opened)() = nullptr;
@@ -95,6 +101,8 @@ private:
     bool mOpen = false;
     // Its movie failed to load; it will not open again this session.
     bool mFailed = false;
+    // It raised the game's text input when it opened, to lower at close.
+    bool mTextInput = false;
     MenuInput mInput;
     // The engine's object while the movie is live, and the one this session
     // created, reused across opens.

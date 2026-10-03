@@ -1997,7 +1997,10 @@ EndFunction
 ; some route that never ran a gate OnActivate (a coc, a scripted MoveTo).
 ; Nothing sensible can be done in that case, and teleporting to a stale
 ; reference would be worse than staying put.
-Bool Function CloseCurrentOblivionGate(FormList akDestroyed) Global
+;
+; A closed gate adds 1 to akGatesShut, Oblivion Gates Shut, as Oblivion.exe's
+; own CloseCurrentOblivionGate adds 1 to the player's misc stat 13.
+Bool Function CloseCurrentOblivionGate(FormList akDestroyed, GlobalVariable akGatesShut = None) Global
   ObjectReference gate = GetCurrentOblivionGate()
   If gate == None
     Return False
@@ -2021,6 +2024,9 @@ Bool Function CloseCurrentOblivionGate(FormList akDestroyed) Global
   ; the gate's own GameMode poll re-applies OblivionStormTamriel while the
   ; player stands next to it.
   Weather.ReleaseOverride()
+  If akGatesShut
+    akGatesShut.Mod(1)
+  EndIf
   Return True
 EndFunction
 

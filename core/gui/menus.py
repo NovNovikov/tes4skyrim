@@ -46,7 +46,7 @@ from core.gui.config import (
 )
 from core.gui.menubar_behavior import (add_tipped_command, enable_hover_switch,
                                        enable_tips)
-from core.gui.morrowind import add_menu_style_menu, add_source_menu
+from core.gui.morrowind import add_chargen_menu, add_menu_style_menu, add_source_menu
 from core.gui.selection import runnable
 from core.navmesh_options import CORRIDOR, LATTICE
 from core.gui import navmesh_editor
@@ -188,6 +188,7 @@ def _build_settings_menu(app, menubutton, menu_opts) -> None:
                     save_config, EXPORT_DIR)
     add_menu_style_menu(settings_menu, menu_opts, app.cfg, load_config, save_config,
                         EXPORT_DIR)
+    add_chargen_menu(settings_menu, menu_opts, app.cfg, load_config, save_config, EXPORT_DIR)
 
 
 # ---------------------------------------------------------------------------

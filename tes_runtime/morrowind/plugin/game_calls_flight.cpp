@@ -262,7 +262,6 @@ float ActiveMagnitude(void* actor, int tes3Index, int attribute) {
 void InstallFlightCalls(GameHooks& hooks) {
     if (hooks.effectTick) return;
     hooks.effectTick = EffectTick;
-    InstallSanctuaryCalls();
     g_controllerOf = Native<ControllerFn>("Actor::GetCharController",
                                           ids::kActorGetCharController);
     g_playerControls = reinterpret_cast<void**>(Resolve(

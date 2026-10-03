@@ -11,19 +11,30 @@ See: docs/commentary/morrowind_runtime.md#tes4-tables
 
 import os
 
+from script_convert.message_menus import (CHARGEN_BIRTHSIGN_GLOBAL, CHARGEN_CLASS_GLOBAL,
+                                          table_field)
 from tes4_export.record_types.morrowind import MW_SKILL_TO_TES4
 
 from ..base.equivalents import RACE_MAP, SKYRIM_VAMPIRE_RACES
-from ..base.owned_records import (PLAYER_ATTRIBUTE_GLOBALS, TES4_ATTRIBUTE_NAMES,
-                                  WELL_KNOWN_PROPERTIES)
+from ..base.owned_records import (CHARGEN_REQUEST_GLOBAL, PLAYER_ATTRIBUTE_GLOBALS,
+                                  TES4_ATTRIBUTE_NAMES, WELL_KNOWN_PROPERTIES, owner_row)
 from ..base.race_lookup import tes4_race_edid
 from ..base.text_reader import get_float, get_int, get_str
 from ..dialogue.morrowind_sidecar import (ACTORS_TABLE, RACES_TABLE, SIDECAR_DIR,
-                                          SKILLS_TABLE, plugin_stem)
+                                          SKILLS_TABLE, is_tes3_export, plugin_stem)
 from ..dialogue.morrowind_teleport import TELEPORTS_TABLE, copy_rows
+from ..record_types.crime import bounty_rows
+from .misc_stats import stat_lines
+from .stat_factions import faction_rows
 
-#: The player attribute globals, `strength=Plugin.esm|FormID`, in TES3 order.
+#: Player attribute globals `strength=Plugin.esm|FormID`, then stat factions `faction.<TES4 av>=...`.
 ATTRIBUTES_TABLE = 'attributes_formid.txt'
+
+#: The class and birthsign menus' rows and globals, by menu index.
+CHARGEN_TABLE = 'chargen.txt'
+
+#: The Statistics tab's standing globals, misc stats and their labels.
+STATS_TABLE = 'stats.txt'
 
 #: TES4 skill index (actor value - 12) -> its namesake TES3 skill index.
 TES4_SKILL_TO_MW = {0: 1, 1: 8, 2: 5, 3: 0, 4: 4, 5: 26, 6: 3, 7: 16, 8: 11, 9: 13,
@@ -125,6 +136,52 @@ def global_lines(plugin: str, masters: list) -> list:
     return rows
 
 
+def chargen_lines(plan: dict, plugin: str, masters: list) -> list:
+    """chargen.txt rows: the request and choice globals, then the plugin's own
+    `class.<i>=name` and `sign.<i>=name` in its menu order. The menus' rows are
+    the shared table's (core.chargen_source)."""
+    lines = []
+    for row, edid in (('form.request', CHARGEN_REQUEST_GLOBAL),
+                      ('form.class', CHARGEN_CLASS_GLOBAL),
+                      ('form.birthsign', CHARGEN_BIRTHSIGN_GLOBAL)):
+        fid = WELL_KNOWN_PROPERTIES.get(edid, 0)
+        if fid:
+            lines.append(owner_row(row, fid, plugin, masters))
+    for kind, key in (('class', 'class'), ('sign', 'birthsign')):
+        lines += [f"{kind}.{i}={table_field(row['name'])}"
+                  for i, row in enumerate(plan.get(key, {}).get('rows', ()))]
+    return lines
+
+
+def write_stats_table(by_type: dict, writer, output_path: str, export_dir: str) -> int:
+    """Stage the Statistics tab's rows: a TES4 plugin's standing, stats, page and
+    labels (misc_stats), and every plugin's own realms' bounties; 1 if written.
+
+    See: docs/commentary/morrowind_runtime.md#statistics-tab
+    """
+    plugin = os.path.basename(output_path)
+    out_dir = os.path.join(os.path.dirname(output_path), SIDECAR_DIR, plugin_stem(plugin))
+    lines = bounty_rows(plugin, writer.masters)
+    if not is_tes3_export(export_dir):
+        lines += stat_lines(by_type, plugin, writer.masters)
+    if lines:
+        os.makedirs(out_dir, exist_ok=True)
+    return _write(os.path.join(out_dir, STATS_TABLE), lines)
+
+
+def write_chargen_table(plan: dict, writer, output_path: str) -> int:
+    """Stage the chargen menus' table for MorrowindRuntime; 1 if written.
+
+    See: docs/commentary/morrowind_runtime.md#chargen-menus
+    """
+    plugin = os.path.basename(output_path)
+    out_dir = os.path.join(os.path.dirname(output_path), SIDECAR_DIR, plugin_stem(plugin))
+    lines = chargen_lines(plan, plugin, writer.masters) if plan else []
+    if lines:
+        os.makedirs(out_dir, exist_ok=True)
+    return _write(os.path.join(out_dir, CHARGEN_TABLE), lines)
+
+
 def _write(path: str, lines: list) -> int:
     """Write a table, or delete a stale one when there is nothing to write; 1 if written."""
     if not lines:
@@ -137,19 +194,20 @@ def _write(path: str, lines: list) -> int:
 
 
 def write_attribute_tables(by_type: dict, writer, output_path: str) -> int:
-    """Stage this TES4 plugin's own SKIL, RACE, NPC_/CREA, global and attribute-effect
-    tables; files written."""
+    """Stage this TES4 plugin's own SKIL, RACE, NPC_/CREA, global, attribute-effect
+    and statistics tables; files written."""
     plugin = os.path.basename(output_path)
     out_dir = os.path.join(os.path.dirname(output_path), SIDECAR_DIR, plugin_stem(plugin))
     specs, skills = skill_lines(by_type.get('SKIL', []))
     tables = {SKILLS_TABLE: skills, RACES_TABLE: race_lines(by_type.get('RACE', [])),
               ACTORS_TABLE: actor_lines(by_type.get('NPC_', []), by_type.get('CREA', []), specs),
-              ATTRIBUTES_TABLE: global_lines(plugin, writer.masters),
+              ATTRIBUTES_TABLE: (global_lines(plugin, writer.masters)
+                                 + faction_rows(plugin, writer.masters)),
               TELEPORTS_TABLE: copy_rows(plugin, len(writer.masters))}
     if not any(tables.values()) and not os.path.isdir(out_dir):
         return 0
     os.makedirs(out_dir, exist_ok=True)
-    written = sum(_write(os.path.join(out_dir, name), lines) for name, lines in tables.items())
+    written = sum(_write(os.path.join(out_dir, table), lines) for table, lines in tables.items())
     print(f'  Attribute tables: {len(skills)} skills, {len(tables[RACES_TABLE])} race rows, '
           f'{len(tables[ACTORS_TABLE])} actors, {len(tables[ATTRIBUTES_TABLE])} globals, '
           f'{len(tables[TELEPORTS_TABLE])} attribute effects')

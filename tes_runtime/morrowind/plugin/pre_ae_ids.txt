@@ -17,6 +17,11 @@ kGFxLoaderSingleton
 kScaleformAllocator
 kGfxSetString
 
+# Typing a custom class's name: the game's text input, raised while the class
+# menu is open.
+kControlMapSingleton
+kControlMapAllowTextInput
+
 # Papyrus natives the sheet, the level-up step and the globals call.
 kGameGetPlayer
 kGameGetForm
@@ -36,6 +41,9 @@ kPlayerVtable
 kTrainingMenuTrain
 kTrainingMenuTrainCaller
 
-# Attribute magic: the VM's effect-apply sink.
+# Attribute magic: the VM's effect-apply sink, and the stat faction ranks a TES4
+# NPC's attributes are (which also lets Sanctuary hold its rank).
 kVmMagicEffectApplySink
 kVmMagicEffectApplyProcess
+kActorGetFactionRank
+kActorSetFactionRank

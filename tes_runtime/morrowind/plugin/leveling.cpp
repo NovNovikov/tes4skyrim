@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "actor_stats.h"
@@ -65,6 +66,20 @@ std::string BaseKey(const char* skill) { return std::string("base.") + skill; }
 // race or sex moves it by the difference and keeps every level-up gain.
 std::string StartKey(int attribute) { return "start" + std::to_string(attribute); }
 
+// The class and birthsign chosen: the favored attributes (index + 1, 0 for
+// none), the specialization, and each name under `class:` / `sign:`.
+// See: docs/commentary/morrowind_runtime.md#chargen-menus
+constexpr const char* kChargenOwner = "chargen|player";
+constexpr const char* kFavoredVars[] = {"fav0", "fav1"};
+constexpr const char* kSpecializationVar = "spec";
+constexpr const char* kClassPrefix = "class:";
+// What the class bonus has added to each attribute so far.
+std::string BonusKey(int attribute) { return "bonus" + std::to_string(attribute); }
+constexpr const char* kSignPrefix = "sign:";
+
+// OpenMW's MechanicsManager::buildPlayer: each favored attribute starts 10 higher.
+constexpr int kFavoredBonus = 10;
+
 std::string IncreaseKey(int attribute) {
     return "inc" + std::to_string(attribute);
 }
@@ -116,6 +131,22 @@ void SampleLevel(bool credit) {
     State().SetVar(kOwner, kLevelVar, static_cast<float>(now));
 }
 
+// The chosen class's favored attributes: TES3 indices, -1 for none.
+int Favored(int slot) {
+    return static_cast<int>(State().Var(kChargenOwner, kFavoredVars[slot])) - 1;
+}
+
+int ClassBonus(int attribute) {
+    return Favored(0) == attribute || Favored(1) == attribute ? kFavoredBonus : 0;
+}
+
+// Moves a base attribute by `delta` and re-scores the picks it earned.
+void MoveStart(int attribute, float delta) {
+    const float base = ActorBaseAttribute(kPlayer, attribute);
+    SetActorAttribute(kPlayer, attribute, std::max(0.0f, base + delta));
+    RescorePickBuffs(attribute, delta);
+}
+
 // The race (and sex) now worn sets the starting attributes: each base moves
 // by how far the new start is from the one it was built on -- before any, the
 // player record's own -- and the picks it earned are re-scored. A race no
@@ -132,11 +163,22 @@ void ApplyRaceStart(std::uint32_t race) {
         const float delta = static_cast<float>(start[a]) - was;
         State().SetVar(kOwner, key, static_cast<float>(start[a]));
         if (delta == 0.0f) continue;
-        const float base = ActorBaseAttribute(kPlayer, a);
-        SetActorAttribute(kPlayer, a, std::max(0.0f, base + delta));
-        RescorePickBuffs(a, delta);
-        Log("leveling: %s %s starts attribute %d at %d: %.0f -> %.0f", def->id.c_str(),
-            female ? "female" : "male", a, start[a], base, base + delta);
+        MoveStart(a, delta);
+        Log("leveling: %s %s starts attribute %d at %d", def->id.c_str(),
+            female ? "female" : "male", a, start[a]);
+    }
+}
+
+// The chosen class's favored attributes stand 10 over the start, held apart
+// from the race's so either can change alone, and re-scored the same way.
+void ApplyClassBonus() {
+    for (int a = 0; a < kAttributeCount; ++a) {
+        const std::string key = BonusKey(a);
+        const float delta = static_cast<float>(ClassBonus(a)) - State().Var(kChargenOwner, key);
+        if (delta == 0.0f) continue;
+        State().SetVar(kChargenOwner, key, static_cast<float>(ClassBonus(a)));
+        MoveStart(a, delta);
+        Log("leveling: the class moves attribute %d by %.0f", a, delta);
     }
 }
 
@@ -148,6 +190,7 @@ void SampleLeveling() {
     const bool raceChanged = race != g_race;
     g_race = race;
     ApplyRaceStart(race);
+    ApplyClassBonus();
     const bool first = !State().HasVar(kOwner, kLevelVar);
     SampleSkills(!first && !raceChanged);
     SampleLevel(!first);
@@ -226,6 +269,65 @@ void CompleteLevelUp(const std::vector<int>& attributes) {
     AddTo(kPendingVar, -1);
     if (Counter(kPendingVar) < 0) State().SetVar(kOwner, kPendingVar, 0.0f);
 }
+
+namespace {
+
+// Records `name` under `prefix`, the one marked chosen.
+void MarkChosen(const char* prefix, const std::string& name) {
+    const std::string start(prefix);
+    for (const std::string& held : State().VarNames(kChargenOwner)) {
+        if (held.rfind(start, 0) == 0) State().SetVar(kChargenOwner, held, 0.0f);
+    }
+    State().SetVar(kChargenOwner, start + name, 1.0f);
+}
+
+std::string Chosen(const char* prefix) {
+    const std::string start(prefix);
+    for (const std::string& held : State().VarNames(kChargenOwner)) {
+        if (held.rfind(start, 0) == 0 && State().Var(kChargenOwner, held) != 0.0f) {
+            return held.substr(start.size());
+        }
+    }
+    return std::string();
+}
+
+}  // namespace
+
+void ChooseClass(const std::string& name, int specialization, int first, int second) {
+    MarkChosen(kClassPrefix, name);
+    State().className = name;
+    State().SetVar(kChargenOwner, kSpecializationVar, static_cast<float>(specialization));
+    const int favored[] = {first, second};
+    for (int slot = 0; slot < 2; ++slot) {
+        const bool valid = favored[slot] >= 0 && favored[slot] < kAttributeCount;
+        State().SetVar(kChargenOwner, kFavoredVars[slot],
+                       static_cast<float>(valid ? favored[slot] + 1 : 0));
+    }
+    Log("leveling: class %s, specialization %d, favored %d and %d", name.c_str(),
+        specialization, first, second);
+    ApplyClassBonus();
+}
+
+void ChooseBirthsign(const std::string& name) {
+    MarkChosen(kSignPrefix, name);
+    Log("leveling: birthsign %s", name.c_str());
+}
+
+// The chosen class as it was named; a save from before the name was kept
+// answers the lowercased one.
+std::string ChosenClass() {
+    const std::string chosen = Chosen(kClassPrefix);
+    const std::string& named = State().className;
+    return !named.empty() && _stricmp(named.c_str(), chosen.c_str()) == 0 ? named : chosen;
+}
+
+std::string ChosenBirthsign() { return Chosen(kSignPrefix); }
+
+int ChosenSpecialization() {
+    return static_cast<int>(State().Var(kChargenOwner, kSpecializationVar));
+}
+
+int FavoredAttribute(int slot) { return slot >= 0 && slot < 2 ? Favored(slot) : -1; }
 
 void ResetLevelingForTest() { g_race = 0; }
 

@@ -164,6 +164,16 @@ struct FactionDef {
 
 void ClearScriptTables();
 
+// The plugin a sidecar folder (trailing slash) belongs to: its folder name.
+std::string PluginOf(const std::string& pluginDir);
+
+// The sidecar table reading every table shares: each `key=value` line of a
+// file, a `sep`-separated field list, and a `Plugin.esm|FormID` value.
+void ForEachTableRow(const std::string& path,
+                     const std::function<void(const std::string&, const std::string&)>& row);
+std::vector<std::string> SplitFields(const std::string& text, char sep);
+FormRef ParseFormRefField(const std::string& value);
+
 // Reads one plugin's sidecar folder (trailing slash) into its own layer. Every
 // lookup below answers through the current layer's view (scope.h).
 void LoadScriptTables(const std::string& pluginDir);
@@ -434,6 +444,11 @@ struct AttributeGlobal {
     FormRef form;
 };
 const std::vector<AttributeGlobal>& AttributeGlobals();
+
+// The hidden faction a TES4 actor's attribute (0..7) is its rank in --
+// `faction.<av>` rows of attributes_formid.txt -- or null.
+// See: docs/commentary/morrowind_runtime.md#npc-attributes
+const FormRef* StatFaction(int attribute);
 
 // The TES3 race a player wearing Skyrim race `skyrimRace` (runtime FormID)
 // starts from, or null.

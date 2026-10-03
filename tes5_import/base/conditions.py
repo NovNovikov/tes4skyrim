@@ -30,6 +30,7 @@ from ..generated.ctda_param_types import CTDA_FORMID_PARAMS
 from .owned_records import (MGEF_FAMILY_KEYWORDS, PLAYER_ATTRIBUTE_GLOBALS,
                             WELL_KNOWN_PROPERTIES)
 from .race_factions import race_faction
+from ..actors.stat_factions import stat_faction
 from .split_skill_conditions import split_skill_ctdas
 from .text_reader import (_ENGINE_FIXED_FORMIDS, get_formid_index_offset,
                           remap_formid)
@@ -85,6 +86,7 @@ def _remap_global(fid: int, offset: int) -> int:
 
 
 FUNC_GET_IN_FACTION = 71       # GetInFaction(fact)
+FUNC_GET_FACTION_RANK = 73
 #: GetOffersServicesNow(): true only while the actor is actively vending/training.
 FUNC_GET_OFFERS_SERVICES_NOW = 255
 FUNC_GET_STAGE = 58            # GetStage(quest)
@@ -518,10 +520,10 @@ _PLAYER_GLOBALS = {**dict(enumerate(PLAYER_ATTRIBUTE_GLOBALS)), 38: 'TES4Fame', 
 def _player_global(raw: bytes, type_byte: int, func_idx: int, param1: int) -> 'tuple | None':
     """(type byte, GetGlobalValue, global FormID) for a PLAYER attribute, Fame or Infamy read.
 
-    See: docs/commentary/morrowind_runtime.md#tes4-tables
     Only the run-on-target (player) form moves: an NPC's own Fame read 0 in
     Oblivion and still does, and an NPC's attribute has no global.
     See: docs/plans/character_sheet.md#bug-fame
+    See: docs/commentary/morrowind_runtime.md#tes4-tables
     """
     edid = _PLAYER_GLOBALS.get(param1)
     if (not edid or len(raw) == FALLOUT_CTDA_SIZE or func_idx not in _AV_PARAM_FUNCS
@@ -529,6 +531,18 @@ def _player_global(raw: bytes, type_byte: int, func_idx: int, param1: int) -> 't
         return None
     fid = WELL_KNOWN_PROPERTIES.get(edid, 0)
     return (type_byte & ~CTDA_RUN_ON_TARGET, FUNC_GET_GLOBAL_VALUE, fid) if fid else None
+
+
+def _stat_faction_rank(raw: bytes, type_byte: int, func_idx: int, param1: int) -> int:
+    """The stat faction an NPC-subject attribute or kept-skill read becomes a
+    GetFactionRank on, or 0; the player's run-on-target reads keep their own route.
+
+    See: docs/commentary/morrowind_runtime.md#npc-attributes
+    """
+    if (len(raw) == FALLOUT_CTDA_SIZE or func_idx not in _AV_PARAM_FUNCS
+            or type_byte & CTDA_RUN_ON_TARGET):
+        return 0
+    return stat_faction(param1)
 
 
 def _effect_family(func_idx: int, param1: int) -> tuple:
@@ -639,9 +653,12 @@ def convert_ctda(raw: bytes, offset: 'int | None' = None,
     if type_byte & CTDA_USE_GLOBAL:
         comp_raw = _remap_global(comp_raw, offset)
     fame = _player_global(raw, type_byte, func_idx, param1)
+    stat = 0 if fame else _stat_faction_rank(raw, type_byte, func_idx, param1)
     if fame:
         type_byte, func_idx, gfid = fame
         params, fields = (gfid, 0), (type_byte, 0, 0)
+    elif stat:
+        func_idx, params, fields = FUNC_GET_FACTION_RANK, (stat, 0), (type_byte, run_on, reference)
     else:
         av_table = FALLOUT_AV_TO_TES5 if len(raw) >= FALLOUT_CTDA_SIZE else _TES4_AV_TO_TES5
         params = _convert_params(func_idx, param1, param2, offset, av_table)

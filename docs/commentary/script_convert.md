@@ -1443,7 +1443,7 @@ The rule now, on **both** sides:
 | TES4 AV | Conversion |
 |---|---|
 | The player's 8 attributes (Speed aside) | its `TES4Player<Attribute>` global ([below](#player-attributes)) |
-| An NPC's 8 attributes | **DROPPED** (CTDA) / stubbed to `100.0` (script read), writes discarded |
+| An NPC's 8 attributes, and its Athletics, Hand-to-Hand and Acrobatics | its rank in a stat faction ([NPC attributes](morrowind_runtime.md#npc-attributes)) |
 | Speed | the walk formula ([SpeedMult](#speed-write-becomes-speedmult)), for the player too |
 | Skills | Translated to the TES5 skill index / name |
 | Shared derived + AI + magic values | Translated to the matching TES5 index |
@@ -1471,7 +1471,7 @@ plugin adopts its master's, and creates any its master lacks.
   (`conditions._player_global`). The census counted 171 attribute conditions,
   every one on an INFO:
 
-  | Plugin | On the player (converted) | On the NPC (dropped) |
+  | Plugin | On the player (converted) | On the NPC (its stat faction) |
   |---|---|---|
   | Oblivion | 6 | 0 |
   | Nehrim | 0 | 0 |
@@ -1483,10 +1483,14 @@ plugin adopts its master's, and creates any its master lacks.
   Oghma Infinium writes `player.GetBaseAV Speed + 10`, and the read and the
   write must share one baseline ([SpeedMult](#speed-write-becomes-speedmult)).
   `ModAV Speed` now goes through the formula too; before, it was dropped.
-- **An NPC's attribute** still reads 100, and a write to it is dropped: a
-  script has no way to reach the runtime's NPC store. Of the 108 script
-  attribute calls in Oblivion and Nehrim, 14 are writes on named NPCs and 16
-  are on the script's own actor.
+- **An NPC's attribute** is its rank in a hidden stat faction, joined at its
+  authored value: `TES4_Attributes.ReadActor(ref, TES4AttributeStrength,
+  TES4PlayerStrength)` and `WriteActor` / `ModifyActor`, which use the
+  global when the reference turns out to be the player
+  ([NPC attributes](morrowind_runtime.md#npc-attributes)). The census found
+  about 90 NPC attribute calls in Oblivion, Nehrim and Morroblivion. The
+  two NPC-subject conditions in Morroblivion (Intelligence, Strength) are
+  `GetFactionRank` on the faction.
 
 Three places must agree, and a change to one needs the same change in the others:
 `tes5_import/base/conditions.py` (`_TES4_AV_ATTRIBUTES` / `_TES4_AV_TO_TES5`,
@@ -2224,8 +2228,10 @@ Papyrus log) and reads as 0. `TES4_MISC_STAT_NAMES` maps each index to the
 Skyrim stat with the same meaning (Places Discovered → Locations Discovered,
 Potions Made → Potions Mixed, People Fed On → Necks Bitten, Days In Prison →
 Days Jailed, Hours Waited → Hours Waiting). Picks Broken, Oblivion Gates Shut,
-Artifacts Found, Last Day As Vampire and Jokes Told have no Skyrim stat and
-read as 0 with a note.
+Artifacts Found, Last Day As Vampire and Jokes Told have no Skyrim stat; they
+are globals of ours (below). `CloseCurrentOblivionGate` adds 1 to Gates Shut's,
+as Oblivion.exe's own command added 1 to the stat
+([statistics tab](morrowind_runtime.md#statistics-tab)).
 
 **A write converts only for the stats Oblivion's own content writes**
 (`TES4_SCRIPT_OWNED_MISC_STATS`: Horses Owned 14, Houses Owned 15, Stores
@@ -2235,12 +2241,20 @@ itself, so a plugin writing one has repurposed it. Nehrim does exactly that: its
 `GlobalplayerScript` runs `ModPCMiscStat 22 EPdiff` and `ModPCMiscStat 24
 LPdiff`, relabeled "Overall amount of experience points" and "Current amount of
 learning points" through its `sMisc*` game settings, so converted Nehrim added
-every experience point to Skyrim's "Days as a Vampire". Such a write now becomes
-a note. The labels are the precise indicator but cannot be compared across
-languages (German Nehrim.esm relabels every stat), so the rule is the census.
-Its cost: Nehrim's dialogue trainers (`ModPCMiscStat 3`, 40 lines) and skill
-books (`ModPCMiscStat 18`) no longer add to Skyrim's Training Sessions and Skill
-Books Read. See [the character sheet plan](../plans/character_sheet.md#bug-nehrim-misc-stats).
+every experience point to Skyrim's "Days as a Vampire". The labels are the
+precise indicator but cannot be compared across languages (German Nehrim.esm
+relabels every stat), so the rule is the census.
+
+**Such a stat is a global of ours** (2026-10-02, unconfirmed in game): every
+index Skyrim has no stat for, and every index the engine kept, is
+`TES4MiscStat<NN>` (`script_convert/misc_stats.py`). `ModPCMiscStat` becomes
+`TES4MiscStat22.Mod(EPdiff)`, and `GetPCMiscStat` reads the global, plus
+Skyrim's own stat of that meaning where one exists (Nehrim's trainers count
+`ModPCMiscStat 3` on top of Skyrim's Training Sessions). The importer creates
+a global for every index the plugin's scripts name, a master's adopted, and
+the character sheet's Statistics tab lists the written ones
+([statistics tab](morrowind_runtime.md#statistics-tab)). See
+[the character sheet plan](../plans/character_sheet.md#bug-nehrim-misc-stats).
 - `eval <expr>` is a pure pass-through wrapper (Nehrim uses it only around
   `Call`) — drop it. Beware over-broad stripping: an earlier pass ate a variable
   named `Eval`.

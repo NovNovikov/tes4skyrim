@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "scope.h"
 #include "store.h"
@@ -123,6 +124,11 @@ constexpr const char* kFileAttributes = "attributes_formid.txt";
 constexpr const char* kAttributeNames[] = {"strength", "intelligence", "willpower", "agility",
                                            "speed", "endurance", "personality", "luck"};
 std::vector<AttributeGlobal> g_attributeGlobals;
+
+// The same file's `faction.<TES4 actor value>` rows: each stat faction.
+// See: docs/commentary/morrowind_runtime.md#npc-attributes
+constexpr const char* kStatFactionPrefix = "faction.";
+LayeredTable<FormRef> g_statFactions{false};
 
 // The SNDR a TES3 sound id names, for PlaySound3D and its kin.
 // See: docs/commentary/tes5_import_sound.md#the-runtime-sound-table
@@ -459,6 +465,15 @@ std::string InstanceKey(const std::string& plugin, std::uint32_t formId) {
 
 }  // namespace
 
+void ForEachTableRow(const std::string& path,
+                     const std::function<void(const std::string&, const std::string&)>& row) {
+    ForEachRow(path, row);
+}
+
+std::vector<std::string> SplitFields(const std::string& text, char sep) { return Split(text, sep); }
+
+FormRef ParseFormRefField(const std::string& value) { return ParseFormRef(value); }
+
 char ScriptLocals::TypeOf(const std::string& name) const {
     const std::string key = Lower(name);
     if (Holds(shorts, key)) return 's';
@@ -508,6 +523,7 @@ void ClearScriptTables() {
     g_skills.clear();
     g_races.clear();
     g_attributeGlobals.clear();
+    g_statFactions.clear();
 }
 
 // The sidecar folder's own name, which is the plugin stem the placements in
@@ -729,9 +745,15 @@ void LoadWorldRows(int layer, const std::string& pluginDir) {
                    g_races.Add(layer, Lower(race), ParseRace(value));
                });
     ForEachRow(pluginDir + kFileAttributes,
-               [](const std::string& name, const std::string& value) {
+               [layer](const std::string& name, const std::string& value) {
+                   const std::string key = Lower(name);
+                   if (key.rfind(kStatFactionPrefix, 0) == 0) {
+                       g_statFactions.Add(layer, key.substr(std::strlen(kStatFactionPrefix)),
+                                          ParseFormRef(value));
+                       return;
+                   }
                    for (int a = 0; a < 8; ++a) {
-                       if (Lower(name) != kAttributeNames[a]) continue;
+                       if (key != kAttributeNames[a]) continue;
                        g_attributeGlobals.push_back({a, ParseFormRef(value)});
                    }
                });
@@ -787,6 +809,10 @@ const SkillDef* FindSkill(int index) {
 std::size_t SkillCount() { return g_skills.size(); }
 
 const std::vector<AttributeGlobal>& AttributeGlobals() { return g_attributeGlobals; }
+
+const FormRef* StatFaction(int attribute) {
+    return g_statFactions.Find(std::to_string(attribute));
+}
 
 const RaceDef* FindRaceStart(std::uint32_t skyrimRace) {
     char key[9];
