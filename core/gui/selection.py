@@ -637,10 +637,25 @@ def _scope_plugins(app, row, save_dirs) -> list:
     return scan_plugins(row["path"])
 
 
+def update_mod_run_buttons(app) -> None:
+    """Show whole-mod actions only for sources they can run."""
+    row = app.scope_rows.get(app.scope_var.get()) or {}
+    visible = row.get('kind') == 'mod' and bool(row.get('plugins'))
+    for name in ('run_mod_btn', 'rebuild_mod_btn'):
+        button = getattr(app, name, None)
+        if button is None:
+            continue
+        if visible:
+            button.pack(fill='x', pady=(0, 6), before=app.cancel_btn.master)
+        else:
+            button.pack_forget()
+
+
 def apply_scope(app, save_dirs, last_valid, searching,
                 select_plugin=None) -> None:
     """Repopulate the plugin list from the active source."""
     row = app.scope_rows.get(app.scope_var.get())
+    update_mod_run_buttons(app)
     plugins = _scope_plugins(app, row, save_dirs)
     app.all_plugins[:] = plugins
     app.file_combo["values"] = plugins

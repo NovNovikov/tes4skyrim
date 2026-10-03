@@ -21,6 +21,44 @@ sys.path.insert(0, ROOT)
 BS = chr(92)
 
 
+def test_whole_mod_buttons_follow_source_selection(monkeypatch):
+    import tkinter as tk
+    from tkinter import ttk
+    from types import SimpleNamespace
+    import core.gui.app as gui
+    import core.gui.selection as sel
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = SimpleNamespace(
+            scope_var=tk.StringVar(root, 'game'),
+            file_var=tk.StringVar(root, 'Oblivion.esm'),
+            file_combo=ttk.Combobox(root), all_plugins=[],
+            scope_rows={
+                'game': {'kind': 'directory', 'path': 'Data'},
+                'mod': {'kind': 'mod', 'plugins': ['A.esm', 'B.esp']},
+                'textures': {'kind': 'mod', 'plugins': []}},
+            run_clicked=lambda: None, run_mod_clicked=lambda: None,
+            rebuild_mod_clicked=lambda: None, clear_log=lambda: None,
+            cancel_clicked=lambda: None)
+        gui.build_run_buttons(app, root, 6)
+        monkeypatch.setattr(sel, '_scope_plugins',
+                            lambda _app, row, _save: row.get('plugins', []) if row else [])
+        buttons = (app.run_mod_btn, app.rebuild_mod_btn)
+        for source in ('game', 'mod', 'game', 'mod', 'textures', 'missing'):
+            app.scope_var.set(source)
+            sel.apply_scope(app, lambda: None, [None], [False])
+            if source == 'mod':
+                assert all(b.winfo_manager() == 'pack' for b in buttons)
+                assert app.run_btn.master.pack_slaves() == [
+                    app.run_btn, *buttons, app.cancel_btn.master]
+            else:
+                assert all(b.winfo_manager() == '' for b in buttons)
+    finally:
+        root.destroy()
+
+
 def _fake_group(tmp_path, plugins, label='My Pack'):
     """An export root holding one registered mod. Returns the root."""
     exp = tmp_path / 'export'
