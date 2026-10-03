@@ -891,6 +891,22 @@ def _imported_group(tmp_path, monkeypatch, plugs, label='My Pack'):
     return exp
 
 
+def test_imported_mod_opt_out_keeps_actual_member_history(tmp_path, monkeypatch):
+    import json
+    _imported_group(tmp_path, monkeypatch, ('A.esm', 'B.esp'))
+    v.record_step_run('meshes', 'A.esm', version='0.600')
+    assert v.steps_run_at('B.esp')['meshes'] == '0.600'
+    settings = tmp_path / 'conversion_config.json'
+    settings.write_text(json.dumps({'importedModOptimizations': False}))
+    assert v.steps_run_at('A.esm')['meshes'] == '0.600'
+    # Upstream already shares mesh history; opt-out preserves that behavior.
+    assert v.steps_run_at('B.esp')['meshes'] == '0.600'
+    v.record_step_run('creatures', 'B.esp', version='0.601')
+    assert 'creatures' not in v.steps_run_at('A.esm')
+    settings.write_text('{}')
+    assert v.steps_run_at('A.esm')['creatures'] == '0.601'
+
+
 def test_shared_asset_step_counts_for_every_plugin_in_the_mod(tmp_path,
                                                               monkeypatch):
     """Meshes converts the mod's ONE payload, so it is done for all of them.

@@ -263,6 +263,8 @@ def _untick_shared_done(app, fname: str) -> None:
     step's plan stays ticked: skipping would silently drop its variants.
     Manual re-ticking still rebuilds.
     """
+    if not imported_mod_optimizations_enabled(app):
+        return
     try:
         ran = version_info.steps_run_at(fname)
         done = version_info.shared_steps_done(
@@ -365,6 +367,14 @@ def plan_mod_run(app, plugins: list, *, rebuild=False):
     return runs, pack_with, pack_steps
 
 
+def imported_mod_optimizations_enabled(app) -> bool:
+    var = getattr(app, 'imported_mod_optimizations_var', None)
+    if var is not None:
+        return bool(var.get())
+    from core.gui.config import load_config
+    return load_config().get('importedModOptimizations') is not False
+
+
 def _apply_plan_state(app, plan, fname: str, auto_apply: bool) -> None:
     """Set the Upgrade button's label, tooltip and enabled state for `plan`."""
     if not plan:
@@ -373,7 +383,7 @@ def _apply_plan_state(app, plan, fname: str, auto_apply: bool) -> None:
         return
     if plan.get('never_run'):
         _untick_shared_done(app, fname)
-        if _is_multi_group_member(fname):
+        if imported_mod_optimizations_enabled(app) and _is_multi_group_member(fname):
             for key in ('pack', 'pack_zip'):
                 var = app.step_vars.get(key)
                 if var is not None:

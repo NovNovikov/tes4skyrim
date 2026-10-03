@@ -454,10 +454,13 @@ def record_step_run(step_key: str, plugin: str | None,
         # A shared-asset step converts the whole mod's payload at once, so it
         # is recorded against the MOD, falling back to the plugin when this is
         # not an imported mod -- which is every game-Data plugin.
-        key = _group_key(plugin) if step_key in GROUP_STEPS else None
+        key = _group_key(plugin) if step_key in _active_group_steps() else None
         key = key or _plugin_key(plugin)
     entry = steps.setdefault(key, {})
     entry[step_key] = version
+    if key.startswith('mod:') and _imported_optimizations_enabled():
+        # Keep actual member history as well, for the per-plugin opt-out mode.
+        steps.setdefault(_plugin_key(plugin), {})[step_key] = version
     # Never record a source directory against the shared key: it belongs to no
     # plugin, and `source_path_for` would then hand one plugin's install to
     # another.
@@ -530,13 +533,13 @@ def steps_run_at(plugin: str | None) -> dict[str, str]:
     # siblings looking like they still owe the step.
     gkey = _group_key(plugin)
     if gkey:
-        _merge_newer(merged, steps.get(gkey), GROUP_STEPS)
+        _merge_newer(merged, steps.get(gkey), _active_group_steps())
         # History written before shared-asset steps were group-scoped sits
         # under a SIBLING's own key. Read it across the group so an existing
         # conversion is not reported as still owed. Read-only, like the
         # GLOBAL_STEPS lift: the next successful run records it properly.
         for sib in _group_siblings(plugin):
-            _merge_newer(merged, steps.get(_plugin_key(sib)), GROUP_STEPS)
+            _merge_newer(merged, steps.get(_plugin_key(sib)), _active_group_steps())
 
     if _plugin_key(plugin) != GLOBAL_PLUGIN_KEY:
         _merge_newer(merged, steps.get(GLOBAL_PLUGIN_KEY), GLOBAL_STEPS)
@@ -733,6 +736,21 @@ def _group_siblings(plugin: str | None) -> list:
     except Exception:
         return []
     return [n for n in members if _plugin_key(n) != _plugin_key(plugin)]
+
+
+def _imported_optimizations_enabled() -> bool:
+    try:
+        config = json.loads((Path(SCRIPT_DIR) / 'conversion_config.json').read_text(
+            encoding='utf-8'))
+        return config.get('importedModOptimizations') is not False
+    except (OSError, ValueError):
+        return True
+
+
+def _active_group_steps():
+    # Opt-out uses upstream's original shared-history rules, including the
+    # original per-plugin creature stamp.
+    return GROUP_STEPS if _imported_optimizations_enabled() else GROUP_STEPS - {'creatures'}
 
 
 def _group_key(plugin: str | None) -> str | None:

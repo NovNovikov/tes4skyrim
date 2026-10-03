@@ -253,6 +253,7 @@ class GuiApp:
         self.file_var = self.scope_var = self.workers_var = None
         self.status_var = self.timer_var = None
         self.cache_dl_var = self.pack_default_var = None
+        self.imported_mod_optimizations_var = None
         self.winding_mode_var = self.parallax_var = self.tex_only_var = None
         self.lod_detail_var = self.navmesh_gen_var = None
         self.tes4_encoding_var = None
@@ -491,6 +492,8 @@ def build_state(root, cfg: dict) -> GuiApp:
         value=cfg.get(DOWNLOAD_CONFIG_KEY) is not False)
     app.pack_default_var = tk.BooleanVar(
         value=cfg.get(PACK_DEFAULT_CONFIG_KEY) is not False)
+    app.imported_mod_optimizations_var = tk.BooleanVar(
+        value=cfg.get("importedModOptimizations") is not False)
     app.winding_mode_var = tk.StringVar(value=_initial_winding(cfg))
     app.lod_detail_var = tk.IntVar(value=_initial_lod_detail(cfg))
     saved_gen = cfg.get(NAVMESH_GENERATOR_CONFIG_KEY)
