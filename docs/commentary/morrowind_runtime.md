@@ -3915,7 +3915,8 @@ name, `sGoverningAttribute`: "Governing Attribute: X" (the attribute the cap
 and the level-up credit use, `GoverningAttribute`), Skyrim's description, then
 `sSkillProgress` ("Progress towards skill increase") over a red bar reading
 `NN/100`, or `sSkillMaxReached` alone at 100. Hovering a skill row shows it;
-headings and faction rows show nothing.
+headings show nothing, and faction rows show the
+[faction tooltip](#faction-and-level-tooltips).
 
 **The progress** is `PlayerSkills` data's `points / pointsMax` for the skill.
 The pointer's offset in PlayerCharacter differs by build (0x9b8 on 1.6.1170,
@@ -3923,6 +3924,29 @@ The pointer's offset in PlayerCharacter differs by build (0x9b8 on 1.6.1170,
 `mov rcx,[rcx+disp32]`; the 12-byte `{level, points, pointsMax}` entries from
 +0x08 are what `PlayerSkills::AdvanceSkill` adds to and compares (`ids.h`, read
 on both builds).
+
+### <a id="faction-and-level-tooltips"></a>Faction and level tooltips (2026-10-03, unconfirmed in game)
+
+**Code:** `plugin/stat_tip.cpp` (`FillFaction`, `FillLevel`);
+`stats_sheet.cpp` `HoverTip`. Both are OpenMW's (`StatsWindow::updateSkillArea`
+and `onFrame`, `FactionToolTip` and `LevelToolTip` in `openmw_tooltips.layout`),
+in the same box as the attribute and skill tooltips, with no icon.
+
+- **A faction row**: the faction in the header color, the rank under it, then
+  while a next rank exists `sNextRank` and its name, the rank's two attribute
+  requirements, `sFavoriteSkills`, and `sNeedOneSkill` / `sand` /
+  `sNeedTwoSkills` with the rank's skill levels. The favored skills are named
+  as the **Skyrim** skills the player's value is read from
+  (`SkyrimSkillsOf`, the same table `ActorSkill` and the rank filter use), so
+  a split skill such as Long Blade lists One-handed and Two-handed, each once.
+  The text needs two colors, so the movie's `TipText` is an HTML field and
+  every tooltip writes it through `htmlText`.
+- **The Level row**: `sLevelProgress` over the red bar, then one centered
+  "Attribute xN" line per multiplier above 1 (`AttributeGain`). OpenMW's bar
+  counts major and minor skill increases toward `iLevelUpTotal`; here Skyrim
+  decides the level, so the bar is Skyrim's experience: PlayerSkills data
+  opens with `{levelPoints, levelPointsMax}` at +0x00 and +0x04 (skse64's
+  `PlayerSkills::Data`), before the per-skill entries at +0x08.
 
 ### <a id="race-attributes"></a>Race starting attributes, retroactive (2026-10-02, unconfirmed in game)
 

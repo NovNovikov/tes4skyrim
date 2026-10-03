@@ -57,4 +57,10 @@ struct ThumbDrag {
 double CharWidth(char c);
 double TextWidth(const std::string& text);
 
+// An HTML field's markup: `rgb` as "#RRGGBB"; text escaped, with each newline
+// a <br> (which the field counts as ONE character); and that text in a color.
+std::string HexColor(unsigned rgb);
+std::string HtmlText(const std::string& text);
+std::string HtmlColored(const std::string& text, unsigned rgb);
+
 }  // namespace tesruntime::mw

@@ -184,6 +184,9 @@ struct GameHooks {
     // next point, 0..1; negative when it cannot be read.
     // See: docs/commentary/morrowind_runtime.md#skill-tooltips
     float (*skillProgress)(const char* skill) = nullptr;
+    // The player's experience toward Skyrim's next level and what it takes;
+    // false when it cannot be read.
+    bool (*levelProgress)(float* points, float* most) = nullptr;
     // Settles every TES4 plugin's player attribute globals with the sheet's
     // store: what a script wrote moves the base, then the attribute is
     // written back. Game thread.

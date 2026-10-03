@@ -78,7 +78,8 @@ constexpr Rect kSkillView{sl::kSkillViewX, sl::kSkillViewY, sl::kSkillViewW,
                           sl::kSkillViewH};
 constexpr Rect kSkillScroll{sl::kSkillScrollX, sl::kSkillScrollY,
                             sl::kSkillScrollW, sl::kSkillScrollH};
-constexpr Rect kTabs[] = {{sl::kTab0X, sl::kTab0Y, sl::kTab0W, sl::kTab0H},
+constexpr Rect kLevelRow{sl::kLevelRowX, sl::kLevelRowY, sl::kLevelRowW, sl::kLevelRowH};
+constexpr Rect kTabs[] ={{sl::kTab0X, sl::kTab0Y, sl::kTab0W, sl::kTab0H},
                           {sl::kTab1X, sl::kTab1Y, sl::kTab1W, sl::kTab1H}};
 constexpr const char* kTabGmst[][2] = {{"sSkills", "Skills"}, {"sStatistics", "Statistics"}};
 constexpr int kStatisticsTab = 1;
@@ -100,6 +101,10 @@ struct Row {
     // The Skyrim skill (actor value) the row shows, for its tooltip; -1 for
     // any other row.
     int skill = -1;
+    // A faction row's 0-based rank and its FACT (null when the plugin has
+    // none), for its tooltip; rank -1 for any other row.
+    int rank = -1;
+    const FactionDef* faction = nullptr;
 };
 
 std::vector<Row> g_rows;
@@ -236,7 +241,8 @@ void BuildRows() {
         const bool ranked = def && membership.rank < static_cast<int>(def->rankNames.size());
         g_rows.push_back({def && !def->id.empty() ? def->id : id,
                           ranked ? def->rankNames[membership.rank]
-                                 : std::to_string(membership.rank + 1)});
+                                 : std::to_string(membership.rank + 1),
+                          false, -1, membership.rank, def});
     }
 }
 
@@ -332,14 +338,33 @@ void OnClick(double x, double y) {
     Scroll(sl::kRowH * ScrollClick(kSkillScroll, y, fraction, page));
 }
 
-// The skill whose row is fully in view under the point, or -1.
-int SkillAt(double x, double y) {
+// The list row fully in view under the point, or -1.
+int RowAt(double x, double y) {
     if (!kSkillView.Contains(x, y)) return -1;
     const int index = (static_cast<int>(y) - kSkillView.y + g_scroll) / sl::kRowH;
     const int top = kSkillView.y + index * sl::kRowH - g_scroll;
     const bool shown = index < static_cast<int>(g_rows.size()) && top >= kSkillView.y &&
                        top + sl::kRowH <= kSkillView.y + kSkillView.h;
-    return shown ? g_rows[static_cast<std::size_t>(index)].skill : -1;
+    return shown ? index : -1;
+}
+
+// The tooltip for what is under the point: an attribute, the level, or a
+// skill or faction row; none while the thumb is dragged.
+void HoverTip(double x, double y) {
+    const bool idle = !g_drag.Active();
+    const int attribute = idle ? AttributeAt(x, y) : -1;
+    const bool level = idle && kLevelRow.Contains(x, y);
+    const int index = idle ? RowAt(x, y) : -1;
+    const Row* row = index >= 0 ? &g_rows[static_cast<std::size_t>(index)] : nullptr;
+    if (attribute >= 0) {
+        Tip().HoverAttribute(attribute, x, y);
+    } else if (level) {
+        Tip().HoverLevel(true, x, y);
+    } else if (row && row->rank >= 0) {
+        Tip().HoverFaction(index, row->faction, row->rank, x, y);
+    } else {
+        Tip().HoverSkill(row ? row->skill : -1, x, y);
+    }
 }
 
 void OnHover(double x, double y) {
@@ -351,12 +376,7 @@ void OnHover(double x, double y) {
         g_hoverTab = hoverTab;
         PushTabs();
     }
-    const int attribute = g_drag.Active() ? -1 : AttributeAt(x, y);
-    if (attribute >= 0) {
-        Tip().HoverAttribute(attribute, x, y);
-    } else {
-        Tip().HoverSkill(g_drag.Active() ? -1 : SkillAt(x, y), x, y);
-    }
+    HoverTip(x, y);
     if (!g_drag.Active()) return;
     const int to = static_cast<int>(std::lround(g_drag.Fraction(y) * ListRange()));
     if (to != g_scroll) Scroll(to - g_scroll);

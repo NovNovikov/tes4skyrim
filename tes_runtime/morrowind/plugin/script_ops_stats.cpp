@@ -250,6 +250,12 @@ float ActorSkill(const std::string& actor, int tes3Index) {
                        Family::Skill, tes3Index);
 }
 
+void SkyrimSkillsOf(int tes3Index, const char** first, const char** second) {
+    const bool known = tes3Index >= 0 && tes3Index < Compiler::Stats::numberOfSkills;
+    *first = known ? kSkills[tes3Index].skyrim : nullptr;
+    *second = known ? kSkills[tes3Index].also : nullptr;
+}
+
 float ActorAttribute(const std::string& actor, int tes3Index) {
     return StatByIndex(actor, kAttributes,
                        Compiler::Stats::numberOfAttributes, Family::Attribute,

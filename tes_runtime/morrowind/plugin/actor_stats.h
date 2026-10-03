@@ -24,6 +24,10 @@ namespace tesruntime::mw {
 float ActorSkill(const std::string& actor, int tes3Index);
 float ActorAttribute(const std::string& actor, int tes3Index);
 
+// The Skyrim actor value names ActorSkill reads for a TES3 skill: the one it
+// writes, then the second a split skill also reads; null where there is none.
+void SkyrimSkillsOf(int tes3Index, const char** first, const char** second);
+
 // An attribute before active magic moves it, which a level-up raises.
 float ActorBaseAttribute(const std::string& actor, int tes3Index);
 

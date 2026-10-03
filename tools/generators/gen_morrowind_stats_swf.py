@@ -191,11 +191,11 @@ def line_in(box: tuple) -> tuple:
 
 
 def field(char_id: int, rect: tuple, origin: tuple, colors: dict,
-          color: str = 'normal', align: int = ALIGN_LEFT) -> Tag:
+          color: str = 'normal', align: int = ALIGN_LEFT, html: bool = False) -> Tag:
     """A dynamic field in the embedded face at a window-space rect."""
     return define_edit_text(char_id, *on_stage(rect, origin), '', '',
                             font_id=CHAR_MW_FONT, rgb=colors[color],
-                            height=BODY_HEIGHT_TWIPS, align=align)
+                            height=BODY_HEIGHT_TWIPS, align=align, html=html)
 
 
 def sprite(char_id: int, image, name: str, rect: tuple, origin: tuple,
@@ -282,14 +282,16 @@ def tip_name_x() -> int:
 
 def tip_fields(colors: dict) -> list:
     """The tooltip's name and governing attribute beside the icon, its wrapped
-    description, and the progress label and value, all at the origin."""
+    text (HTML, for the faction tooltip's two colors), and the progress label
+    and value, all at the origin."""
     name_w, inner_w = TIP_W - tip_name_x() - TIP_PAD, TIP_W - 2 * TIP_PAD
     rows = (('TipName', name_w, TIP_ICON, ALIGN_LEFT),
             ('TipAttr', name_w, TIP_LINE, ALIGN_LEFT),
             ('TipText', inner_w, TIP_TEXT_H, ALIGN_LEFT),
             ('TipLabel', inner_w, TIP_LABEL_H, ALIGN_CENTER),
             ('TipProgress', TIP_BAR_W, TIP_BAR_H, ALIGN_CENTER))
-    return [(field(CHAR_TIP_FIELD_FIRST + i, (0, 0, w, h), (0, 0), colors, align=align), name)
+    return [(field(CHAR_TIP_FIELD_FIRST + i, (0, 0, w, h), (0, 0), colors, align=align,
+                   html=name == 'TipText'), name)
             for i, (name, w, h, align) in enumerate(rows)]
 
 
@@ -532,6 +534,7 @@ def stats_lines() -> list:
     lines += rect_lines('SkillView', skill_view(), origin)
     lines += rect_lines('SkillScroll', skill_scroll(), origin)
     lines += rect_lines('AttrRow', row_rect(ATTRIBUTE_BOX, BOX_PAD), origin)
+    lines += rect_lines('LevelRow', row_rect(INFO_BOX, INFO_ROWS[0]), origin)
     for i, tab in enumerate(TABS):
         lines += rect_lines(f'Tab{i}', client(tab), origin)
     return lines + [f'constexpr int kCaptionPad = {CAPTION_PAD};',

@@ -659,11 +659,14 @@ constexpr std::size_t kVrOffTrainingMenuSkill = 0x50;
 //        so the offset is read from that instruction. Its data block holds a
 //        {level, points, pointsMax} per skill from +0x08, 12 bytes each, actor
 //        value 6 first: PlayerSkills::AdvanceSkill (id 41561) adds to
-//        [data + 12*(av-6) + 0xc] and compares it with +0x10.
+//        [data + 12*(av-6) + 0xc] and compares it with +0x10. The player
+//        level's {points, pointsMax} open the block, at +0x00 and +0x04
+//        (skse64's PlayerSkills::Data levelPoints, levelPointsMax).
 // See: docs/commentary/morrowind_runtime.md#skill-tooltips
 constexpr std::uint8_t kFormTypeNpc = 0x2B;
 constexpr std::size_t kOffNpcSexFlags = 0x38;
 constexpr std::size_t kAdvanceSkillLoadAt = 0x10;
+constexpr std::size_t kLevelPoints = 0x00;
 constexpr std::size_t kSkillDataFirst = 0x08;
 constexpr std::size_t kSkillDataStride = 0x0C;
 constexpr int kFirstSkillValue = 6;

@@ -189,12 +189,6 @@ std::vector<Hot> FindLinks(const std::string& text,
     return out;
 }
 
-std::string HexColor(unsigned rgb) {
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "#%06X", rgb);
-    return buf;
-}
-
 std::string Path(const char* base, const char* property) {
     return std::string(base) + property;
 }
@@ -303,20 +297,9 @@ struct Pane {
     std::string plain;
 
     void Text(const std::string& text) {
+        html += HtmlText(text);
         for (char c : text) {
-            if (c == '\r') continue;
-            if (c == '\n') {
-                html += "<br>";
-            } else if (c == '&') {
-                html += "&amp;";
-            } else if (c == '<') {
-                html += "&lt;";
-            } else if (c == '>') {
-                html += "&gt;";
-            } else {
-                html += c;
-            }
-            plain += c;
+            if (c != '\r') plain += c;
         }
     }
 

@@ -248,6 +248,22 @@ std::size_t SkillsOffset(std::uintptr_t advance) {
     return disp;
 }
 
+// The player's PlayerSkills data block, or null.
+const std::uint8_t* SkillData() {
+    void* player = PlayerRef();
+    if (!player || !g_skillsOffset) return nullptr;
+    void* skills = At<void*>(player, g_skillsOffset);
+    return skills ? At<const std::uint8_t*>(skills, 0) : nullptr;
+}
+
+bool LevelProgress(float* points, float* most) {
+    const std::uint8_t* data = SkillData();
+    if (!data) return false;
+    std::memcpy(points, data + ids::kLevelPoints, sizeof(float));
+    std::memcpy(most, data + ids::kLevelPoints + sizeof(float), sizeof(float));
+    return *most > 0.0f;
+}
+
 // The player's {points, pointsMax} toward the next point of Skyrim skill
 // `skill`, as a fraction.
 float SkillProgress(const char* skill) {
@@ -256,11 +272,8 @@ float SkillProgress(const char* skill) {
         const char* name = SkillName(i);
         if (name && skill && _stricmp(name, skill) == 0) av = i;
     }
-    void* player = PlayerRef();
-    if (av < 0 || !player || !g_skillsOffset) return -1.0f;
-    void* skills = At<void*>(player, g_skillsOffset);
-    const auto* data = skills ? At<const std::uint8_t*>(skills, 0) : nullptr;
-    if (!data) return -1.0f;
+    const std::uint8_t* data = SkillData();
+    if (av < 0 || !data) return -1.0f;
     const std::size_t at = ids::kSkillDataFirst +
                            static_cast<std::size_t>(av - ids::kFirstSkillValue) * ids::kSkillDataStride;
     float points = 0.0f, most = 0.0f;
@@ -359,6 +372,7 @@ void WatchAttributes(std::uint32_t actorId, std::uint32_t casterId, const Runtim
 void InstallAttributeCalls(GameHooks& hooks) {
     hooks.attributeEffect = AttributeEffect;
     hooks.skillProgress = SkillProgress;
+    hooks.levelProgress = LevelProgress;
     hooks.syncAttributeGlobals = SyncAttributeGlobals;
     InstallSkillCap();
 }
