@@ -696,7 +696,28 @@ GLOBAL_PLUGIN_KEY = "*"
 # index, and the filename prefixes come from that plugin's own
 # `<esm>.voicemap.txt` / `.liptext.txt`. Marking it group-wide would tell the
 # user a sibling's voice lines were converted when they were never touched.
-GROUP_STEPS: frozenset[str] = frozenset({"extract", "meshes", "speedtrees"})
+# Creatures joins them: its folders come from the shared tree and its projects
+# land in the shared output, so a sibling run rebuilds the same set. Which
+# folders count as creatures is steered by that plugin's own CREA records, so
+# (as with meshes and wearables) a sibling adding CREA still needs its run.
+GROUP_STEPS: frozenset[str] = frozenset({"extract", "meshes", "speedtrees",
+                                         "creatures"})
+
+
+def shared_steps_done(ran: dict, current: str) -> set:
+    """GROUP_STEPS in `ran` already run at `current`.
+
+    A never-converted plugin still owes its own steps, but a shared step its
+    mod already ran at this version needs no re-tick: re-running it reconverts
+    the whole shared tree for the same bytes.
+    """
+    cur = version_key(current)
+    done = set()
+    for key in GROUP_STEPS:
+        at = version_key(ran.get(key) or "")
+        if at and cur and at == cur:
+            done.add(key)
+    return done
 
 
 def _group_siblings(plugin: str | None) -> list:
