@@ -5792,3 +5792,55 @@ class TestGameModeStepsAreRates:
         body = body[:body.index('EndFunction')]
         assert 'akRef.SendModEvent("TES4Track", aiAxis as String, afValue)' in body
         assert '!(akRef as Actor)' in body
+
+@pytest.mark.parametrize('owns_script', [False, True])
+def test_compile_shared_sources_respects_empty_plugin_ownership(tmp_path, monkeypatch, owns_script):
+    """Empty ownership succeeds; an owned script that fails compilation still fails."""
+    import json
+    import papyrus_compile as compiler
+    from script_convert.ownership import write_owned
+
+    monkeypatch.setattr(compiler, 'SCRIPT_DIR', tmp_path)
+    export = tmp_path / 'export'
+    export.mkdir()
+    names = ['Base.esm', 'Empty.esp']
+    (export / 'sources.json').write_text(json.dumps({'version': 1, 'sources': {
+        name: {'kind': 'archive', 'plugin': name, 'group_id': 'pack',
+               'group_label': 'Pack', 'group_plugins': names} for name in names}}))
+    for name in names:
+        records = export / 'Pack' / name
+        records.mkdir(parents=True)
+        (records / '_HEADER.txt').write_text('Master[0]=Base.esm\n'
+                                             if name == 'Empty.esp' else '')
+    output = tmp_path / 'output'
+    source = output / 'Pack' / 'scripts' / 'source'
+    source.mkdir(parents=True)
+    (source / 'MasterScript.psc').write_text('Scriptname MasterScript extends Quest\n')
+    write_owned(source, 'Base.esm', ['MasterScript'])
+    write_owned(source, 'Empty.esp', ['OwnScript'] if owns_script else [])
+    if owns_script:
+        (source / 'OwnScript.psc').write_text('Scriptname OwnScript extends Quest\n')
+    executable = tmp_path / 'external' / 'papyrus-compiler' / 'papyrus.exe'
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    data = tmp_path / 'Skyrim' / 'Data'
+    headers = data / 'Source' / 'Scripts'
+    headers.mkdir(parents=True)
+    (headers / 'Debug.psc').write_text('Scriptname Debug\n')
+
+    compiled_names = set()
+    def fail_compile(self, argv, timeout):
+        from pathlib import Path
+        inputs = Path(argv[argv.index('-i') + 1])
+        scripts = list(inputs.glob('*.psc')) if inputs.is_dir() else [inputs]
+        compiled_names.update(path.stem for path in scripts)
+        if not scripts:
+            return '', 0
+        return 'OwnScript.psc:1:1: forced compilation failure', 1
+    monkeypatch.setattr(compiler._Compiler, '_run', fail_compile)
+    result = compiler.phase_compile('Empty.esp', {'tes5DataPath': str(data)}, str(output))
+
+    assert result is (not owns_script)
+    assert compiled_names == ({'OwnScript'} if owns_script else set())
+    assert (source / 'MasterScript.psc').is_file()
+
