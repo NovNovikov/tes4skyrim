@@ -463,6 +463,9 @@ def test_rebuild_mod_commands_export_first_and_keep_normal_import_options(monkey
                     ('--pack-only', 'A.esm'), ('--pack-zip-only', 'A.esm')]
     for name in ['A.esm', 'B.esp']:
         assert runner.build_cmd(app, 'import_', name, 'output') in cmds
+    from convert_cli import build_parser
+    assert build_parser().parse_args(cmds[2][3:]).plugin_assets_only is True
+    assert build_parser().parse_args(cmds[3][3:]).plugin_assets_only is False
     ordinary = runner.mod_run_argv(app, runs, None, [], 'output')
     assert [(cmd[3], cmd[cmd.index('-f') + 1]) for cmd in ordinary] == [
         ('--export-only', 'A.esm'), ('--meshes-only', 'A.esm'),

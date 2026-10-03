@@ -54,3 +54,20 @@ def test_a_scoped_run_keeps_the_fragments_gun_appends(tmp_path):
                                 'animdata_appends': ['gun']}), encoding='utf-8')
     assert _kept_appends(str(plugin_out)) == {'animdata_appends': ['gun']}
     assert _kept_appends(str(tmp_path / 'Missing.esm')) == {}
+
+
+def test_plugin_mesh_option_reaches_conversion_but_asset_only_mods_keep_their_payload(monkeypatch):
+    import convert
+    from asset_convert import asset_pipeline
+
+    scopes = []
+    monkeypatch.setattr(convert, '_use_plugin_namespace', lambda *_: None)
+    monkeypatch.setattr(convert, 'is_asset_only', lambda name, root: name == 'Assets')
+    monkeypatch.setenv(convert.WINDING_FIX_ENV_VAR, '0')
+    monkeypatch.setattr(asset_pipeline, 'convert_meshes',
+                        lambda **kw: scopes.append((kw['source_file'],
+                                                    kw['plugin_assets_only'])) or {})
+    for name in ('Patch.esp', 'Assets'):
+        assert convert.phase_assets(name, {}, textures_only=True,
+                                     plugin_assets_only=True) is True
+    assert scopes == [('Patch.esp', True), ('Assets', False)]

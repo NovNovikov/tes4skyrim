@@ -195,6 +195,9 @@ def _add_mesh_args(parser) -> None:
                              "under meshes/ (e.g. architecture tr/l). Default: all.")
     parser.add_argument("--skip-hair", action="store_true",
                         help="Skip the hair baking pass after mesh conversion.")
+    parser.add_argument("--plugin-assets-only", action="store_true",
+                        help="Convert only meshes and creatures referenced by "
+                             "this plugin, including base objects it places.")
     winding = parser.add_mutually_exclusive_group()
     winding.add_argument("--collision-winding-fix", dest="collision_winding_fix",
                          action="store_true", default=None,

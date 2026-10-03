@@ -154,7 +154,7 @@ def _empty_batch_stats(total):
     }
 
 
-def _collect_nifs(mesh_path, subdir_filter, fixtures=()):
+def _collect_nifs(mesh_path, subdir_filter, fixtures=(), model_filter=None):
     """(files to convert, how many the filters dropped).
 
     Each `subdir_filter` entry is a path prefix under the mesh root: a root
@@ -171,6 +171,8 @@ def _collect_nifs(mesh_path, subdir_filter, fixtures=()):
         parts = tuple(p.lower() for p in nf.relative_to(mesh_path).parts)
         if (any(seg in parts for seg in SKIP_PATHS)
                 and '/'.join(parts) not in fixtures):
+            skipped += 1
+        elif model_filter is not None and '/'.join(parts) not in model_filter:
             skipped += 1
         elif allowed is not None and not any(parts[:len(a)] == a for a in allowed):
             skipped += 1
@@ -345,7 +347,8 @@ def _report_batch(stats, skipped_list, total, parallax):
 
 def batch_convert(mesh_dir, output_dir, *, fix_textures=True,
                   remap_skeleton=None, subdir_filter=None, wearable_plan=None,
-                  parallax=False, textures_only=False, scan_dir=None):
+                  parallax=False, textures_only=False, scan_dir=None,
+                  model_filter=None):
     """Convert every NIF under mesh_dir into output_dir; return run stats.
 
     Skip reasons are VER (unsupported version), RD (read failure) and WR
@@ -358,7 +361,8 @@ def batch_convert(mesh_dir, output_dir, *, fix_textures=True,
     mesh_path = Path(mesh_dir)
     out_base = Path(output_dir)
     nif_files, skipped_by_path = _collect_nifs(
-        mesh_path, subdir_filter, (wearable_plan or {}).get(FIXTURE_KEY, ()))
+        mesh_path, subdir_filter, (wearable_plan or {}).get(FIXTURE_KEY, ()),
+        model_filter=model_filter)
     total = len(nif_files)
     stats = _empty_batch_stats(total)
     skipped_list = []
@@ -372,8 +376,8 @@ def batch_convert(mesh_dir, output_dir, *, fix_textures=True,
         print(f'  Texture fallback: {len(tex_fallback)} master tree(s) '
               f'-- {names}')
     if skipped_by_path:
-        print(f'  Skipped {skipped_by_path} files matching SKIP_PATHS: '
-              f'{sorted(SKIP_PATHS)}')
+        print(f'  Skipped {skipped_by_path} files outside the selected scope '
+              f'or matching SKIP_PATHS: {sorted(SKIP_PATHS)}')
     if total == 0:
         return stats
 

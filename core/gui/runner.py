@@ -1201,7 +1201,13 @@ def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False):
         jobs = [(name, key) for name, steps in runs for key in steps]
     if pack_with is not None:
         jobs += [(pack_with, key) for key in pack_steps]
-    return [build_cmd(app, key, name, out_dir, None) for name, key in jobs]
+    cmds = []
+    for name, key in jobs:
+        cmd = build_cmd(app, key, name, out_dir, None)
+        if key in ('meshes', 'creatures'):
+            cmd.append('--plugin-assets-only')
+        cmds.append(cmd)
+    return cmds
 
 
 def run_mod_clicked(app, missing_dep, *, rebuild=False) -> None:

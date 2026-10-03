@@ -188,10 +188,13 @@ _WEARABLE_SIGS = frozenset({'ARMO', 'CLOT', 'HAIR'})
 
 #: Record types steering creature-folder selection. Same deal as wearables:
 #: a sibling with CREA records may add or retie folders.
-_CREATURE_SIGS = frozenset({'CREA'})
+_CREATURE_SIGS = frozenset({'CREA', 'ACRE'})
 
 #: Shared step -> record types whose presence keeps the step ticked.
-_SHARED_PLAN_SIGS = {'meshes': _WEARABLE_SIGS, 'creatures': _CREATURE_SIGS}
+from asset_convert.sources.plugin_assets import MODEL_TYPES
+
+_SHARED_PLAN_SIGS = {'meshes': MODEL_TYPES | {'REFR'},
+                     'creatures': _CREATURE_SIGS}
 
 #: Plugin binary -> top-level record signatures, per session. Header-only
 #: scans cost ~0.01 s even for large plugins, but selection changes often.

@@ -163,7 +163,8 @@ def _persist_mesh_manifests(mesh_stats, manifest_dir, partial: bool) -> None:
 
 
 def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
-                       mesh_subdirs, parallax, textures_only):
+                       mesh_subdirs, parallax, textures_only,
+                       plugin_assets_only=False):
     """Run the NIF batch over `mesh_src`; return its stats dict.
 
     The wearable plan names which _0/_1/plain variants each mesh is actually
@@ -197,7 +198,30 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
     plan[resting_items_plan.RESTING_KEY] = resting
     print(f"  Resting items plan: {stocked} fixture models share a cell "
           f"with an item")
-    mesh_scan_fragments.clear_fragments(asset_dir)
+    model_filter = None
+    if plugin_assets_only:
+        from asset_convert.sources.plugin_assets import model_paths
+        from core.plugin_masters import master_chain, master_dir
+
+        # Placed master objects keep their authored collision/animation roles.
+        inherited_masses, inherited_doors, inherited_fixtures = {}, set(), set()
+        inherited_animated = set()
+        for name in master_chain(str(rec_dir)):
+            base = master_dir(str(rec_dir), name)
+            inherited_masses.update(clutter_plan.build_clutter_masses(base))
+            inherited_doors.update(door_plan.build_door_models(base))
+            inherited_fixtures.update(fixture_plan.build_fixture_models(base))
+            inherited_animated.update(fixture_plan.build_animated_models(base))
+            plan[door_plan.REACH_KEY] |= door_plan.places_morrowind_doors(base)
+        inherited_masses.update(masses)
+        plan[clutter_plan.CLUTTER_KEY] = inherited_masses
+        doors.update(inherited_doors)
+        fixtures.update(inherited_fixtures)
+        plan[fixture_plan.ANIMATED_KEY].update(inherited_animated)
+        model_filter = model_paths(rec_dir)
+        print(f"  Plugin mesh scope: {len(model_filter)} referenced models")
+    else:
+        mesh_scan_fragments.clear_fragments(asset_dir)
     return nif_batch.batch_convert(
         str(mesh_src), output_dir=str(mesh_dst),
         fix_textures=True, remap_skeleton=None,
@@ -206,12 +230,13 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
         parallax=parallax,
         textures_only=textures_only,
         scan_dir=None if textures_only else str(asset_dir),
+        model_filter=model_filter,
     )
 
 
 def convert_meshes(source_file, extract_dir='export', output_dir='output',
                    mesh_subdirs=None, parallax=False, textures_only=False,
-                   skip_hair=False):
+                   skip_hair=False, plugin_assets_only=False):
     """Convert extracted NIFs and copy textures into `output_dir/<source_name>/`.
 
     Needs extract_bsas run first. `mesh_subdirs` converts ONLY the NIFs under
@@ -220,6 +245,8 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     `skip_hair` skips the hair pass. Assets come from the shared group tree,
     records from the plugin's own dump. Returns stats keyed
     'mesh_conversion', 'textures_copied', 'other_copied'.
+    `plugin_assets_only` limits the NIF batch to this plugin's references
+    while retaining its post-passes and the other plugins' mesh manifests.
     """
     extract_dir = Path(extract_dir)
     output_dir = Path(output_dir)
@@ -246,11 +273,12 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     if mesh_src.exists():
         stats['mesh_conversion'] = _convert_mesh_tree(
             mesh_src, plugin_dir / 'meshes' / ns, asset_dir, extract_dir,
-            source_name, mesh_subdirs, parallax, textures_only)
+            source_name, mesh_subdirs, parallax, textures_only,
+            plugin_assets_only)
         if parallax:
             _write_parallax_notice(plugin_dir)
         _persist_mesh_manifests(stats['mesh_conversion'], asset_dir,
-                                bool(mesh_subdirs))
+                                bool(mesh_subdirs) or plugin_assets_only)
     else:
         print(f"  No meshes found at {mesh_src}")
         stats['mesh_conversion'] = {'converted': 0, 'skipped': 0, 'errors': 0}

@@ -595,7 +595,7 @@ def _use_plugin_namespace(file_name: str) -> str:
 
 def phase_assets(file_name: str, config: dict, output_dir: str = None,
                  mesh_subdirs=None, winding_fix=None, parallax=False,
-                 textures_only=False, skip_hair=False):
+                 textures_only=False, skip_hair=False, plugin_assets_only=False):
     """Convert extracted NIF assets and copy textures to output (meshes only).
 
     `winding_fix` tri-states the collision winding repair: True/False force it,
@@ -608,6 +608,9 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
 
     extract_dir = str(SCRIPT_DIR / "export")
     out_dir     = output_dir or str(SCRIPT_DIR / "output")
+    # An asset-only replacement has no plugin records to narrow its payload.
+    if plugin_assets_only and is_asset_only(file_name, extract_dir):
+        plugin_assets_only = False
 
     if winding_fix is None:
         winding_fix = default_for_plugin(file_name)
@@ -627,6 +630,7 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
         parallax=parallax,
         textures_only=textures_only,
         skip_hair=skip_hair,
+        plugin_assets_only=plugin_assets_only,
     )
     total = sum(v for v in stats.values() if isinstance(v, int))
     print(f"[{file_name}] Meshes complete ({total} items processed)")
@@ -693,7 +697,8 @@ def phase_speedtrees(file_name: str, config: dict, output_dir: str = None):
 # ===========================================================================
 
 def phase_creatures(file_name: str, tes5_data: str, config: dict,
-                    output_dir: str = None, only: list = None):
+                    output_dir: str = None, only: list = None,
+                    plugin_assets_only=False):
     """Convert creatures: generated behavior projects (skeleton.hkx,
     animations, behavior graph), skeleton/body NIF conversion, and
     registration in the merged animation singlefiles. `only` names the
@@ -717,7 +722,8 @@ def phase_creatures(file_name: str, tes5_data: str, config: dict,
 
     scope = f" (only {', '.join(only)})" if only else ""
     print(f"[{file_name}] Converting creatures (behavior projects + meshes){scope}...")
-    res = convert_creatures(export_subdir, out_meshes, names=only)
+    res = convert_creatures(export_subdir, out_meshes, names=only,
+                            plugin_assets_only=plugin_assets_only)
     print(f"[{file_name}] Creatures complete "
           f"({len(res['projects'])} projects, {len(res['errors'])} errors)")
     return not res['errors']
@@ -1124,11 +1130,13 @@ def _phase_runners(run) -> dict:
         'meshes': lambda fn: phase_assets(
             fn, cfg, output_dir=out, mesh_subdirs=a.mesh_subdirs,
             winding_fix=a.collision_winding_fix, parallax=a.parallax,
-            textures_only=a.textures_only, skip_hair=a.skip_hair),
+            textures_only=a.textures_only, skip_hair=a.skip_hair,
+            plugin_assets_only=a.plugin_assets_only),
         'speedtrees': lambda fn: phase_speedtrees(fn, cfg, output_dir=out),
         'creatures': lambda fn: phase_creatures(fn, run.tes5_data, cfg,
                                                 output_dir=out,
-                                                only=run.args.only),
+                                                only=run.args.only,
+                                                plugin_assets_only=a.plugin_assets_only),
         'import': lambda fn: phase_import(fn, run.tes4_data, run.tes5_data,
                                           run.export_dir, cfg, output_dir=out),
         'sounds': lambda fn: phase_sounds(fn, cfg, output_dir=out),
