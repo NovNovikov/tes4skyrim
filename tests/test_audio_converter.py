@@ -704,6 +704,18 @@ def test_voice_patch_without_recordings_does_not_copy_shared_voices(tmp_path, ca
     assert 'no voice map' not in capsys.readouterr().out
 
 
+def test_voice_scope_can_be_disabled_for_legacy_plugin_conversion(tmp_path):
+    source = tmp_path / 'source'
+    foreign = source / 'sound' / 'voice' / 'master.esm' / 'Nord' / 'M'
+    foreign.mkdir(parents=True)
+    (foreign / 'hello_00000001_1.xwm').write_bytes(b'master voice')
+    output = tmp_path / 'output'
+    result = organize_voice_files(source, output, plugin_name='Fix.esp',
+                                   convert_audio=False, scope_plugin_voices=False)
+    assert result['organized'] == 1 and result['errors'] == 0
+    assert [p.read_bytes() for p in output.rglob('*.xwm')] == [b'master voice']
+
+
 def test_voice_map_borrows_only_required_lines_and_prefers_own_recording(tmp_path):
     source, output = tmp_path / 'source', tmp_path / 'output'
     for owner, fid, payload in [('zmaster.esm', 1, b'own take'),

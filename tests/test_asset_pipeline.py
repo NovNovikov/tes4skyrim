@@ -80,6 +80,27 @@ def test_mod_mesh_reuse_preserves_weight_variants_and_retries_failure(tmp_path, 
     assert run()['errors'] == 1
 
 
+def test_imported_mesh_reuse_between_invocations_tracks_texture_dependencies(tmp_path, monkeypatch):
+    from asset_convert.nif import nif_batch
+    monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
+    src = tmp_path / 'export' / 'meshes' / 'tree.nif'
+    out = tmp_path / 'output' / 'meshes'
+    _small_nif(src)
+    texture = src.parent.parent / 'textures' / 'source.dds'
+    texture.parent.mkdir()
+    texture.write_bytes(b'first')
+    def run(token='imported-mod'):
+        return nif_batch.batch_convert(src.parent, out, reuse_token=token)
+    assert run()['converted'] == 1
+    assert run()['reused'] == 1
+    texture.write_bytes(b'changed texture')
+    assert run()['converted'] == 1
+    assert run()['reused'] == 1
+    assert run(None)['converted'] == 1
+    (out / src.name).unlink()
+    assert run()['converted'] == 1
+
+
 def test_reused_textured_mesh_keeps_texture_and_overlay_manifests(tmp_path, monkeypatch):
     from asset_convert.nif import nif_batch
     monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
@@ -90,7 +111,10 @@ def test_reused_textured_mesh_keeps_texture_and_overlay_manifests(tmp_path, monk
         result = real_convert(*args, **kwargs)
         # Exercise transport of all worker metadata independently of shader
         # heuristics: dropping these sets would break pruning and alpha repair.
-        result.update(textures={'tes4/transparent.dds'},
+        generated = out.parent.parent / 'textures' / 'tes4' / 'generated_p.dds'
+        generated.parent.mkdir(parents=True, exist_ok=True)
+        generated.write_bytes(b'height map')
+        result.update(textures={'tes4/transparent.dds', 'tes4/generated_p.dds'},
                       alpha_opacity_diffuse={'tes4/transparent.dds'},
                       overlay_diffuses={'tes4/overlay.dds'})
         return result
@@ -105,6 +129,10 @@ def test_reused_textured_mesh_keeps_texture_and_overlay_manifests(tmp_path, monk
     assert reused['reused'] == 1 and reused['errors'] == 0
     for key in ('textures_used', 'alpha_opacity_diffuse', 'overlay_diffuses'):
         assert reused[key] == first[key]
+    generated = out.parent.parent / 'textures' / 'tes4' / 'generated_p.dds'
+    generated.unlink()
+    assert run()['converted'] == 1
+    assert generated.read_bytes() == b'height map'
 
 
 @pytest.fixture
@@ -186,6 +214,23 @@ def test_shared_textures_copy_once_and_preserve_all_plugins_opacity(tmp_path, mo
     assert repaired == ['luminance']
     assert opacity == [{'tes4/transparent.dds', 'tes4/overlay.dds'}]
     assert (out / 'My Pack' / 'textures' / 'tes4' / 'diffuse.dds').read_bytes() == b'original texture'
+    def run():
+        return asset_pipeline.convert_shared_textures(
+            'A.esm', ['A.esm', 'B.esp'], extract_dir=exp, output_dir=out, reuse=True)
+    assert run()['textures_copied'] == 1
+    assert run()['textures_reused'] is True
+    assert len(copied) == 2
+    target = out / 'My Pack' / 'textures' / 'tes4' / 'diffuse.dds'
+    target.unlink()
+    assert run()['textures_copied'] == 1
+    assert target.read_bytes() == b'original texture'
+    (assets / 'textures' / 'diffuse.dds').write_bytes(b'new texture')
+    assert run()['textures_copied'] == 1
+    assert target.read_bytes() == b'new texture'
+    texture_prune.write_manifest(assets / 'B.esp', {'tes4/new_opacity.dds'},
+                                  texture_prune.OPACITY_MANIFEST_NAME)
+    assert run()['textures_copied'] == 1
+    assert 'tes4/new_opacity.dds' in opacity[-1]
 
 
 def _dump(folder, sig, *records):
@@ -316,3 +361,19 @@ def test_plugin_creature_run_preserves_other_registered_projects(tmp_path, monke
     assert set(registered) == {'rat', 'wolf'}
     artifact = json.loads((export / 'creature_projects.json').read_text(encoding='utf-8'))
     assert set(artifact['data']) == {'rat', 'wolf'}
+
+
+def test_mesh_scope_finds_a_master_in_a_single_plugin_imported_mod(tmp_path):
+    import json
+    from asset_convert.sources.plugin_assets import model_paths
+    exp = tmp_path / 'export'
+    exp.mkdir()
+    (exp / 'sources.json').write_text(json.dumps({'version': 1, 'sources': {
+        name: {'kind': 'archive', 'plugin': name, 'group_id': name,
+               'group_label': label, 'group_plugins': [name]}
+        for name, label in [('A.esm', 'Master Pack'), ('B.esp', 'Patch Pack')]}}))
+    base, patch = exp / 'Master Pack', exp / 'Patch Pack'
+    _dump(base, 'STAT', {'FormID': '00000001', 'MODL': 'tree.nif'})
+    _dump(patch, 'REFR', {'FormID': '01000002', 'NAME': '00000001'})
+    (patch / '_HEADER.txt').write_text('Master[0]=A.esm\n')
+    assert model_paths(patch) == {'tree.nif'}

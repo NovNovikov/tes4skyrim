@@ -322,7 +322,7 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
 
 
 def convert_shared_textures(source_file, plugins, extract_dir='export',
-                             output_dir='output'):
+                             output_dir='output', reuse=False):
     """Copy/fix a mod's shared textures once, using every member's opacity set."""
     extract_dir, output_dir = Path(extract_dir), Path(output_dir)
     source_name = Path(source_file).name
@@ -336,12 +336,32 @@ def convert_shared_textures(source_file, plugins, extract_dir='export',
                                                texture_prune.OPACITY_MANIFEST_NAME)
     stats = {'mesh_conversion': {'alpha_opacity_diffuse': opacity},
              'textures_copied': 0, 'other_copied': 0}
+    memo, key = None, None
+    if reuse:
+        from asset_convert.sources import shared_reuse
+        from core.plugin_masters import master_chain, master_dir
+        inputs = [asset_dir / 'textures']
+        for name in plugins:
+            records = record_dir(extract_dir, name)
+            inputs.append(records / 'LTEX.txt')
+            inputs.extend(Path(master_dir(str(records), master)) / 'LTEX.txt'
+                          for master in master_chain(str(records)))
+        key = shared_reuse.digest([ns, sorted(opacity),
+                                    shared_reuse.stamps(inputs),
+                                    shared_reuse.implementation_stamp()])
+        memo = plugin_dir / '.shared-textures-reuse.json'
+        if shared_reuse.reusable(memo, key, [plugin_dir / 'textures']):
+            print('  Shared textures already current; no copy or repair needed.')
+            stats['textures_reused'] = True
+            return stats
     print("\nShared Mod Textures")
     _copy_and_fix_textures(asset_dir, plugin_dir, ns, stats, rec_dir)
     for name in plugins:
         checked, written = landscape_normals.ensure_ltex_normals(
             record_dir(extract_dir, name), plugin_dir / 'textures', output_dir)
         print(f"  [{name}] LTEX normals: {checked} checked, {written} written")
+    if memo and not stats.get('tga_failed'):
+        shared_reuse.remember(memo, key, [plugin_dir / 'textures'])
     return stats
 
 
@@ -396,6 +416,7 @@ def _copy_and_fix_textures(asset_dir, plugin_dir, ns, stats, rec_dir):
 
     tc_found, tc_written, tc_failed = image_transcode.run(tex_dst)
     stats['tga_transcoded'] = tc_written
+    stats['tga_failed'] = tc_failed
     if tc_found:
         print(f"  Loose TGA/BMP: {tc_found} found, {tc_written} "
               f"transcoded to DDS"
@@ -470,7 +491,8 @@ def convert_speedtrees(source_file, extract_dir='export', output_dir='output',
 
 
 def convert_sounds(source_file, extract_dir='export', output_dir='output',
-                   ffmpeg_path='ffmpeg', skip_shared_sounds=False):
+                   ffmpeg_path='ffmpeg', skip_shared_sounds=False,
+                   scope_plugin_voices=True):
     """Convert extracted sound files to XWM format.  Delegates to audio_converter.
 
     Args:
@@ -485,7 +507,8 @@ def convert_sounds(source_file, extract_dir='export', output_dir='output',
     from asset_convert.audio.audio_converter import convert_sounds as _ac_convert
     return _ac_convert(source_file, extract_dir=extract_dir,
                        output_dir=output_dir, ffmpeg_path=ffmpeg_path,
-                       skip_shared_sounds=skip_shared_sounds)
+                       skip_shared_sounds=skip_shared_sounds,
+                       scope_plugin_voices=scope_plugin_voices)
 
 
 def _copy_tree(src, dst):

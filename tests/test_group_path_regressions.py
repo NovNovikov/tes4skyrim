@@ -38,6 +38,54 @@ def _fake_group(tmp_path, plugins, label='My Pack'):
 #  The nesting rule must be STABLE
 # ---------------------------------------------------------------------------
 
+
+def test_imported_single_plugin_preserves_steps_and_parallax(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import core.gui.runner as runner
+    from convert_cli import build_parser
+    exp = _fake_group(tmp_path, ['A.esm', 'B.esp'])
+    monkeypatch.setattr(runner, 'EXPORT_DIR', exp)
+    monkeypatch.setattr(runner, 'navmesh_pins_dir', lambda: 'pins')
+    enabled = [True]
+    app = SimpleNamespace(
+        pack_default_var=SimpleNamespace(get=lambda: False),
+        imported_mod_optimizations_var=SimpleNamespace(get=lambda: enabled[0]),
+        navmesh_gen_var=SimpleNamespace(get=lambda: 'corridor'),
+        tes4_encoding_var=SimpleNamespace(get=lambda: 'auto'),
+        winding_on=lambda: False,
+        parallax_var=SimpleNamespace(get=lambda: True),
+        tex_only_var=SimpleNamespace(get=lambda: True))
+    steps = ['export', 'extract', 'meshes', 'speedtrees', 'creatures',
+             'import_', 'sounds', 'scripts']
+    cmds = runner.pipeline_argv(app, 'B.esp', 'out', steps, None)
+    args = [build_parser().parse_args(cmd[3:]) for cmd in cmds]
+    assert len(args) == len(steps)
+    assert args[2].parallax is True and args[2].textures_only is True
+    enabled[0] = False
+    # This is upstream's original combined command for the default selection.
+    legacy = runner.pipeline_argv(app, 'B.esp', 'out', steps, None)
+    assert len(legacy) == 1
+    parsed = build_parser().parse_args(legacy[0][3:])
+    from convert_cli import selected_steps
+    assert selected_steps(parsed) == [key.rstrip('_') for key in steps]
+
+
+def test_imported_optimization_opt_out_keeps_default_checkboxes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import core.gui.selection as sel
+    exp = _fake_group(tmp_path, ['A.esm', 'B.esp'])
+    monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
+    state = {key: True for key in ('meshes', 'creatures', 'pack', 'pack_zip')}
+    app = SimpleNamespace(
+        step_vars={key: SimpleNamespace(get=lambda key=key: state[key],
+                   set=lambda value, key=key: state.__setitem__(key, value))
+                   for key in state},
+        imported_mod_optimizations_var=SimpleNamespace(get=lambda: False),
+        upgrade_btn=SimpleNamespace(configure=lambda **kw: None),
+        set_upgrade_tip=lambda *args: None)
+    sel._apply_plan_state(app, {'never_run': True}, 'B.esp', True)
+    assert all(state.values())
+
 def test_record_dir_does_not_move_when_a_sibling_is_imported(tmp_path):
     """The nesting rule reads the ARCHIVE's plugin list, not the registry.
 

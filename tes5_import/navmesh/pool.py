@@ -505,7 +505,8 @@ def gather_navm_jobs(by_type: dict, door_fids: set = None,
     See: docs/commentary/tes5_import_navmesh.md#pool-orchestration
     """
     cells = by_type.get('CELL', [])
-    if not by_type.get('PGRD') or not cells:
+    if (os.environ.get('TESCONV_IMPORTED_MOD_OPTIMIZATIONS') != '0'
+            and (not by_type.get('PGRD') or not cells)):
         # Preserve grid resolution for the subsequent world builder, but
         # without a pathgrid there can be no TES4 geometry job to prepare.
         worlds = {get_formid(w, 'FormID') for w in by_type.get('WRLD', [])}

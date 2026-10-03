@@ -71,7 +71,7 @@ def related_records(folder, types=MODEL_TYPES):
     targets = {}
     for name in master_chain(str(folder)):
         base = master_dir(str(folder), name)
-        base_owners = masters_from_export_header(base) + [Path(base).name]
+        base_owners = masters_from_export_header(base) + [name]
         for sig, rec in _records(base, types):
             key = _identity(rec.get('FormID'), base_owners)
             if key in wanted:

@@ -87,3 +87,39 @@ def test_shared_texture_phase_does_not_run_mesh_or_book_conversion(monkeypatch):
                         or {'textures_copied': 7})
     assert convert.phase_assets('A.esm', {}, shared_texture_plugins=['A.esm', 'B.esp'])
     assert calls == [('A.esm', ['A.esm', 'B.esp'])]
+
+
+def test_imported_single_plugin_uses_setting_for_meshes_and_creatures(tmp_path, monkeypatch):
+    import convert
+    from asset_convert import asset_pipeline
+    from asset_convert.havok import creature_pipeline
+    monkeypatch.setattr(convert, 'SCRIPT_DIR', tmp_path)
+    monkeypatch.setattr(convert, '_use_plugin_namespace', lambda *_: None)
+    monkeypatch.setattr(convert, 'is_asset_only', lambda *_: False)
+    monkeypatch.setattr(convert.source_registry, 'get', lambda *_: {'group_id': 'g'})
+    monkeypatch.setattr(convert.source_registry, 'group_members',
+                        lambda *_: ['A.esm', 'B.esp'])
+    monkeypatch.setattr(convert, 'record_dir', lambda *_: tmp_path)
+    scopes, textures, creatures = [], [], []
+    monkeypatch.setattr(asset_pipeline, 'convert_meshes',
+                        lambda **kw: scopes.append(kw) or {})
+    monkeypatch.setattr(asset_pipeline, 'convert_shared_textures',
+                        lambda *args, **kw: textures.append((args, kw)))
+    monkeypatch.setattr(creature_pipeline, 'convert_creatures',
+                        lambda *args, **kw: creatures.append(kw) or
+                        {'projects': [], 'errors': {}})
+    for enabled in (True, False):
+        config = {'importedModOptimizations': enabled}
+        assert convert.phase_assets('B.esp', config, textures_only=True,
+                                     plugin_assets_only=True)
+        assert convert.phase_creatures('B.esp', '', config, plugin_assets_only=True)
+        assert scopes[-1]['plugin_assets_only'] is enabled
+        assert scopes[-1]['defer_textures'] is enabled
+        assert bool(scopes[-1]['mesh_reuse_token']) is enabled
+        assert creatures[-1]['plugin_assets_only'] is enabled
+    assert len(textures) == 1 and textures[0][0] == ('A.esm', ['A.esm', 'B.esp'])
+    assert textures[0][1]['reuse'] is True
+    monkeypatch.setattr(convert, 'is_asset_only', lambda *_: True)
+    assert convert.phase_creatures('Assets', {}, {'importedModOptimizations': True})
+    assert creatures[-1]['plugin_assets_only'] is False
+

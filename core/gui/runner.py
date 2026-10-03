@@ -1003,7 +1003,13 @@ def pipeline_argv(app, fname, out_dir, steps, subdirs) -> list:
     One command when the selection is the default and nothing narrows it;
     otherwise one per step, so a failure can stop the rest.
     """
-    if _is_default_selection(app, steps) and fname and not subdirs:
+    entry = source_registry.get(EXPORT_DIR, fname) or {} if fname else {}
+    from core.gui.config import load_config
+    var = getattr(app, 'imported_mod_optimizations_var', None)
+    enabled = bool(var.get()) if var is not None else (
+        load_config().get('importedModOptimizations') is not False)
+    optimized = enabled and bool(entry.get('group_id'))
+    if _is_default_selection(app, steps) and fname and not subdirs and not optimized:
         cmd = [sys.executable, "-u", str(REPO_ROOT / "convert.py"),
                "-f", fname, winding_flag(app)] + navmesh_flags(app)
         cmd += [flag for key, flag, *_ in STEPS if key in set(steps)]
@@ -1217,18 +1223,20 @@ def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False,
     import uuid
     mesh_reuse_token = uuid.uuid4().hex
     shared_sounds_planned = False
+    from core.gui.selection import imported_mod_optimizations_enabled
+    optimized = imported_mod_optimizations_enabled(app)
     for i, (name, key) in enumerate(jobs):
         cmd = build_cmd(app, key, name, out_dir, None)
-        if key in ('meshes', 'creatures'):
+        if optimized and key in ('meshes', 'creatures'):
             cmd.append('--plugin-assets-only')
-        if key == 'meshes':
+        if optimized and key == 'meshes':
             cmd += ['--defer-textures', '--mesh-reuse-token', mesh_reuse_token]
-        if key == 'sounds':
+        if optimized and key == 'sounds':
             if shared_sounds_planned:
                 cmd.append('--skip-shared-sounds')
             shared_sounds_planned = True
         cmds.append(cmd)
-        if mesh_jobs and i == mesh_jobs[-1]:
+        if optimized and mesh_jobs and i == mesh_jobs[-1]:
             shared = build_cmd(app, 'meshes', texture_owner, out_dir, None)
             shared += ['--shared-textures-only'] + members
             cmds.append(shared)

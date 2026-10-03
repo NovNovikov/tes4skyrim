@@ -299,14 +299,15 @@ def _mod_plugin_steps(app, fname: str, keys: set, current,
         ran = version_info.steps_run_at(fname)
     except Exception:
         ran = {}
-    done = set(planned)
+    done = set(planned) if imported_mod_optimizations_enabled(app) else set()
     try:
         cur = version_info.version_key(current) if current is not None else None
     except Exception:
         cur = None
     if cur is not None:
         try:
-            done |= version_info.shared_steps_done(ran, current)
+            if imported_mod_optimizations_enabled(app):
+                done |= version_info.shared_steps_done(ran, current)
         except Exception:
             pass
         for key in keys:

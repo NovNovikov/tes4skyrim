@@ -376,6 +376,7 @@ def convert_sounds(
     ffmpeg_path: str = 'ffmpeg',
     formid_index: int = 1,
     skip_shared_sounds: bool = False,
+    scope_plugin_voices: bool = True,
 ) -> dict:
     """Convert all extracted sounds (MP3/WAV → XWM) with multi-threaded ffmpeg.
 
@@ -430,7 +431,9 @@ def convert_sounds(
         formid_index=formid_index,
         voice_map=find_voice_map(output_dir, source_name, extract_dir),
         lip_text=find_lip_text(output_dir, source_name, extract_dir),
-        record_source_dir=record_dir(extract_dir, source_name),
+        record_source_dir=(record_dir(extract_dir, source_name)
+                           if scope_plugin_voices else None),
+        scope_plugin_voices=scope_plugin_voices,
     )
 
     # ── Non-voice sounds: keep .wav, transcode only .mp3 ────────────────────
@@ -851,6 +854,7 @@ def organize_voice_files(
     lipgenerator_path: 'str | None' = None,
     prune: bool = True,
     record_source_dir=None,
+    scope_plugin_voices=True,
 ) -> dict:
     """Reorganise extracted TES4 voice files into the TES5 directory layout.
 
@@ -892,16 +896,18 @@ def organize_voice_files(
                 'unmapped_races': set()}
 
     plugin_dirs = [p for p in voice_root.iterdir() if p.is_dir()
-                   and (not plugin_name or p.name.casefold() == plugin_name.casefold()
+                   and (not scope_plugin_voices or not plugin_name
+                        or p.name.casefold() == plugin_name.casefold()
                         or voice_map)]
     if not plugin_dirs:
         print(f'  No voice recordings for {plugin_name}; skipping voice conversion.')
         return {'organized': 0, 'skipped': 0, 'no_match': 0, 'errors': 0,
                 'unmapped_races': set()}
     # Prefer this plugin's take if another folder supplies the same reply.
-    plugin_dirs.sort(key=lambda p: (
-        bool(plugin_name and p.name.casefold() != plugin_name.casefold()),
-        p.name.casefold()))
+    if scope_plugin_voices:
+        plugin_dirs.sort(key=lambda p: (
+            bool(plugin_name and p.name.casefold() != plugin_name.casefold()),
+            p.name.casefold()))
     if voice_map:
         print(f'  Voice map: {len(voice_map)} filename prefixes from importer')
     else:
@@ -929,7 +935,8 @@ def organize_voice_files(
     plugin_roots: set = set()
 
     for plugin_dir in plugin_dirs:
-        borrowed = bool(plugin_name and plugin_dir.name.casefold() != plugin_name.casefold())
+        borrowed = bool(scope_plugin_voices and plugin_name
+                        and plugin_dir.name.casefold() != plugin_name.casefold())
         effective_plugin = plugin_name or plugin_dir.name
         fallout = is_fallout_voice_root(plugin_dir)
         fnv_edids = load_voice_type_edids(record_source) if fallout else {}
@@ -974,7 +981,7 @@ def organize_voice_files(
                         # skip: an existing file is still a wanted file and
                         # must not be pruned below.
                         resolved = dst_path.resolve()
-                        if resolved in intended:
+                        if scope_plugin_voices and resolved in intended:
                             stats['skipped'] += 1
                             continue
                         intended.add(resolved)

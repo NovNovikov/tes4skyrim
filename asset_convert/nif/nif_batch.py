@@ -408,7 +408,7 @@ def batch_convert(mesh_dir, output_dir, *, fix_textures=True,
                 stats['converted' if result.get('converted') else 'copied'] -= 1
                 stats['reused'] += 1
         work_args = pending
-        print(f"  Mesh reuse: {stats['reused']} already processed in this mod run; "
+        print(f"  Mesh reuse: {stats['reused']} matching results already available; "
               f"{len(work_args)} need conversion")
     if work_args:
         def remember(source, result):

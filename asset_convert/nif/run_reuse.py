@@ -1,4 +1,4 @@
-"""Reuse successful NIF conversions only within one mod run.
+"""Reuse successful NIF conversions with matching inputs and output context.
 
 The latest result at a destination wins: a different plugin context must
 convert again, even if an older result for that context was cached before.
@@ -52,6 +52,7 @@ class RunReuse:
             pass
         self.plan = plan or {}
         self.mesh_root = Path(options[2])
+        self.texture_roots = [self.mesh_root.parent / 'textures', *options[3]]
         self.resting = resting_items_plan._load(self.plan.get(resting_items_plan.RESTING_KEY))
         env = {k: v for k, v in os.environ.items() if k.startswith('TESCONV_')}
         # Pool initialization exports the resolved namespace to the environment.
@@ -59,6 +60,11 @@ class RunReuse:
         env['TESCONV_ASSET_NAMESPACE'] = current_namespace()
         self.context = _digest([options, current_namespace(),
                                 winding_fix_enabled(), env])
+        if token == 'imported-mod':
+            from asset_convert.sources.shared_reuse import implementation_stamp, stamps
+            dependencies = [self.mesh_root.parent / 'textures', *options[3]]
+            self.context = _digest([self.context, implementation_stamp(),
+                                    stamps(dependencies)])
 
     def mesh_context(self, source):
         rel = wp.norm_model_path(source.relative_to(self.mesh_root).as_posix())
@@ -110,6 +116,19 @@ class RunReuse:
                    if p.is_file() and p.suffix.lower() == '.nif'
                    and (p.stem == destination.stem
                         or p.stem.startswith(destination.stem + '_'))}
+        # Derived textures are outputs too: a cached NIF must not keep a
+        # reference to a missing height map or detail atlas.
+        mesh_parent = next((p for p in destination.parents
+                            if p.name.casefold() == 'meshes'), None)
+        if mesh_parent is not None:
+            from asset_convert.game_paths import current_namespace
+            for texture in result.get('textures', ()):
+                rel = texture.replace('\\', '/').removeprefix('textures/').lstrip('/')
+                original = rel.removeprefix(current_namespace() + '/')
+                derived = mesh_parent.parent / 'textures' / rel
+                if derived.is_file() and not any((Path(root) / original).is_file()
+                                                for root in self.texture_roots):
+                    outputs[str(derived.resolve())] = _stamp(derived)
         if outputs:
             self.entries[str(destination.resolve())] = {
                 'key': self.key(source), 'outputs': outputs, 'result': _normal(result)}
