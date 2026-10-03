@@ -405,7 +405,10 @@ def test_group_members_do_not_pack_by_default(tmp_path, monkeypatch):
     ('ARMO', 'current', True, False),
     ('CLOT', 'current', True, False),
     ('HAIR', 'current', True, False),
-    ('CREA', 'current', False, True),
+    ('CREA', 'current', True, True),
+    ('ACRE', 'current', False, True),
+    ('STAT', 'current', True, False),
+    ('REFR', 'current', True, False),
     (None, 'current', True, True),
     ('CELL', '0.001', True, True),
 ])
@@ -560,3 +563,20 @@ def test_import_main_points_the_soun_converter_at_the_asset_root():
     assert 'set_sound_source_dir(str(assets_for(export_dir)))' in src, (
         'set_sound_source_dir is being handed a record dir again -- every '
         'directory-valued SOUN ANAM becomes an unplayable bare path')
+
+
+def test_imported_optimization_opt_out_keeps_default_checkboxes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import core.gui.selection as sel
+    exp = _fake_group(tmp_path, ['A.esm', 'B.esp'])
+    monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
+    state = {key: True for key in ('meshes', 'creatures', 'pack', 'pack_zip')}
+    app = SimpleNamespace(
+        step_vars={key: SimpleNamespace(get=lambda key=key: state[key],
+                   set=lambda value, key=key: state.__setitem__(key, value))
+                   for key in state},
+        imported_mod_optimizations_var=SimpleNamespace(get=lambda: False),
+        upgrade_btn=SimpleNamespace(configure=lambda **kw: None),
+        set_upgrade_tip=lambda *args: None)
+    sel._apply_plan_state(app, {'never_run': True}, 'B.esp', True)
+    assert all(state.values())

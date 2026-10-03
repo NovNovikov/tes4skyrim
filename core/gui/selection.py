@@ -188,10 +188,19 @@ _WEARABLE_SIGS = frozenset({'ARMO', 'CLOT', 'HAIR'})
 
 #: Record types steering creature-folder selection. Same deal as wearables:
 #: a sibling with CREA records may add or retie folders.
-_CREATURE_SIGS = frozenset({'CREA'})
+_CREATURE_SIGS = frozenset({'CREA', 'ACRE'})
 
 #: Shared step -> record types whose presence keeps the step ticked.
-_SHARED_PLAN_SIGS = {'meshes': _WEARABLE_SIGS, 'creatures': _CREATURE_SIGS}
+# With scoped asset conversion, new models and placed master objects need
+# their own Meshes run too, not only wearable variants.
+_MODEL_SIGS = frozenset({
+    'ACTI', 'ALCH', 'AMMO', 'APPA', 'ARMO', 'BODY', 'BOOK', 'CLOT',
+    'CONT', 'CREA', 'DOOR', 'EFSH', 'FLOR', 'FURN', 'GRAS', 'HAIR',
+    'INGR', 'LIGH', 'MGEF', 'MISC', 'NPC_', 'RACE', 'STAT', 'TREE', 'WEAP',
+    'ADDN', 'ARMA', 'DEBR', 'EXPL', 'IMOD', 'MSTT', 'PROJ', 'SCOL', 'TERM',
+})
+_SHARED_PLAN_SIGS = {'meshes': _MODEL_SIGS | {'REFR'},
+                     'creatures': _CREATURE_SIGS}
 
 #: Plugin binary -> top-level record signatures, per session. Header-only
 #: scans cost ~0.01 s even for large plugins, but selection changes often.
@@ -260,6 +269,8 @@ def _untick_shared_done(app, fname: str) -> None:
     step's plan stays ticked: skipping would silently drop its variants.
     Manual re-ticking still rebuilds.
     """
+    if not imported_mod_optimizations_enabled(app):
+        return
     try:
         ran = version_info.steps_run_at(fname)
         done = version_info.shared_steps_done(
@@ -279,6 +290,14 @@ def _untick_shared_done(app, fname: str) -> None:
         app.update_run_btn()
 
 
+def imported_mod_optimizations_enabled(app) -> bool:
+    var = getattr(app, 'imported_mod_optimizations_var', None)
+    if var is not None:
+        return bool(var.get())
+    from core.gui.config import load_config
+    return load_config().get('importedModOptimizations') is not False
+
+
 def _apply_plan_state(app, plan, fname: str, auto_apply: bool) -> None:
     """Set the Upgrade button's label, tooltip and enabled state for `plan`."""
     if not plan:
@@ -287,7 +306,7 @@ def _apply_plan_state(app, plan, fname: str, auto_apply: bool) -> None:
         return
     if plan.get('never_run'):
         _untick_shared_done(app, fname)
-        if _is_multi_group_member(fname):
+        if imported_mod_optimizations_enabled(app) and _is_multi_group_member(fname):
             for key in ('pack', 'pack_zip'):
                 var = app.step_vars.get(key)
                 if var is not None:
