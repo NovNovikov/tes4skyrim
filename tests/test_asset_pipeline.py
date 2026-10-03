@@ -40,6 +40,55 @@ def test_unfiltered_run_runs_every_pass(calls):
     assert calls == ['batch', *POST_PASSES, 'ltex_normals']
 
 
+def test_deferred_mesh_run_does_not_copy_or_fix_shared_textures(calls):
+    asset_pipeline.convert_meshes('Test.esm', defer_textures=True)
+    assert calls == ['batch', '_profile_hair_and_grass', '_split_magic_art']
+
+
+def test_shared_textures_copy_once_and_preserve_all_plugins_opacity(tmp_path, monkeypatch):
+    import json
+    from asset_convert.texture import texture_prune, parallax
+
+    exp, out = tmp_path / 'export', tmp_path / 'output'
+    exp.mkdir()
+    (exp / 'sources.json').write_text(json.dumps({'version': 1, 'sources': {
+        name: {'kind': 'archive', 'plugin': name, 'group_id': 'g1',
+               'group_label': 'My Pack', 'group_plugins': ['A.esm', 'B.esp']}
+        for name in ['A.esm', 'B.esp']}}), encoding='utf-8')
+    assets = exp / 'My Pack'
+    source = assets / 'textures'
+    source.mkdir(parents=True)
+    (source / 'diffuse.dds').write_bytes(b'original texture')
+    for name, refs in [('A.esm', {'tes4/transparent.dds'}),
+                       ('B.esp', {'tes4/overlay.dds'})]:
+        texture_prune.write_manifest(assets / name, refs,
+                                      texture_prune.OPACITY_MANIFEST_NAME)
+    monkeypatch.setattr(asset_pipeline, '_activate_namespace', lambda _: 'tes4')
+    copied, repaired, opacity = [], [], []
+    original_copy = asset_pipeline._copy_tree
+    def copy(src, dst):
+        copied.append(str(src))
+        return original_copy(src, dst)
+    monkeypatch.setattr(asset_pipeline, '_copy_tree', copy)
+    monkeypatch.setattr(asset_pipeline.image_transcode, 'run', lambda _: (0, 0, 0))
+    monkeypatch.setattr(asset_pipeline.luminance_textures, 'run',
+                        lambda _: repaired.append('luminance') or (0, 0))
+    monkeypatch.setattr(asset_pipeline.landscape_normals, 'run', lambda _: (0, 0))
+    monkeypatch.setattr(asset_pipeline.landscape_normals, 'normalize_specular_alpha',
+                        lambda *_a, **_kw: (0, 0, {}))
+    monkeypatch.setattr(asset_pipeline, 'owns_namespace', lambda _: False)
+    monkeypatch.setattr(asset_pipeline.landscape_normals, 'ensure_ltex_normals',
+                        lambda *_: (0, 0))
+    monkeypatch.setattr(parallax, 'strip_diffuse_alpha',
+                        lambda _root, keep: opacity.append(set(keep)) or (0, 0, 0, 0))
+    stats = asset_pipeline.convert_shared_textures(
+        'A.esm', ['A.esm', 'B.esp'], extract_dir=exp, output_dir=out)
+    assert stats['textures_copied'] == 1 and len(copied) == 1
+    assert repaired == ['luminance']
+    assert opacity == [{'tes4/transparent.dds', 'tes4/overlay.dds'}]
+    assert (out / 'My Pack' / 'textures' / 'tes4' / 'diffuse.dds').read_bytes() == b'original texture'
+
+
 def _dump(folder, sig, *records):
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f'{sig}.txt').write_text(''.join(

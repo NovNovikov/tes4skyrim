@@ -458,6 +458,7 @@ def test_rebuild_mod_commands_export_first_and_keep_normal_import_options(monkey
     jobs = [(cmd[3], cmd[cmd.index('-f') + 1]) for cmd in cmds]
     assert jobs == [('--export-only', 'A.esm'), ('--export-only', 'B.esp'),
                     ('--meshes-only', 'A.esm'),
+                    ('--meshes-only', 'A.esm'),
                     ('--import-only', 'A.esm'), ('--import-only', 'B.esp'),
                     ('--scripts-only', 'A.esm'), ('--scripts-only', 'B.esp'),
                     ('--pack-only', 'A.esm'), ('--pack-zip-only', 'A.esm')]
@@ -468,10 +469,41 @@ def test_rebuild_mod_commands_export_first_and_keep_normal_import_options(monkey
     assert build_parser().parse_args(cmds[3][3:]).plugin_assets_only is False
     ordinary = runner.mod_run_argv(app, runs, None, [], 'output')
     assert [(cmd[3], cmd[cmd.index('-f') + 1]) for cmd in ordinary] == [
-        ('--export-only', 'A.esm'), ('--meshes-only', 'A.esm'),
+        ('--export-only', 'A.esm'), ('--export-only', 'B.esp'),
+        ('--meshes-only', 'A.esm'),
+        ('--meshes-only', 'A.esm'),
         ('--import-only', 'A.esm'), ('--scripts-only', 'A.esm'),
-        ('--export-only', 'B.esp'), ('--import-only', 'B.esp'),
+        ('--import-only', 'B.esp'),
         ('--scripts-only', 'B.esp')]
+
+
+def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypatch):
+    from types import SimpleNamespace
+    from convert_cli import build_parser
+    import core.gui.runner as runner
+
+    monkeypatch.setattr(runner, 'navmesh_pins_dir', lambda: 'pins')
+    app = SimpleNamespace(navmesh_gen_var=SimpleNamespace(get=lambda: 'corridor'),
+                          tes4_encoding_var=SimpleNamespace(get=lambda: 'cp1251'),
+                          winding_on=lambda: False,
+                          parallax_var=SimpleNamespace(get=lambda: True),
+                          tex_only_var=SimpleNamespace(get=lambda: True))
+    runs = [('A.esm', ['meshes', 'import_']), ('B.esp', ['meshes', 'import_'])]
+    for rebuild in (False, True):
+        cmds = runner.mod_run_argv(app, runs, 'A.esm', ['pack'], 'output',
+                                   rebuild=rebuild,
+                                   texture_plugins=['A.esm', 'B.esp', 'C.esp'])
+        args = [build_parser().parse_args(cmd[3:]) for cmd in cmds]
+        finalizers = [i for i, a in enumerate(args) if a.shared_texture_plugins]
+        mesh_jobs = [i for i, a in enumerate(args) if a.defer_textures]
+        assert len(finalizers) == 1 and len(mesh_jobs) == 2
+        final = finalizers[0]
+        assert max(mesh_jobs) < final < len(args) - 1
+        assert all(i > final for i, cmd in enumerate(cmds) if '--import-only' in cmd)
+        assert args[final].shared_texture_plugins == ['A.esm', 'B.esp', 'C.esp']
+        for i in mesh_jobs + finalizers:
+            assert args[i].parallax and args[i].textures_only
+        assert all(args[i].plugin_assets_only for i in mesh_jobs)
 
 
 def test_group_members_do_not_pack_by_default(tmp_path, monkeypatch):

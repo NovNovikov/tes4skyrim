@@ -71,3 +71,19 @@ def test_plugin_mesh_option_reaches_conversion_but_asset_only_mods_keep_their_pa
         assert convert.phase_assets(name, {}, textures_only=True,
                                      plugin_assets_only=True) is True
     assert scopes == [('Patch.esp', True), ('Assets', False)]
+
+
+def test_shared_texture_phase_does_not_run_mesh_or_book_conversion(monkeypatch):
+    import convert
+    from asset_convert import asset_pipeline
+
+    monkeypatch.setattr(convert, '_use_plugin_namespace', lambda *_: None)
+    def unexpected(**_kwargs):
+        raise AssertionError('Shared texture pass must not convert meshes')
+    monkeypatch.setattr(asset_pipeline, 'convert_meshes', unexpected)
+    calls = []
+    monkeypatch.setattr(asset_pipeline, 'convert_shared_textures',
+                        lambda name, plugins, **_kw: calls.append((name, plugins))
+                        or {'textures_copied': 7})
+    assert convert.phase_assets('A.esm', {}, shared_texture_plugins=['A.esm', 'B.esp'])
+    assert calls == [('A.esm', ['A.esm', 'B.esp'])]

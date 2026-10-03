@@ -236,7 +236,8 @@ def _convert_mesh_tree(mesh_src, mesh_dst, asset_dir, export_root, plugin,
 
 def convert_meshes(source_file, extract_dir='export', output_dir='output',
                    mesh_subdirs=None, parallax=False, textures_only=False,
-                   skip_hair=False, plugin_assets_only=False):
+                   skip_hair=False, plugin_assets_only=False,
+                   defer_textures=False):
     """Convert extracted NIFs and copy textures into `output_dir/<source_name>/`.
 
     Needs extract_bsas run first. `mesh_subdirs` converts ONLY the NIFs under
@@ -247,6 +248,7 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     'mesh_conversion', 'textures_copied', 'other_copied'.
     `plugin_assets_only` limits the NIF batch to this plugin's references
     while retaining its post-passes and the other plugins' mesh manifests.
+    `defer_textures` leaves the shared texture pass to the mod's finalizer.
     """
     extract_dir = Path(extract_dir)
     output_dir = Path(output_dir)
@@ -277,6 +279,12 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
             plugin_assets_only)
         if parallax:
             _write_parallax_notice(plugin_dir)
+        opacity = set(stats['mesh_conversion'].get('alpha_opacity_diffuse', ()))
+        if mesh_subdirs:
+            opacity |= texture_prune.read_manifest(rec_dir,
+                                                   texture_prune.OPACITY_MANIFEST_NAME)
+        texture_prune.write_manifest(rec_dir, opacity,
+                                      texture_prune.OPACITY_MANIFEST_NAME)
         _persist_mesh_manifests(stats['mesh_conversion'], asset_dir,
                                 bool(mesh_subdirs) or plugin_assets_only)
     else:
@@ -292,6 +300,10 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     if mesh_src.exists() and not textures_only:
         _split_magic_art(rec_dir, mesh_src, plugin_dir / 'meshes' / ns, stats)
 
+    if defer_textures:
+        print("  Shared textures deferred until all mod meshes are processed.")
+        return stats
+
     # -----------------------------------------------------------------------
     # Copy Textures
     # -----------------------------------------------------------------------
@@ -305,6 +317,30 @@ def convert_meshes(source_file, extract_dir='export', output_dir='output',
     stats['ltex_normals_written'] = written
     print(f"  LTEX normals: {checked} land textures, {written} flat normals "
           f"written for textures shipping none")
+    return stats
+
+
+def convert_shared_textures(source_file, plugins, extract_dir='export',
+                             output_dir='output'):
+    """Copy/fix a mod's shared textures once, using every member's opacity set."""
+    extract_dir, output_dir = Path(extract_dir), Path(output_dir)
+    source_name = Path(source_file).name
+    asset_dir = _asset_root(extract_dir, source_name)
+    rec_dir = record_dir(extract_dir, source_name)
+    plugin_dir = _out_root(output_dir, source_name, extract_dir)
+    ns = _activate_namespace(rec_dir)
+    opacity = set()
+    for name in plugins:
+        opacity |= texture_prune.read_manifest(record_dir(extract_dir, name),
+                                               texture_prune.OPACITY_MANIFEST_NAME)
+    stats = {'mesh_conversion': {'alpha_opacity_diffuse': opacity},
+             'textures_copied': 0, 'other_copied': 0}
+    print("\nShared Mod Textures")
+    _copy_and_fix_textures(asset_dir, plugin_dir, ns, stats, rec_dir)
+    for name in plugins:
+        checked, written = landscape_normals.ensure_ltex_normals(
+            record_dir(extract_dir, name), plugin_dir / 'textures', output_dir)
+        print(f"  [{name}] LTEX normals: {checked} checked, {written} written")
     return stats
 
 

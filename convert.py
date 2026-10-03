@@ -595,7 +595,8 @@ def _use_plugin_namespace(file_name: str) -> str:
 
 def phase_assets(file_name: str, config: dict, output_dir: str = None,
                  mesh_subdirs=None, winding_fix=None, parallax=False,
-                 textures_only=False, skip_hair=False, plugin_assets_only=False):
+                 textures_only=False, skip_hair=False, plugin_assets_only=False,
+                 defer_textures=False, shared_texture_plugins=None):
     """Convert extracted NIF assets and copy textures to output (meshes only).
 
     `winding_fix` tri-states the collision winding repair: True/False force it,
@@ -608,6 +609,13 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
 
     extract_dir = str(SCRIPT_DIR / "export")
     out_dir     = output_dir or str(SCRIPT_DIR / "output")
+    if shared_texture_plugins is not None:
+        from asset_convert.asset_pipeline import convert_shared_textures
+        stats = convert_shared_textures(file_name, shared_texture_plugins,
+                                        extract_dir=extract_dir, output_dir=out_dir)
+        print(f"[{file_name}] Shared textures complete "
+              f"({stats['textures_copied']} copied)")
+        return True
     # An asset-only replacement has no plugin records to narrow its payload.
     if plugin_assets_only and is_asset_only(file_name, extract_dir):
         plugin_assets_only = False
@@ -631,6 +639,7 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
         textures_only=textures_only,
         skip_hair=skip_hair,
         plugin_assets_only=plugin_assets_only,
+        defer_textures=defer_textures,
     )
     total = sum(v for v in stats.values() if isinstance(v, int))
     print(f"[{file_name}] Meshes complete ({total} items processed)")
@@ -1131,7 +1140,9 @@ def _phase_runners(run) -> dict:
             fn, cfg, output_dir=out, mesh_subdirs=a.mesh_subdirs,
             winding_fix=a.collision_winding_fix, parallax=a.parallax,
             textures_only=a.textures_only, skip_hair=a.skip_hair,
-            plugin_assets_only=a.plugin_assets_only),
+            plugin_assets_only=a.plugin_assets_only,
+            defer_textures=a.defer_textures,
+            shared_texture_plugins=a.shared_texture_plugins),
         'speedtrees': lambda fn: phase_speedtrees(fn, cfg, output_dir=out),
         'creatures': lambda fn: phase_creatures(fn, run.tes5_data, cfg,
                                                 output_dir=out,
@@ -1168,7 +1179,9 @@ def _work(steps, order, run) -> dict:
     masters = binary_master_chain(order, lambda name: resolve_plugin_path(
         name, run.tes4_data, run.export_dir))
     return {'plugins': list(order), 'steps': list(steps), 'masters': masters,
-            'scope': {'only': a.only, 'mesh_subdirs': a.mesh_subdirs},
+            'scope': {'only': a.only, 'mesh_subdirs': a.mesh_subdirs,
+                      'defer_textures': a.defer_textures,
+                      'shared_texture_plugins': a.shared_texture_plugins},
             'same': [run.output_dir, run.tes4_data, a.config, a.textures_only,
                      a.parallax, a.skip_hair, a.collision_winding_fix,
                      a.no_engine_branches, a.patch_plugins]}
@@ -1199,7 +1212,8 @@ def _run_steps(steps, order, run) -> tuple:
         for fn in targets:
             ok = bool(runners[step](fn))
             success = success and ok
-            if not (step == 'meshes' and run.args.mesh_subdirs):
+            if not (step == 'meshes' and (run.args.mesh_subdirs
+                                         or run.args.shared_texture_plugins)):
                 slot = step_ok.setdefault(key, {})
                 slot[fn] = slot.get(fn, True) and ok
         print()

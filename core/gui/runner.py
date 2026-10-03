@@ -1192,21 +1192,39 @@ def run_clicked(app, missing_dep) -> None:
                                   lambda ws: _run_finished(app, ws)))
 
 
-def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False):
+def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False,
+                 texture_plugins=None):
     """Commands for a mod run, with all exports first when rebuilding."""
     if rebuild:
         jobs = [(name, key) for key, *_ in STEPS
                 for name, steps in runs if key in steps]
     else:
         jobs = [(name, key) for name, steps in runs for key in steps]
+        if any(key == 'meshes' for name, key in jobs):
+            # Shared textures must be ready before any member is imported.
+            prepare = ('export', 'extract', 'meshes')
+            jobs = ([(name, key) for key in prepare
+                     for name, steps in runs if key in steps]
+                    + [(name, key) for name, key in jobs if key not in prepare])
     if pack_with is not None:
         jobs += [(pack_with, key) for key in pack_steps]
+    mesh_jobs = [i for i, (name, key) in enumerate(jobs) if key == 'meshes']
+    members = list(texture_plugins if texture_plugins is not None
+                   else [name for name, steps in runs])
+    texture_owner = next((name for name in members if name.lower().endswith('.esm')),
+                         members[0] if members else None)
     cmds = []
-    for name, key in jobs:
+    for i, (name, key) in enumerate(jobs):
         cmd = build_cmd(app, key, name, out_dir, None)
         if key in ('meshes', 'creatures'):
             cmd.append('--plugin-assets-only')
+        if key == 'meshes':
+            cmd.append('--defer-textures')
         cmds.append(cmd)
+        if mesh_jobs and i == mesh_jobs[-1]:
+            shared = build_cmd(app, 'meshes', texture_owner, out_dir, None)
+            shared += ['--shared-textures-only'] + members
+            cmds.append(shared)
     return cmds
 
 
@@ -1254,7 +1272,7 @@ def run_mod_clicked(app, missing_dep, *, rebuild=False) -> None:
     q = queue.Queue()
     want_summary = [False]
     cmds = mod_run_argv(app, runs, pack_with, pack_steps, out_dir,
-                        rebuild=rebuild)
+                        rebuild=rebuild, texture_plugins=plugins)
     start_worker(app, cmds, q, _run_env(app), missing_dep, want_summary)
     app.root.after(50, make_drain(app, q, want_summary,
                                   lambda ws: _run_finished(app, ws)))
