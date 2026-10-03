@@ -598,10 +598,12 @@ constexpr std::uint64_t kGameShowTrainingMenu = 55582;
 
 // The character sheet's skill cap, read on 1.6.1170 and checked on 1.7.104.
 //   PlayerCharacter::AdvanceSkill(av, points, form, unk)   0x736e20, id 40488:
-//        PlayerCharacter vtable slot 247 (byte 0x7b8) on both builds. Every
-//        skill-USE experience arrives here virtually -- no direct call to it
-//        exists -- and so does Game.AdvanceSkill (0xa0baf0, `call [rax+0x7b8]`).
-//        It forwards to PlayerSkills::AdvanceSkill (0x77ae60, id 41561).
+//        PlayerCharacter vtable slot 247 (byte 0x7b8) on both builds; the hook
+//        finds the slot holding it rather than assuming one, since VR's Actor
+//        carries more virtuals. Every skill-USE experience arrives here
+//        virtually -- no direct call to it exists -- and so does
+//        Game.AdvanceSkill (0xa0baf0, `call [rax+0x7b8]`). It forwards to
+//        PlayerSkills::AdvanceSkill (0x77ae60, id 41561).
 //   TrainingMenu's train step(menu)                        0x96e710, id 52667:
 //        session limit, the trainer's maximum, the gold check, then the gold
 //        is taken and the skill at menu+0x40 incremented. Its one caller is
@@ -609,11 +611,14 @@ constexpr std::uint64_t kGameShowTrainingMenu = 55582;
 //        reach the increment by other callers, so the cap leaves them alone.
 // See: docs/commentary/morrowind_runtime.md#skill-cap
 constexpr std::uint64_t kPlayerAdvanceSkill = 40488;
-constexpr std::size_t kAdvanceSkillSlot = 0x7b8;
+constexpr std::size_t kMaxPlayerVirtuals = 400;
 constexpr std::uint64_t kTrainingMenuTrain = 52667;
 constexpr std::uint64_t kTrainingMenuTrainCaller = 52662;
 constexpr std::size_t kTrainingCallerScan = 0x200;
 constexpr std::size_t kOffTrainingMenuSkill = 0x40;
+// VR's IMenu is 0x10 longer, so its train step (0x8fb9c0 on 1.4.15) reads the
+// skill at +0x50; SE 1.5.97's (0x8ce8e0) reads +0x40 as AE does.
+constexpr std::size_t kVrOffTrainingMenuSkill = 0x50;
 
 // The player's sex and skill progress, read on 1.6.1170 and 1.7.104 alike.
 //   TESNPC::GetSex (0x3a8df0; 0x3afeb0 on 1.7.104), what the ActorBase.GetSex

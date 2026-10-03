@@ -6,12 +6,13 @@ See: docs/commentary/tes4_export_morrowind.md#restored-magic
 
 from tes4_export import morroblivion_magic as mm
 from tes4_export.record_types.morrowind_magic import effect_editor_id
-from tes5_import.dialogue.morrowind_teleport import teleport_lines
+from tes5_import.dialogue.morrowind_teleport import copy_rows, teleport_lines
 from tes5_import.record_types import magic_variants
 from tes5_import.record_types.magic import A_SCRIPT, AV_NONE
 from tes5_import.record_types.magic_morrowind import (MW_RUNTIME_EFFECTS, mw_actor_value,
                                                       mw_archetype, mw_attribute_variant,
-                                                      mw_converts, mw_needs_runtime)
+                                                      mw_converts, mw_needs_runtime,
+                                                      runtime_attribute_index)
 
 #: The TES4 actor value of Acrobatics, which lands on Skyrim's Stamina.
 _ACROBATICS = 26
@@ -133,6 +134,21 @@ def test_the_effect_table_names_each_attribute_variant_and_its_clones():
         magic_variants.reset()
     assert rows == ['Morrowind.esm|05000001=79:7', 'Morrowind.esm|05000002=79:7',
                     'Morrowind.esm|05000003=79:7', 'Morrowind.esm|05000004=42']
+
+
+def test_tes4_attribute_variants_are_the_same_runtime_effects():
+    """Oblivion's Fortify Luck (TES4FOATLuck) and its clones are 79:7, as Morrowind's are."""
+    magic_variants.reset()
+    try:
+        for fid, edid in ((0x00000001, 'TES4FOATLuck'), (0x00000002, 'TES4FOATLuckConstantSelf'),
+                          (0x00000003, 'TES4DGATStrength'), (0x00000004, 'TES4FOSKBlade')):
+            magic_variants._parts[fid] = (edid, b'', b'', b'')
+        rows = copy_rows('Oblivion.esm', 0)
+    finally:
+        magic_variants.reset()
+    assert rows == ['Oblivion.esm|00000001=79:7', 'Oblivion.esm|00000002=79:7',
+                    'Oblivion.esm|00000003=22:0']
+    assert runtime_attribute_index(-1, 'ABAT', 3) == 85 and runtime_attribute_index(-1, 'FOSK', 14) == -1
 
 
 def test_attribute_effects_are_runtime_script_effects_per_attribute():

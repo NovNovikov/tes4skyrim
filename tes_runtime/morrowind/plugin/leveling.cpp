@@ -27,6 +27,12 @@ constexpr const char* kPlayer = "player";
 constexpr int kAttributeMax = 100;
 constexpr int kMaxCountedIncreases = 10;
 
+// Morrowind.esm's iLevelUp01Mult..10Mult, for a game whose sidecars stage
+// none: every game levels by the same rule. Oblivion keeps the same values in
+// its exe, not its ESM.
+// See: docs/commentary/morrowind_runtime.md#tes4-tables
+constexpr int kLevelUpMult[kMaxCountedIncreases + 1] = {1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5};
+
 // A Skyrim skill, its actor value index (xEdit's TES5 enum, 6..23), and the
 // Morrowind skill whose SKIL record governs it: its namesake, or for a folded
 // skill the one it is named after (One- and Two-Handed are Long Blade,
@@ -164,6 +170,19 @@ const char* SkillName(int skyrimSkill) {
     return nullptr;
 }
 
+bool PlayerAttributesKnown() {
+    return FindActor(kPlayer) != nullptr || State().HasVar(kOwner, StartKey(0));
+}
+
+float SettleAttributeGlobal(int attribute, float read, float written) {
+    if (!std::isnan(written) && read != written) {
+        const float base = ActorBaseAttribute(kPlayer, attribute);
+        SetActorAttribute(kPlayer, attribute, std::max(0.0f, base + read - written));
+        Log("leveling: a script moved attribute %d by %g", attribute, read - written);
+    }
+    return ActorAttribute(kPlayer, attribute);
+}
+
 int PendingLevelUps() { return std::max(0, Counter(kPendingVar)); }
 
 int PendingStepLevel() {
@@ -185,7 +204,7 @@ int AttributeGain(int attribute) {
     if (count > 0) {
         char name[16];
         std::snprintf(name, sizeof(name), "iLevelUp%02dMult", count);
-        gain = static_cast<int>(GmstNumber(name, 1.0f));
+        gain = static_cast<int>(GmstNumber(name, static_cast<float>(kLevelUpMult[count])));
     }
     return std::max(0, std::min(gain, kAttributeMax - current));
 }

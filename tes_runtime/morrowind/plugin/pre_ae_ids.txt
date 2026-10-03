@@ -1,0 +1,41 @@
+# The ids MorrowindRuntime may resolve on the pre-AE builds (SE 1.5.97, VR 1.4.15):
+# the character sheet, its attribute globals, the skill cap and attribute magic.
+# Every struct offset and vtable slot these paths read was checked on both builds;
+# an id not listed stays unresolved there, so a feature whose layout was never
+# checked can never run on a wrong offset.
+# See: docs/reference/address_library_formats.md#pre-ae-tables
+
+# The menus: registration, the movie loader, the allocator, text fields, and the
+# UI message queue that opens and closes them (tes_runtime/common/ui_message.cpp).
+kUIManagerSingleton
+kUIAddMessage
+kFixedStringCtor
+kMenuManagerSingleton
+kMenuManagerRegister
+kGFxLoaderLoadMovie
+kGFxLoaderSingleton
+kScaleformAllocator
+kGfxSetString
+
+# Papyrus natives the sheet, the level-up step and the globals call.
+kGameGetPlayer
+kGameGetForm
+kActorGetValue
+kActorSetValue
+kActorGetBaseValue
+kActorGetLevel
+kActorGetRace
+kRefGetParentCell
+kGetFormFromFile
+kBSFixedStringCtor
+kDebugNotification
+
+# The skill cap: AdvanceSkill in the player's vtable, and the trainer's train step.
+kPlayerAdvanceSkill
+kPlayerVtable
+kTrainingMenuTrain
+kTrainingMenuTrainCaller
+
+# Attribute magic: the VM's effect-apply sink.
+kVmMagicEffectApplySink
+kVmMagicEffectApplyProcess

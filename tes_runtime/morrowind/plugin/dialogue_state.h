@@ -176,6 +176,11 @@ struct GameHooks {
     // next point, 0..1; negative when it cannot be read.
     // See: docs/commentary/morrowind_runtime.md#skill-tooltips
     float (*skillProgress)(const char* skill) = nullptr;
+    // Settles every TES4 plugin's player attribute globals with the sheet's
+    // store: what a script wrote moves the base, then the attribute is
+    // written back. Game thread.
+    // See: docs/commentary/morrowind_runtime.md#tes4-tables
+    void (*syncAttributeGlobals)() = nullptr;
     void  (*advanceSkill)(const char* skill, float amount) = nullptr;
     void  (*showBarterMenu)(const std::string& actor) = nullptr;
     void  (*showTrainingMenu)(const std::string& actor) = nullptr;

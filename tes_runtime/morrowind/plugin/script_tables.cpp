@@ -116,6 +116,14 @@ constexpr const char* kFileSkills = "SKIL.txt";
 // See: docs/commentary/morrowind_runtime.md#race-attributes
 constexpr const char* kFileRaces = "RACE.txt";
 
+// The player attribute globals a TES4 plugin's converted scripts read and
+// write, `strength=Plugin.esm|FormID`.
+// See: docs/commentary/morrowind_runtime.md#tes4-tables
+constexpr const char* kFileAttributes = "attributes_formid.txt";
+constexpr const char* kAttributeNames[] = {"strength", "intelligence", "willpower", "agility",
+                                           "speed", "endurance", "personality", "luck"};
+std::vector<AttributeGlobal> g_attributeGlobals;
+
 // The SNDR a TES3 sound id names, for PlaySound3D and its kin.
 // See: docs/commentary/tes5_import_sound.md#the-runtime-sound-table
 constexpr const char* kFileSounds = "SOUN.txt";
@@ -499,6 +507,7 @@ void ClearScriptTables() {
     g_gmsts.clear();
     g_skills.clear();
     g_races.clear();
+    g_attributeGlobals.clear();
 }
 
 // The sidecar folder's own name, which is the plugin stem the placements in
@@ -719,6 +728,13 @@ void LoadWorldRows(int layer, const std::string& pluginDir) {
                [layer](const std::string& race, const std::string& value) {
                    g_races.Add(layer, Lower(race), ParseRace(value));
                });
+    ForEachRow(pluginDir + kFileAttributes,
+               [](const std::string& name, const std::string& value) {
+                   for (int a = 0; a < 8; ++a) {
+                       if (Lower(name) != kAttributeNames[a]) continue;
+                       g_attributeGlobals.push_back({a, ParseFormRef(value)});
+                   }
+               });
 }
 
 }  // namespace
@@ -767,6 +783,10 @@ std::size_t GmstCount() { return g_gmsts.size(); }
 const SkillDef* FindSkill(int index) {
     return g_skills.Find(std::to_string(index));
 }
+
+std::size_t SkillCount() { return g_skills.size(); }
+
+const std::vector<AttributeGlobal>& AttributeGlobals() { return g_attributeGlobals; }
 
 const RaceDef* FindRaceStart(std::uint32_t skyrimRace) {
     char key[9];

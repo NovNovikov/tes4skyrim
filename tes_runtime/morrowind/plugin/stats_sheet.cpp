@@ -340,13 +340,15 @@ bool InGameplay() {
            Hooks().gamePaused && !Hooks().gamePaused() && !ConversationOpen();
 }
 
-// Now and then out in the world: the skills and level are read, and the buffs
-// held where the attributes put them -- or handed back with the sheet off.
-// True when a level-up step is waiting.
+// Now and then out in the world: the skills and level are read, the TES4
+// scripts' attribute globals settled, and the buffs held where the attributes
+// put them -- or handed back with the sheet off. True when a level-up step is
+// waiting.
 bool Sample() {
     if (--g_untilSample > 0) return false;
     g_untilSample = kSampleEvery;
     if (SheetEnabled()) SampleLeveling();
+    if (Hooks().syncAttributeGlobals) Hooks().syncAttributeGlobals();
     HoldAttributeBuffs();
     return SheetEnabled() && PendingLevelUps() > 0;
 }
@@ -381,7 +383,6 @@ int IniInt(const char* key, int fallback) {
 
 void InstallCharacterSheet() {
     SetSheetEnabled(IniInt("Enabled", kDefaultOn) != 0);
-    SetSkillCapEnabled(IniInt("SkillCap", kDefaultOn) != 0);
     if (!SheetEnabled()) {
         // Still ticking: a save made with the sheet on holds buffs to hand back.
         const bool ticking = CanPostToMainThread() && StartTick(PostToMainThread, kTickMs, Tick);
@@ -405,6 +406,8 @@ void InstallCharacterSheet() {
     Menu().SetInput(input);
     const bool ticking = stats && levelUp && CanPostToMainThread() &&
                          StartTick(PostToMainThread, kTickMs, Tick);
+    // Only a working level-up step can raise the attribute that caps a skill.
+    SetSkillCapEnabled(ticking && IniInt("SkillCap", kDefaultOn) != 0);
     Log("sheet: stats window %s, level-up %s, hotkey %d %s, skill cap %s",
         stats ? "ok" : "FAILED", levelUp ? "ok" : "FAILED", g_hotkey,
         ticking ? "watching" : "NOT watching", SkillCapEnabled() ? "on" : "off");

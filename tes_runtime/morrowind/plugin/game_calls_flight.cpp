@@ -232,7 +232,7 @@ SimulateFn SwapSimulate(const char* what, std::uint64_t vtableId,
 void ForEachActiveEffect(void* actor,
                          const std::function<void(const RuntimeEffect&, float)>& fn) {
     if (!actor) return;
-    void* target = &At<char>(actor, ids::kOffActorMagicTarget);
+    void* target = &At<char>(actor, ActorField(ids::kOffActorMagicTarget));
     auto* node = VCall<EffectListFn>(target, ids::kActiveEffectListSlot)(target);
     for (; node; node = static_cast<void**>(node[1])) {
         void* effect = node[0];

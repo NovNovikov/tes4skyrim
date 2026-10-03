@@ -4074,3 +4074,121 @@ fortified attribute). With `SkillCap=1` the runtime extends that to skill use:
 
 The governing attribute is the namesake skill's, as the level-up credits use
 ([leveling](#leveling)).
+
+**Gated on the whole chain.** A cap with no way to raise the attribute
+blocks the skill forever, so it holds only when all of these are true:
+- the sheet is on and `SkillCap` is not 0;
+- the stats window and the level-up menu both installed, and the tick that
+  opens the step is running (`InstallCharacterSheet` sets the cap last);
+- the player's attributes have an authored start, either the sidecar's
+  `player` NPC_ row or a race start from `RACE.txt`
+  (`PlayerAttributesKnown`). Without one every attribute reads 0, which
+  would cap every skill;
+- the skill's namesake has a SKIL row naming its governing attribute.
+
+### <a id="tes4-tables"></a>Every converted game with attributes (2026-10-02, unconfirmed in game)
+
+**Code:** `tes5_import/actors/attribute_tables.py`,
+`plugin/script_tables.cpp` (`AttributeGlobals`, `SkillCount`),
+`plugin/game_calls_attributes.cpp` (`SyncAttributeGlobals`),
+`plugin/leveling.cpp` (`SettleAttributeGlobal`)
+
+The sheet installs whenever any loaded sidecar staged a SKIL table, not
+only when a Morrowind sidecar staged dialogue. Every game uses the same
+attributes, the same 18 Skyrim skills and the same formulas for now, so the
+menus are unchanged.
+
+**What a TES4 plugin stages.** The import writes these into
+`SKSE/Plugins/MorrowindRuntime/<plugin>/`, in the Morrowind tables' own
+formats, from the plugin's own records:
+
+| File | Rows | Key |
+|---|---|---|
+| `SKIL.txt` | governing attribute, specialization, the two use values | the namesake TES3 skill (Blade is Long Blade's 5) through `TES4_SKILL_TO_MW`, the inverse of `MW_SKILL_TO_TES4`. Oblivion has no Enchant, so with no Morrowind installed Enchanting has no governing attribute: no credit, no cap |
+| `RACE.txt` | male and female `ATTR` | the Skyrim race a playable race becomes, and its vampire race; a race Oblivion knows wins over a face-part stand-in |
+| `NPC_.txt` | identity, level, the 8 attributes, the 27 TES3 skill slots | EditorID. A slot reads the TES4 skill it folds into; a creature's reads its Combat, Magic or Stealth skill by that skill's specialization, as OpenMW's creature does. Oblivion's `Player` row is the start a race moves |
+| `attributes_formid.txt` | `strength=Plugin.esm\|FormID` | the player attribute globals this plugin itself holds |
+
+**No actor index.** A TES4 sidecar must never write `NPC__index.txt`.
+That table is what routes an NPC's activation to Morrowind dialogue.
+
+**No GMST table.** Oblivion's ESM authors no `iLevelUp##Mult`; the exe
+holds them. The runtime's fallback is Morrowind.esm's values
+(`kLevelUpMult`: 2, 2, 2, 2, 3, 3, 3, 4, 4, 5), so the step gains the same
+with or without Morrowind installed. It used to fall back to +1.
+
+**Layering.** A master's folder sits below its dependents, so in
+Morroblivion mode the compat patch's Morrowind rows win wherever both
+games have a row. Oblivion's rows only fill gaps.
+
+**The attribute globals.** Each sample tick (about every 330 ms in
+gameplay), `SyncAttributeGlobals` does this for every listed global:
+1. Reads the global.
+2. If a script changed it since the runtime last wrote it, moves the
+   player's BASE attribute by the difference.
+3. Writes the attribute back into the global.
+
+The last written value is kept in the co-save. After a load it matches the
+global the save restored, so only a real script write registers. With the
+sheet off, the attribute reads 100 and so does the global.
+[Scripts and conditions](script_convert.md#player-attributes) read the
+globals.
+
+### <a id="tes4-attribute-magic"></a>TES4 attribute magic runs as Morrowind's (2026-10-02, unconfirmed in game)
+
+**Code:** `magic_morrowind.TES4_ATTRIBUTE_EFFECTS`, `runtime_attribute_index`,
+`magic_variants.build_av_variants`, `morrowind_teleport.copy_rows`
+
+Oblivion's five attribute effects work by Morrowind's rules (UESP: Damage
+Attribute takes its magnitude every second for the duration and holds until
+restored). Each one becomes the same runtime effect:
+
+| TES4 | TES3 |
+|---|---|
+| DRAT Drain | 17 |
+| DGAT Damage | 22 |
+| REAT Restore | 74 |
+| FOAT Fortify | 79 |
+| ABAT Absorb | 85 |
+
+**Same records, same ids.** Each per-attribute variant (`TES4FOATStrength`)
+keeps its EditorID and its hash key `('MGEF_AV', (code, av))`, so its FormID
+does not move. Only its body changes: it becomes a script-less Script effect
+with no actor value, as Morrowind's variants are. The plugin's sidecar lists
+each variant and its delivery and Ability clones in `teleports_formid.txt`
+as `index:attribute`.
+
+**What changes in play.** Before, each attribute acted on a Skyrim stand-in:
+Strength on CarryWeight, Endurance on Health, and so on
+(`magic.ATTRIBUTE_TO_AV`).
+- **On the player,** an effect now moves the sheet's attribute, and the buffs
+  follow it.
+- **On an Oblivion NPC,** an effect now does nothing. The runtime keeps
+  attributes only for actors a Morrowind record made, and nothing reads an
+  Oblivion NPC's. The tick drops such an actor from its watch list instead
+  of holding it forever.
+
+Skill effects (FOSK and the rest) keep their Skyrim skills.
+
+### <a id="pre-ae-builds"></a>SE 1.5.97 and VR 1.4.15 (2026-10-02, unconfirmed in game)
+
+On these two builds the runtime loads a generated table of addresses
+(`ids_pre_ae.h`, [pre-AE tables](../reference/address_library_formats.md#pre-ae-tables)).
+It holds only the ids in `pre_ae_ids.txt`, the ones whose struct offsets were
+checked on both builds. These features run:
+- the character sheet and the level-up step;
+- the attribute globals that converted TES4 scripts and conditions read;
+- the skill cap, on skill use and at trainers;
+- attribute magic, Morrowind's and TES4's.
+
+Everything else stays unresolved and off on those builds: Morrowind
+dialogue and activation, object scripts' world commands, flight, crime and
+travel. Per-build differences the code handles:
+- `ActorField` puts Actor fields 8 bytes lower than on AE.
+- VR arms the custom menu the way its own MessageBoxMenu is armed.
+- The AdvanceSkill hook finds its vtable slot itself: 247, or 249 on VR.
+- VR's TrainingMenu skill is at `+0x50`.
+- The Scaleform load log is AE only.
+
+VR menus take controller pointer input, and nothing here has been seen
+working in VR yet.

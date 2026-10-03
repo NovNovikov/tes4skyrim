@@ -40,6 +40,7 @@ from tes5_import.actors.confidence import (
     FACTION_EDID as CONFIDENCE_FACTION, FLEE_SPELL_EDID as CONFIDENCE_FLEE_SPELL,
     MARGIN_FACTION_EDID as FLEE_MARGIN_FACTION, SCALE_EDID as FLEE_HEALTH_SCALE)
 from tes5_import.dialogue.say_topics import flee_key
+from tes5_import.base.owned_records import PLAYER_ATTRIBUTE_GLOBALS, TES4_ATTRIBUTE_NAMES
 
 #: TES4 command name (lowercase) -> handler `(ctx, call) -> str | None`.
 REGISTRY: dict = dict(FALLOUT_HANDLERS)
@@ -1495,14 +1496,38 @@ def _confidence(ctx, call) -> str:
 _SPLIT_READS = frozenset({'GetActorValue'})
 
 
+#: TES4 attribute (lowercase) -> the global MorrowindRuntime keeps the player's in.
+_PLAYER_ATTRIBUTE_GLOBALS = {name.lower(): edid for name, edid
+                             in zip(TES4_ATTRIBUTE_NAMES, PLAYER_ATTRIBUTE_GLOBALS)}
+
+
+def _player_attribute(ctx, call, raw: str):
+    """A player's TES4 attribute read or write through its global, or None for another actor.
+
+    See: docs/commentary/script_convert.md#player-attributes
+    """
+    edid = _PLAYER_ATTRIBUTE_GLOBALS.get(raw.lower())
+    if not edid or (call.ref or '').lower() not in PLAYER_TOKENS:
+        return None
+    ctx.sc.property_refs[edid] = 'GlobalVariable'
+    if call.name in ACTOR_VALUE_READ_FUNCTIONS:
+        return f'TES4_Attributes.Read({edid})'
+    if len(call) < 2:
+        return None
+    verb = 'Modify' if _AV_PAPYRUS.get(call.name) == 'ModActorValue' else 'Write'
+    return f'TES4_Attributes.{verb}({edid}, {call.arg(1)})'
+
+
 def _attribute_access(ctx, call, raw: str) -> str:
-    """A TES4 attribute: Speed through the walk formula, other reads the stub, writes dropped.
+    """A TES4 attribute: Speed through the walk formula, the player's others through
+    their globals, another actor's reads the stub and its writes dropped.
 
     See: docs/commentary/script_convert.md#skyrim-has-no-attributes
     """
-    speed = _speed_access(ctx, call) if raw.lower() == 'speed' else None
-    if speed:
-        return speed
+    access = ((_speed_access(ctx, call) if raw.lower() == 'speed' else None)
+              or _player_attribute(ctx, call, raw))
+    if access:
+        return access
     if call.name in ACTOR_VALUE_READ_FUNCTIONS:
         return ATTRIBUTE_STUB_VALUE
     return f';TES4 attribute {raw} has no Skyrim equivalent -- write dropped'
@@ -1567,13 +1592,15 @@ def actor_value(ctx, call) -> str:
 def _speed_access(ctx, call):
     """A Speed read or write through the subject's TES4 walk formula, or None.
 
-    Reads and writes share one baseline, so a saved-and-restored Speed round-trips.
-    The player's baseline is ATTRIBUTE_STUB_VALUE, what its other attribute reads return.
+    Reads and writes share one baseline, so a saved-and-restored Speed round-trips;
+    a Mod adds to the Speed read back. The player's movement baseline is
+    ATTRIBUTE_STUB_VALUE.
     See: docs/commentary/script_convert.md#speed-write-becomes-speedmult
     """
     formula = ctx.walk_speed_formula(call.ref)
     reading = call.name in ACTOR_VALUE_READ_FUNCTIONS
-    if formula is None or not (reading or (call.name in _AV_SET and len(call) > 1)):
+    modding = _AV_PAPYRUS.get(call.name) == 'ModActorValue'
+    if formula is None or not (reading or ((call.name in _AV_SET or modding) and len(call) > 1)):
         return None
     base, low, high = formula
     if (call.ref or '').lower() in PLAYER_TOKENS:
@@ -1581,9 +1608,11 @@ def _speed_access(ctx, call):
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if ref == 'Self' and call.extends == 'ObjectReference':
         ref = '(Self as Actor)'
+    current = f'TES4Polyfill.GetTES4Speed({ref}, {base}, {low}, {high})'
     if reading:
-        return f'TES4Polyfill.GetTES4Speed({ref}, {base}, {low}, {high})'
-    return f'TES4Polyfill.SetTES4Speed({ref}, {call.arg(1)}, {base}, {low}, {high})'
+        return current
+    value = f'{current} + ({call.arg(1)})' if modding else call.arg(1)
+    return f'TES4Polyfill.SetTES4Speed({ref}, {value}, {base}, {low}, {high})'
 
 
 #: AV commands naming the PLAYER by definition, whatever script calls them.

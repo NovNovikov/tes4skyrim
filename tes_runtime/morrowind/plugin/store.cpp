@@ -301,7 +301,7 @@ namespace {
 // while its cell is unloaded, which is why SCPT_instances is not here.
 constexpr const char* kOwnFormTables[] = {
     "quests_formid.txt", "bases_formid.txt", "items_formid.txt",
-    "factions_formid.txt", "GLOB.txt"};
+    "factions_formid.txt", "GLOB.txt", "attributes_formid.txt"};
 
 // `Plugin.esm|FormID` out of one row's value, when the file is `plugin`'s own.
 // The file is whatever follows the last ',' before the first '|' (GLOB rows

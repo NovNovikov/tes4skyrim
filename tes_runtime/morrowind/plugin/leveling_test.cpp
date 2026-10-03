@@ -5,6 +5,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -179,6 +180,9 @@ void SheetOffCases() {
     g_base["Speechcraft"] = 37.0f;
     Check(ActorAttribute("player", kPersonality) == 37.0f, "Personality reads Speech");
     Check(!SkillCapEnabled(), "the skill cap is off with it");
+    Check(PlayerAttributesKnown(), "the fixture's player row gives the attributes a start");
+    Check(SettleAttributeGlobal(kStrength, 55.0f, std::nanf("")) == 100.0f,
+          "a TES4 script's global reads 100 with the sheet off");
     SetSheetEnabled(true);
     HoldAttributeBuffs();
     Check(BaseIs("Health", 30.0f), "and back on, the earned bonus returns");
@@ -223,6 +227,18 @@ void GoverningCases() {
     Check(GoverningAttribute(17) == kPersonality, "Speech: Speechcraft's Personality");
     Check(GoverningAttribute(24) == -1 && SkillName(24) == nullptr, "Health is no skill");}
 
+void GlobalCases() {
+    std::printf("a TES4 script's attribute global follows the player both ways\n");
+    const float base = ActorBaseAttribute("player", kLuck);
+    const float now = SettleAttributeGlobal(kLuck, 100.0f, std::nanf(""));
+    Check(now == ActorAttribute("player", kLuck) && ActorBaseAttribute("player", kLuck) == base,
+          "the first sight writes the attribute and moves nothing");
+    const float modded = SettleAttributeGlobal(kLuck, now + 1.0f, now);
+    Check(ActorBaseAttribute("player", kLuck) == base + 1.0f && modded == now + 1.0f,
+          "player.modav Luck 1 raises the base by 1");
+    Check(SettleAttributeGlobal(kLuck, modded, modded) == modded, "an unmoved global moves nothing");
+}
+
 }  // namespace
 
 int main() {
@@ -241,6 +257,7 @@ int main() {
     SheetOffCases();
     RaceCases();
     GoverningCases();
+    GlobalCases();
     std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
     return g_failures ? 1 : 0;
 }

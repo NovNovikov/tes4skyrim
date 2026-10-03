@@ -37,20 +37,30 @@ MGEF_FAMILY_KEYWORDS: dict[int, int] = {}
 _VTYP_FEMALE = 0x02
 
 
-#: Conversion-owned globals: EditorID -> FNAM type char ('f' float, 's' short).
-_OWNED_GLOBALS = (
-    ('TES4Fame', 'f'),
-    ('TES4Infamy', 'f'),
-    ('TES4GoldFenced', 'f'),
-    ('TES4ControlsDisabled', 's'),
-)
+#: The eight attributes in TES3/TES4 order, as TES4 records and scripts name them.
+TES4_ATTRIBUTE_NAMES = ('Strength', 'Intelligence', 'Willpower', 'Agility', 'Speed',
+                        'Endurance', 'Personality', 'Luck')
 
-def _emit_global(writer: PluginWriter, edid: str, type_char: str) -> int:
+#: The player's attributes, each a global MorrowindRuntime keeps current, in that order.
+PLAYER_ATTRIBUTE_GLOBALS = tuple(f'TES4Player{name}' for name in TES4_ATTRIBUTE_NAMES)
+
+#: What an attribute global holds until the runtime writes it: the old stub, so a gate falls open.
+PLAYER_ATTRIBUTE_DEFAULT = 100.0
+
+#: Conversion-owned globals: (EditorID, FNAM type char 'f' float / 's' short, starting value).
+_OWNED_GLOBALS = (
+    ('TES4Fame', 'f', 0.0),
+    ('TES4Infamy', 'f', 0.0),
+    ('TES4GoldFenced', 'f', 0.0),
+    ('TES4ControlsDisabled', 's', 0.0),
+) + tuple((edid, 'f', PLAYER_ATTRIBUTE_DEFAULT) for edid in PLAYER_ATTRIBUTE_GLOBALS)
+
+def _emit_global(writer: PluginWriter, edid: str, type_char: str, value: float = 0.0) -> int:
     """Write one GlobalVariable, register it by name, and return its FormID."""
     fid = writer.derive_formid('GLOB', edid)
     subs = pack_string_subrecord('EDID', edid)
     subs += pack_subrecord('FNAM', struct.pack('<B', ord(type_char)))
-    subs += pack_subrecord('FLTV', struct.pack('<f', 0.0))
+    subs += pack_subrecord('FLTV', struct.pack('<f', value))
     writer.add_record('GLOB', pack_record('GLOB', fid, 0, subs))
     WELL_KNOWN_PROPERTIES[edid] = fid
     return fid
@@ -69,11 +79,22 @@ def create_tes4_special_records(writer: PluginWriter):
 
     See: docs/commentary/tes5_import_dialogue.md#the-conversion-owned-globals
     """
-    made = {edid: _emit_global(writer, edid, ch)
-            for (edid, ch) in _OWNED_GLOBALS}
+    made = {edid: _emit_global(writer, edid, ch, value)
+            for (edid, ch, value) in _OWNED_GLOBALS}
     made[ESCORT_WHEN_NEAR_EDID] = _emit_escort_template(writer)
     print('  Created TES4 special records: '
           + ', '.join(f'{k}={v:08X}' for k, v in made.items()))
+
+
+def create_missing_globals(writer: PluginWriter) -> int:
+    """Each conversion-owned global no master supplied (one built before it existed); how many."""
+    missing = [row for row in _OWNED_GLOBALS if row[0] not in WELL_KNOWN_PROPERTIES]
+    for edid, ch, value in missing:
+        _emit_global(writer, edid, ch, value)
+    if missing:
+        print(f'  Created {len(missing)} global(s) the masters lack: '
+              + ', '.join(row[0] for row in missing))
+    return len(missing)
 
 
 def create_message_menu_records(writer: PluginWriter, plan: dict) -> dict:

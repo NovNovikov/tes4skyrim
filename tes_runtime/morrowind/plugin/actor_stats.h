@@ -34,7 +34,8 @@ void SetActorAttribute(const std::string& actor, int tes3Index, float value);
 // What the actor's NPC_ record authors for an attribute, before any write.
 float ActorAuthoredAttribute(const std::string& actor, int tes3Index);
 // MorrowindRuntime.ini's [CharacterSheet] Enabled and SkillCap; both on until
-// set. The cap only ever applies with the sheet on.
+// set. The cap only ever applies with the sheet on, and the sheet only turns
+// it on once its menus and tick are running.
 void SetSheetEnabled(bool on);
 bool SheetEnabled();
 void SetSkillCapEnabled(bool on);

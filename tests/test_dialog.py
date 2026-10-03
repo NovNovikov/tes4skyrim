@@ -350,24 +350,22 @@ class TestCTDAConversion:
         speaker = convert_ctda(_tes4_ctda(type_byte=0x60, comp=0x42480000, func=14, p1=39), offset=1)
         assert struct.unpack_from('<HxxI', speaker, 8) == (14, 61)
 
-    def test_attribute_conditions_dropped(self):
-        """SKYRIM HAS NO ATTRIBUTES, so an attribute gate must be dropped.
+    def test_npc_attribute_conditions_dropped(self):
+        """An NPC's own attribute has no Skyrim value or global, so its gate drops (fails open).
 
-        Regression: joining the Morroblivion Fighters Guild is gated on
-        `GetActorValue Strength >= 30 AND GetActorValue Endurance >= 30`.
-        Passed through verbatim those became Aggression/Assistance — 0-3 enums
-        that can never reach 30 — so the recruiter always answered "you don't
-        have enough experience" and the guild was unjoinable at any level. The
-        Thieves Guild (Agility/Personality) failed the same way.
-
-        Dropping fails OPEN, which is the faithful outcome: a Skyrim character
-        cannot raise an attribute at all, so enforcing the gate would lock the
-        content away permanently rather than merely early.
+        Passed through verbatim, Strength 0 became Aggression, a 0-3 enum that never reaches 30.
         """
-        for attr in range(8):  # Strength .. Luck
+        for attr in range(8):
             for func in (14, 277):
                 assert convert_ctda(_tes4_ctda(func=func, p1=attr),
                                     offset=1) is None
+
+    def test_player_attribute_reads_its_global(self, monkeypatch):
+        """Run-on-target Strength >= 30 (the Fighters Guild's gate) reads TES4PlayerStrength."""
+        from tes5_import.base import owned_records
+        monkeypatch.setitem(owned_records.WELL_KNOWN_PROPERTIES, 'TES4PlayerStrength', 0x01000A01)
+        player = convert_ctda(_tes4_ctda(type_byte=0x62, comp=0x41F00000, func=14, p1=0), offset=1)
+        assert (player[0], struct.unpack_from('<HxxI', player, 8)) == (0x60, (74, 0x01000A01))
 
     def test_quest_stage_param2_not_remapped(self):
         """59 GetStageDone(ptQuest, ptQuestStage): p1 is a FormID, p2 is the

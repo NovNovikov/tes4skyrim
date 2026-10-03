@@ -422,6 +422,18 @@ std::size_t GmstCount();
 
 // A SKIL by TES3 skill index, 0..26, or null.
 const SkillDef* FindSkill(int index);
+// How many SKIL rows the sidecars staged: none means no game with attributes.
+std::size_t SkillCount();
+
+// One global a TES4 plugin's converted scripts read for the player's
+// attribute (TES3 order, 0..7): attributes_formid.txt. Every plugin's rows
+// are kept: each game's scripts hold their own.
+// See: docs/commentary/morrowind_runtime.md#tes4-tables
+struct AttributeGlobal {
+    int attribute = -1;
+    FormRef form;
+};
+const std::vector<AttributeGlobal>& AttributeGlobals();
 
 // The TES3 race a player wearing Skyrim race `skyrimRace` (runtime FormID)
 // starts from, or null.

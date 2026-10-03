@@ -192,6 +192,9 @@ MW_ATTRIBUTE_EFFECTS = frozenset((17, 22, 74, 79, 85))
 #: TES3 attribute indices 0..7, Oblivion's eight.
 _MW_ATTRIBUTES = range(8)
 
+#: TES4's attribute effect codes -> the TES3 effect MorrowindRuntime runs them as (same per-second rules).
+TES4_ATTRIBUTE_EFFECTS = {'DRAT': 17, 'DGAT': 22, 'REAT': 74, 'FOAT': 79, 'ABAT': 85}
+
 MW_EFFECT_ARCHETYPES.update(
     {index: (A_SCRIPT, NATIVE_NONE) for index in MW_RUNTIME_EFFECTS})
 MW_EFFECT_ARCHETYPES.update(
@@ -322,6 +325,16 @@ def mw_attribute_variant(index: int, effect_av: int) -> bool:
     See: docs/commentary/morrowind_runtime.md#attribute-effects
     """
     return index in MW_ATTRIBUTE_EFFECTS and effect_av in _MW_ATTRIBUTES
+
+
+def runtime_attribute_index(index: int, code: str, effect_av: int) -> int:
+    """The runtime's TES3 attribute effect for a MW `index` or TES4 `code`, else -1.
+
+    See: docs/commentary/morrowind_runtime.md#tes4-attribute-magic
+    """
+    if index >= 0:
+        return index if mw_attribute_variant(index, effect_av) else -1
+    return TES4_ATTRIBUTE_EFFECTS.get(code, -1) if effect_av in _MW_ATTRIBUTES else -1
 
 
 def mw_actor_value(index: int, effect_av: int) -> int:

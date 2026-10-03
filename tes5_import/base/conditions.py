@@ -27,7 +27,8 @@ from .equivalents import TES4_ITEM_FORMID_TO_SKYRIM
 from .conditions_falloutnv import (FALLOUT_AV_TO_TES5, FALLOUT_CTDA_SIZE,
                                    fallout_ctda, fallout_function, fallout_run_on)
 from ..generated.ctda_param_types import CTDA_FORMID_PARAMS
-from .owned_records import MGEF_FAMILY_KEYWORDS, WELL_KNOWN_PROPERTIES
+from .owned_records import (MGEF_FAMILY_KEYWORDS, PLAYER_ATTRIBUTE_GLOBALS,
+                            WELL_KNOWN_PROPERTIES)
 from .race_factions import race_faction
 from .split_skill_conditions import split_skill_ctdas
 from .text_reader import (_ENGINE_FIXED_FORMIDS, get_formid_index_offset,
@@ -510,17 +511,19 @@ def _convert_params(func_idx: int, param1: int, param2: int,
     return param1, param2
 
 
-#: TES4 Fame and Infamy actor values -> the conversion-owned global converted scripts keep them in.
-_FAME_GLOBALS = {38: 'TES4Fame', 39: 'TES4Infamy'}
+#: TES4 actor value -> the conversion-owned global the player's value lives in: attributes, Fame, Infamy.
+_PLAYER_GLOBALS = {**dict(enumerate(PLAYER_ATTRIBUTE_GLOBALS)), 38: 'TES4Fame', 39: 'TES4Infamy'}
 
 
-def _fame_global(raw: bytes, type_byte: int, func_idx: int, param1: int) -> 'tuple | None':
-    """(type byte, GetGlobalValue, global FormID) for a PLAYER Fame/Infamy read, else None.
+def _player_global(raw: bytes, type_byte: int, func_idx: int, param1: int) -> 'tuple | None':
+    """(type byte, GetGlobalValue, global FormID) for a PLAYER attribute, Fame or Infamy read.
 
-    Only the run-on-target (player) form moves: an NPC's own Fame read 0 in Oblivion and still does.
+    See: docs/commentary/morrowind_runtime.md#tes4-tables
+    Only the run-on-target (player) form moves: an NPC's own Fame read 0 in
+    Oblivion and still does, and an NPC's attribute has no global.
     See: docs/plans/character_sheet.md#bug-fame
     """
-    edid = _FAME_GLOBALS.get(param1)
+    edid = _PLAYER_GLOBALS.get(param1)
     if (not edid or len(raw) == FALLOUT_CTDA_SIZE or func_idx not in _AV_PARAM_FUNCS
             or not type_byte & CTDA_RUN_ON_TARGET):
         return None
@@ -635,7 +638,7 @@ def convert_ctda(raw: bytes, offset: 'int | None' = None,
     type_byte, comp_raw, func_idx, param1, param2, run_on, reference = head
     if type_byte & CTDA_USE_GLOBAL:
         comp_raw = _remap_global(comp_raw, offset)
-    fame = _fame_global(raw, type_byte, func_idx, param1)
+    fame = _player_global(raw, type_byte, func_idx, param1)
     if fame:
         type_byte, func_idx, gfid = fame
         params, fields = (gfid, 0), (type_byte, 0, 0)

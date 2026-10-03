@@ -73,6 +73,7 @@ from .base.owned_records import (
     create_fall_damage_spell,
     create_force_combat_factions,
     create_message_menu_records,
+    create_missing_globals,
     create_tes4_special_records,
     create_vtyp_records,
 )
@@ -291,6 +292,8 @@ def _prescan_special_records(by_type: dict, ctx, writer, export_dir: str, _step_
     if support_root:
         create_tes4_special_records(writer)
         create_ambient_gmst_overrides(writer, by_type)
+    else:
+        create_missing_globals(writer)
     WELL_KNOWN_PROPERTIES.update(create_fall_damage_spell(
         writer, getattr(ctx, 'master_index', None)))
     tes4_source = not is_tes3_export(export_dir) and not is_fallout_export(by_type)

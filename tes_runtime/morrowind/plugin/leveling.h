@@ -55,6 +55,19 @@ int GoverningAttribute(int skyrimSkill);
 // That skill's actor value name ("OneHanded"), or null.
 const char* SkillName(int skyrimSkill);
 
+// Whether the player's attributes have an authored start: a sidecar's player
+// NPC_ row or a race start from RACE.txt. Without one they read 0, so the
+// skill cap must not hold.
+// See: docs/commentary/morrowind_runtime.md#skill-cap
+bool PlayerAttributesKnown();
+
+// One player attribute global's turn: `read` is what it holds now and
+// `written` what was last written into it (NaN before the first write). A
+// difference is a script's Set or Mod, and moves the player's BASE attribute
+// by as much. Returns what the global should hold: the attribute as read.
+// See: docs/commentary/morrowind_runtime.md#tes4-tables
+float SettleAttributeGlobal(int attribute, float read, float written);
+
 // Forgets the race the last read saw, so a case starts from a first read.
 void ResetLevelingForTest();
 

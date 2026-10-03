@@ -1442,7 +1442,9 @@ The rule now, on **both** sides:
 
 | TES4 AV | Conversion |
 |---|---|
-| The 8 attributes | **DROPPED** (CTDA) / stubbed to `100.0` (script read), writes discarded |
+| The player's 8 attributes (Speed aside) | its `TES4Player<Attribute>` global ([below](#player-attributes)) |
+| An NPC's 8 attributes | **DROPPED** (CTDA) / stubbed to `100.0` (script read), writes discarded |
+| Speed | the walk formula ([SpeedMult](#speed-write-becomes-speedmult)), for the player too |
 | Skills | Translated to the TES5 skill index / name |
 | Shared derived + AI + magic values | Translated to the matching TES5 index |
 | Everything else (Magicka Multiplier, Attack Bonus, Silence, Telekinesis, …) | Dropped — no TES5 equivalent |
@@ -1451,6 +1453,40 @@ Dropping an attribute gate **fails OPEN**, which is the faithful outcome: the
 gate exists to keep an under-developed character out, and a Skyrim character has
 no way to raise an attribute, so enforcing it would lock the content away
 *permanently* rather than merely early.
+
+<a id="player-attributes"></a>
+**The player's attributes are real now (2026-10-02, unconfirmed in game).**
+MorrowindRuntime's character sheet gives the player Morrowind's eight
+attributes in every converted game. Each lives in a conversion-owned global,
+`TES4PlayerStrength` … `TES4PlayerLuck`, made beside `TES4Fame`. A dependent
+plugin adopts its master's, and creates any its master lacks.
+
+- **Scripts:** `Player.GetAV Strength` becomes
+  `TES4_Attributes.Read(TES4PlayerStrength)`. `SetAV` becomes `Write` and
+  `ModAV` becomes `Modify`. `TES4_Attributes` is a static script, and it reads
+  100 for an unbound property, so a plugin built against an old master keeps
+  the old open gate.
+- **Conditions:** a run-on-target (player) `GetActorValue Strength` becomes
+  `GetGlobalValue TES4PlayerStrength`, as Fame and Infamy already do
+  (`conditions._player_global`). The census counted 171 attribute conditions,
+  every one on an INFO:
+
+  | Plugin | On the player (converted) | On the NPC (dropped) |
+  |---|---|---|
+  | Oblivion | 6 | 0 |
+  | Nehrim | 0 | 0 |
+  | Morroblivion | 163 | 2 |
+- **The globals start at 100**, so without the DLL every gate stays open. The
+  runtime keeps them current and turns a script's write into a change of the
+  attribute ([tes4-tables](morrowind_runtime.md#tes4-tables)).
+- **Speed stays on the walk formula**, the player's included. Oblivion's
+  Oghma Infinium writes `player.GetBaseAV Speed + 10`, and the read and the
+  write must share one baseline ([SpeedMult](#speed-write-becomes-speedmult)).
+  `ModAV Speed` now goes through the formula too; before, it was dropped.
+- **An NPC's attribute** still reads 100, and a write to it is dropped: a
+  script has no way to reach the runtime's NPC store. Of the 108 script
+  attribute calls in Oblivion and Nehrim, 14 are writes on named NPCs and 16
+  are on the script's own actor.
 
 Three places must agree, and a change to one needs the same change in the others:
 `tes5_import/base/conditions.py` (`_TES4_AV_ATTRIBUTES` / `_TES4_AV_TO_TES5`,

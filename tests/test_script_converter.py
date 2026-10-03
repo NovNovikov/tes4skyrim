@@ -21,7 +21,6 @@ from script_convert.constants import (
     TYPE_MAP,
     ACTOR_VALUE_MAP,
     TES4_ATTRIBUTES,
-    ATTRIBUTE_STUB_VALUE,
     PAPYRUS_MAX_SCRIPT_NAME,
     is_generated_script_type,
     papyrus_script_name,
@@ -552,18 +551,26 @@ class TestActorValueMap:
         for attr in TES4_ATTRIBUTES:
             assert attr not in ACTOR_VALUE_MAP
 
-    def test_attribute_read_is_stubbed_open(self, converter):
-        """A read of a removed attribute yields a value that passes the gate."""
+    def test_player_attribute_reads_its_global(self, converter):
+        """The player's attribute is the global MorrowindRuntime keeps current."""
         result = conv_expr(converter,
             'Player.GetAV Strength >= 30 && Player.GetAV Endurance >= 30',
             'Quest')
-        assert result == '100.0 >= 30 && 100.0 >= 30'
+        assert result == ('TES4_Attributes.Read(TES4PlayerStrength) >= 30 && '
+                          'TES4_Attributes.Read(TES4PlayerEndurance) >= 30')
 
-    def test_attribute_write_is_dropped(self, converter):
-        result = conv_line(converter, 'Player.SetAV Strength 50',
-                                                  'Quest')
-        assert result.lstrip().startswith(';')
-        assert 'SetActorValue' not in result
+    def test_player_attribute_writes_its_global(self, converter):
+        """SetAV writes the global and ModAV adds to it; the runtime moves the attribute."""
+        assert conv_line(converter, 'Player.SetAV Strength 50', 'Quest').strip() == \
+            'TES4_Attributes.Write(TES4PlayerStrength, 50)'
+        assert conv_line(converter, 'player.modav Luck 1', 'Quest').strip() == \
+            'TES4_Attributes.Modify(TES4PlayerLuck, 1)'
+
+    def test_npc_attribute_keeps_the_stub(self, converter):
+        """No script reaches an NPC's attribute: reads 100, writes drop."""
+        assert conv_expr(converter, 'OtherRef.GetAV Strength >= 30', 'Quest') == '100.0 >= 30'
+        result = conv_line(converter, 'OtherRef.SetAV Strength 50', 'Quest')
+        assert result.lstrip().startswith(';') and 'SetActorValue' not in result
 
     def test_skill_read_still_maps(self, converter):
         """Skills survive the attribute no-op -- only attributes are stubbed."""
@@ -596,7 +603,7 @@ class TestFalloutActorValueNames:
         """A write renames the argument too."""
         assert 'ModActorValue("Speechcraft", 5)' in conv_line(converter, 'player.modav Speech 5', 'Quest')
 
-    @pytest.mark.parametrize('name', ['Perception', 'Charisma', 'Strength'])
+    @pytest.mark.parametrize('name', ['Perception', 'Charisma'])
     def test_special_read_is_stubbed_open(self, converter, name):
         """All seven S.P.E.C.I.A.L. stats read alike."""
         assert conv_expr(converter, f'player.getav {name} >= 6', 'Quest') == '100.0 >= 6'
@@ -3180,11 +3187,14 @@ class TestTES4SpeedAttribute:
         assert 'GetTES4Speed(' in read and read.endswith(', 33, 90.0, 130.0)')
         assert 'SetTES4Speed(' in write and write.endswith(', x, 33, 90.0, 130.0)')
 
-    def test_player_baseline_is_the_attribute_stub(self, xref):
-        """The player has no Speed attribute; its gates keep falling open."""
+    def test_player_speed_stays_on_the_walk_formula(self, xref):
+        """Player Speed reads and writes share the movement baseline; a Mod adds to it."""
         conv = self._converter(xref)
         out = conv_line(conv, 'set x to player.GetBaseAV Speed', 'ObjectReference')
-        assert f'GetTES4Speed(Game.GetPlayer(), {ATTRIBUTE_STUB_VALUE}, 90.0, 130.0)' in out
+        assert 'GetTES4Speed(Game.GetPlayer(), 100.0, 90.0, 130.0)' in out
+        write = conv_line(conv, 'player.modAV Speed 100', 'ObjectReference')
+        assert write.strip() == ('TES4Polyfill.SetTES4Speed(Game.GetPlayer(), TES4Polyfill.GetTES4Speed('
+                                 'Game.GetPlayer(), 100.0, 90.0, 130.0) + (100), 100.0, 90.0, 130.0)')
 
     def test_unknown_subject_keeps_the_stub(self, converter):
         """With no actor record to read a baseline from, nothing changes."""

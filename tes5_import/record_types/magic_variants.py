@@ -25,7 +25,7 @@ from .magic import (
     mgef_parts, mgef_tail, morrowind_index, resolve_actor_value, source_record)
 from .common import pack_keywords
 from .magic_art import explosion, master_signature, projectile, sound_set
-from .magic_morrowind import mw_attribute_variant
+from .magic_morrowind import runtime_attribute_index
 
 #: {output MGEF FormID: (EditorID, subrecords before DATA, DATA, subrecords after)} of every emitted MGEF.
 _parts: dict = {}
@@ -286,14 +286,15 @@ def build_av_variants(mgef_records: list, effect_records: list, writer) -> int:
         src = by_code[code]
         tes5_av = resolve_actor_value(code, av, src)
         name = _ATTR_NAMES.get(av) or _SKILL_NAMES.get(av)
-        runtime = mw_attribute_variant(morrowind_index(src), av)
+        runtime = runtime_attribute_index(morrowind_index(src), code, av) >= 0
         if (tes5_av == AV_NONE and not runtime) or not name:
             continue
         edid = av_variant_editor_id(code, av)
         fid = generated_formid(writer, 'MGEF', edid, 'MGEF_AV', (code, av))
         full = get_str(src, 'FULL')
         head = pack_string_subrecord('FULL', _variant_name(full, name)) if full else b''
-        data = build_data(src, code, get_archetype(code, src), tes5_av, 0)
+        archetype, tes5_av = (A_SCRIPT, AV_NONE) if runtime else (get_archetype(code, src), tes5_av)
+        data = build_data(src, code, archetype, tes5_av, 0)
         head += pack_formid_subrecord('MDOB', menu_display_object(data))
         _emit(writer, fid, edid, head, data, mgef_tail(src), src,
               code_to_fid.get(code, 0))

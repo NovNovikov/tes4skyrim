@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -36,6 +37,7 @@
 #include "leveling.h"
 #include "log.h"
 #include "object_tick.h"
+#include "script_tables.h"
 
 namespace tesruntime::mw {
 namespace gamecalls {
@@ -168,7 +170,7 @@ float AttributeEffect(const std::string& actor, int tes3Index) {
 // Whether the player's skill (Skyrim actor value 6..23) is at or past its
 // governing attribute, as magic leaves it -- OpenMW checks getModified.
 bool Capped(std::uint32_t skill) {
-    if (!SkillCapEnabled() || !Hooks().baseActorValue) return false;
+    if (!SkillCapEnabled() || !PlayerAttributesKnown() || !Hooks().baseActorValue) return false;
     const int attribute = GoverningAttribute(static_cast<int>(skill));
     const char* name = SkillName(static_cast<int>(skill));
     if (attribute < 0 || !name) return false;
@@ -183,7 +185,8 @@ void AdvanceSkillHook(void* player, std::uint32_t skill, float points, void* for
 
 // Refused before the trainer takes any gold, with Morrowind's own line.
 void TrainHook(void* menu) {
-    const std::uint32_t skill = At<std::uint32_t>(menu, ids::kOffTrainingMenuSkill);
+    const std::uint32_t skill = At<std::uint32_t>(
+        menu, IsVr() ? ids::kVrOffTrainingMenuSkill : ids::kOffTrainingMenuSkill);
     if (Capped(skill)) {
         Notify(GmstText("sNotifyMessage17",
                         "You cannot train a skill above its governing attribute."));
@@ -222,14 +225,28 @@ float SkillProgress(const char* skill) {
     return most > 0.0f ? std::clamp(points / most, 0.0f, 1.0f) : -1.0f;
 }
 
+// The byte offset of the slot in `vtable` holding `fn`, or 0 when none does:
+// the slot is found, not assumed, because VR's Actor has more virtuals.
+std::size_t SlotOf(std::uintptr_t vtable, std::uintptr_t fn) {
+    if (!vtable || !fn) return 0;
+    const auto* slots = reinterpret_cast<const std::uintptr_t*>(vtable);
+    for (std::size_t i = 1; i < ids::kMaxPlayerVirtuals; ++i) {
+        if (slots[i] == fn) return i * sizeof(void*);
+    }
+    return 0;
+}
+
 void InstallSkillCap() {
     const std::uintptr_t advance =
         Resolve("PlayerCharacter::AdvanceSkill", ids::kPlayerAdvanceSkill, nullptr);
+    const std::uintptr_t vtable =
+        Resolve("PlayerCharacter vtable", tesruntime::ids::kPlayerVtable, nullptr);
+    const std::size_t slot = SlotOf(vtable, advance);
     g_skillsOffset = SkillsOffset(advance);
-    g_advanceSkill = reinterpret_cast<AdvanceSkillFn>(SwapVtableSlot(
-        "PlayerCharacter::AdvanceSkill",
-        Resolve("PlayerCharacter vtable", tesruntime::ids::kPlayerVtable, nullptr),
-        ids::kAdvanceSkillSlot, advance, reinterpret_cast<void*>(&AdvanceSkillHook)));
+    g_advanceSkill = slot ? reinterpret_cast<AdvanceSkillFn>(SwapVtableSlot(
+                                "PlayerCharacter::AdvanceSkill", vtable, slot, advance,
+                                reinterpret_cast<void*>(&AdvanceSkillHook)))
+                          : nullptr;
     const std::uintptr_t caller =
         Resolve("TrainingMenu train caller", ids::kTrainingMenuTrainCaller, nullptr);
     const std::uintptr_t train = Resolve("TrainingMenu train", ids::kTrainingMenuTrain, nullptr);
@@ -243,11 +260,42 @@ void InstallSkillCap() {
         g_skillsOffset);
 }
 
+// What each attribute global was last written, kept in the dialogue state so
+// it rides the co-save beside the global itself: after a load the two agree,
+// and only a script's write tells them apart.
+constexpr const char* kGlobalOwner = "attrglobal|";
+
+// Each attribute global's form, looked up once: a GLOB never unloads.
+std::unordered_map<std::string, std::uint8_t*> g_globalForms;
+
+std::uint8_t* GlobalForm(const FormRef& ref, const std::string& key) {
+    auto found = g_globalForms.find(key);
+    if (found != g_globalForms.end()) return found->second;
+    auto* form = static_cast<std::uint8_t*>(
+        FormFromFile(ref.plugin.c_str(), ref.formId & 0x00FFFFFF));
+    if (form) g_globalForms.emplace(key, form);
+    return form;
+}
+
+void SyncAttributeGlobals() {
+    for (const AttributeGlobal& row : AttributeGlobals()) {
+        const std::string key = row.form.plugin + '|' + std::to_string(row.form.formId & 0x00FFFFFF);
+        std::uint8_t* form = GlobalForm(row.form, key);
+        if (!form) continue;
+        float& value = *reinterpret_cast<float*>(form + ids::kOffGlobalValue);
+        const float written = State().HasVar(kGlobalOwner, key) ? State().Var(kGlobalOwner, key)
+                                                                : std::nanf("");
+        value = SettleAttributeGlobal(row.attribute, value, written);
+        State().SetVar(kGlobalOwner, key, value);
+    }
+}
+
 }  // namespace
 
 // The player every tick, since a save can carry an effect the apply sink never
 // saw; every other actor until nothing is left on it. One whose reference is
-// not loaded keeps its place and its damage.
+// not loaded keeps its place and its damage; a loaded one no Morrowind record
+// made (an Oblivion NPC) has no attributes to sum and is let go.
 void TickAttributeEffects(void* player) {
     g_effects.clear();
     if (!player || !SheetEnabled()) return;
@@ -255,7 +303,8 @@ void TickAttributeEffects(void* player) {
     for (auto it = g_watched.begin(); it != g_watched.end();) {
         void* ref = RefByRuntimeId(*it);
         const std::string actor = ActorKey(ref);
-        if (!actor.empty() && !TickActor(ref, actor)) {
+        const bool foreign = actor.empty() && IsActorRef(ref);
+        if (foreign || (!actor.empty() && !TickActor(ref, actor))) {
             it = g_watched.erase(it);
         } else {
             ++it;
@@ -275,6 +324,7 @@ void WatchAttributes(std::uint32_t actorId, std::uint32_t casterId, const Runtim
 void InstallAttributeCalls(GameHooks& hooks) {
     hooks.attributeEffect = AttributeEffect;
     hooks.skillProgress = SkillProgress;
+    hooks.syncAttributeGlobals = SyncAttributeGlobals;
     InstallSkillCap();
 }
 

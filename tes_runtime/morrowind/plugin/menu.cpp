@@ -157,10 +157,24 @@ struct alignas(8) NumberValue {
 
 // The scalars the engine indexes while the menu is on its stack, written on
 // every open because the engine owns the object between them.
+// VR's IMenu is 0x40 bytes: its base constructor (0xf2a300 on 1.4.15) also
+// sets +0x30 to -1 (the int its slot 9 writes) and +0x34 to 1, and its
+// MessageBoxMenu sets context 0xb and flags 0x40013 -- no cursor bits, since
+// VR points with the controllers. Ours is armed exactly as that menu is.
+// See: docs/reference/address_library_formats.md#pre-ae-tables
+constexpr std::uint8_t  kVrMenuContext = 0xb;
+constexpr std::uint32_t kVrMenuFlags = 0x40013;
+constexpr std::size_t   kVrOffMenuSlot = 0x30;
+constexpr std::size_t   kVrOffMenuShown = 0x34;
+
 void ArmMenu(EngineMenu* menu) {
-    menu->context = kMenuContext;
-    menu->flags = kMenuFlags;
+    menu->context = IsVr() ? kVrMenuContext : kMenuContext;
+    menu->flags = IsVr() ? kVrMenuFlags : kMenuFlags;
     menu->depth = kMenuDepth;
+    if (IsVr()) {
+        At<std::int32_t>(menu, kVrOffMenuSlot) = -1;
+        At<std::uint8_t>(menu, kVrOffMenuShown) = 1;
+    }
 }
 
 void LogEventKindOnce(std::uint32_t type) {
