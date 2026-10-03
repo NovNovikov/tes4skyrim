@@ -506,6 +506,23 @@ def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypa
         assert all(args[i].plugin_assets_only for i in mesh_jobs)
 
 
+def test_mod_runs_process_shared_effects_once_and_keep_each_plugins_voices(monkeypatch):
+    from types import SimpleNamespace
+    from convert_cli import build_parser
+    import core.gui.runner as runner
+
+    monkeypatch.setattr(runner, 'navmesh_pins_dir', lambda: 'pins')
+    app = SimpleNamespace(navmesh_gen_var=SimpleNamespace(get=lambda: 'corridor'),
+                          tes4_encoding_var=SimpleNamespace(get=lambda: 'cp1251'))
+    runs = [('A.esm', ['sounds']), ('B.esp', ['sounds']), ('Fix.esp', ['sounds'])]
+    for rebuild in (False, True):
+        args = [build_parser().parse_args(cmd[3:])
+                for cmd in runner.mod_run_argv(app, runs, None, [], 'output',
+                                               rebuild=rebuild)]
+        assert [a.files for a in args] == [['A.esm'], ['B.esp'], ['Fix.esp']]
+        assert [a.skip_shared_sounds for a in args] == [False, True, True]
+
+
 def test_group_members_do_not_pack_by_default(tmp_path, monkeypatch):
     """Pack steps cover the shared folder, so they are not pre-ticked.
 

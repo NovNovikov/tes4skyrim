@@ -469,7 +469,7 @@ def convert_speedtrees(source_file, extract_dir='export', output_dir='output',
 
 
 def convert_sounds(source_file, extract_dir='export', output_dir='output',
-                   ffmpeg_path='ffmpeg'):
+                   ffmpeg_path='ffmpeg', skip_shared_sounds=False):
     """Convert extracted sound files to XWM format.  Delegates to audio_converter.
 
     Args:
@@ -483,7 +483,8 @@ def convert_sounds(source_file, extract_dir='export', output_dir='output',
     """
     from asset_convert.audio.audio_converter import convert_sounds as _ac_convert
     return _ac_convert(source_file, extract_dir=extract_dir,
-                       output_dir=output_dir, ffmpeg_path=ffmpeg_path)
+                       output_dir=output_dir, ffmpeg_path=ffmpeg_path,
+                       skip_shared_sounds=skip_shared_sounds)
 
 
 def _copy_tree(src, dst):

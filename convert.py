@@ -808,7 +808,8 @@ def phase_import(file_name: str, tes4_data: str, tes5_data: str,
 # Phase 7: CONVERT SOUNDS
 # ===========================================================================
 
-def phase_sounds(file_name: str, config: dict, output_dir: str = None):
+def phase_sounds(file_name: str, config: dict, output_dir: str = None,
+                 skip_shared_sounds=False):
     """Convert extracted sound files from BSA to XWM format in output."""
     _use_plugin_namespace(file_name)
     from asset_convert.asset_pipeline import convert_sounds
@@ -821,6 +822,7 @@ def phase_sounds(file_name: str, config: dict, output_dir: str = None):
         source_file=file_name,
         extract_dir=extract_dir,
         output_dir=out_dir,
+        skip_shared_sounds=skip_shared_sounds,
     )
     converted = stats.get('converted', 0)
     copied    = stats.get('copied', 0)
@@ -1150,7 +1152,8 @@ def _phase_runners(run) -> dict:
                                                 plugin_assets_only=a.plugin_assets_only),
         'import': lambda fn: phase_import(fn, run.tes4_data, run.tes5_data,
                                           run.export_dir, cfg, output_dir=out),
-        'sounds': lambda fn: phase_sounds(fn, cfg, output_dir=out),
+        'sounds': lambda fn: phase_sounds(fn, cfg, output_dir=out,
+                                         skip_shared_sounds=a.skip_shared_sounds),
         'scripts': lambda fn: (phase_scripts(fn, cfg, output_dir=out)
                                and phase_compile(fn, cfg, output_dir=out)),
         'lod': lambda _fn: _create_lod(out),
@@ -1181,7 +1184,8 @@ def _work(steps, order, run) -> dict:
     return {'plugins': list(order), 'steps': list(steps), 'masters': masters,
             'scope': {'only': a.only, 'mesh_subdirs': a.mesh_subdirs,
                       'defer_textures': a.defer_textures,
-                      'shared_texture_plugins': a.shared_texture_plugins},
+                      'shared_texture_plugins': a.shared_texture_plugins,
+                      'skip_shared_sounds': a.skip_shared_sounds},
             'same': [run.output_dir, run.tes4_data, a.config, a.textures_only,
                      a.parallax, a.skip_hair, a.collision_winding_fix,
                      a.no_engine_branches, a.patch_plugins]}
