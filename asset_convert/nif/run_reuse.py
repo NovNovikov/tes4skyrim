@@ -54,7 +54,11 @@ class RunReuse:
         self.mesh_root = Path(options[2])
         self.texture_roots = [self.mesh_root.parent / 'textures', *options[3]]
         self.resting = resting_items_plan._load(self.plan.get(resting_items_plan.RESTING_KEY))
-        operational = {'TESCONV_RUN_LOG', 'TESCONV_LOGS_DIR', 'TESCONV_WORKERS'}
+        # Process supervision changes between plugin invocations without
+        # changing the converted mesh (the lock owner is a process ID).
+        operational = {'TESCONV_RUN_LOG', 'TESCONV_LOGS_DIR', 'TESCONV_WORKERS',
+                       'TESCONV_HEAVY_LOCK_HELD', 'TESCONV_HEAVY_LOCK_SUPERVISED',
+                       'TESCONV_JOB', 'TESCONV_JOB_MEM', 'TESCONV_JOB_MEM_GB'}
         env = {k: v for k, v in os.environ.items()
                if k.startswith('TESCONV_') and k not in operational}
         # Pool initialization exports the resolved namespace to the environment.

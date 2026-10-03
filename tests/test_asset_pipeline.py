@@ -80,6 +80,31 @@ def test_mod_mesh_reuse_preserves_weight_variants_and_retries_failure(tmp_path, 
     assert run()['errors'] == 1
 
 
+def test_mod_mesh_reuse_across_supervised_processes(tmp_path, monkeypatch):
+    from asset_convert.nif import nif_batch
+    monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
+    src = tmp_path / 'export' / 'meshes' / 'tree.nif'
+    out = tmp_path / 'output' / 'meshes'
+    _small_nif(src)
+    monkeypatch.setenv('TESCONV_HEAVY_LOCK_HELD', '100')
+    monkeypatch.setenv('TESCONV_JOB', 'first-process-job')
+    monkeypatch.setenv('TESCONV_JOB_MEM', '1024')
+
+    def run(**options):
+        return nif_batch.batch_convert(src.parent, out, reuse_token='run', **options)
+
+    assert run()['converted'] == 1
+    original = (out / src.name).read_bytes()
+    stamp = (out / src.name).stat().st_mtime_ns
+    monkeypatch.setenv('TESCONV_HEAVY_LOCK_HELD', '200')
+    monkeypatch.setenv('TESCONV_JOB', 'second-process-job')
+    monkeypatch.setenv('TESCONV_JOB_MEM', '2048')
+    assert run()['reused'] == 1
+    assert (out / src.name).read_bytes() == original
+    assert (out / src.name).stat().st_mtime_ns == stamp
+    assert run(parallax=True)['converted'] == 1
+
+
 def test_imported_mesh_reuse_between_invocations_tracks_texture_dependencies(tmp_path, monkeypatch):
     from asset_convert.nif import nif_batch
     monkeypatch.setattr(nif_batch, 'WORKER_COUNT', 1)
