@@ -427,6 +427,49 @@ def _race_export(tmp_path, names):
     return tmp_path
 
 
+@pytest.mark.parametrize('male,female', [
+    ('TES4MaleНорд', 'TES4FemaleНорд'),
+    ('TES4MaleNord', 'TES4FemaleNord'),
+])
+def test_generic_voice_uses_imported_race_identity(tmp_path, monkeypatch, male, female):
+    """Generic lines follow Import's voices; pinned speakers keep their own."""
+    from tes5_import.base import equivalents
+    from tes5_import.pipeline_finalize import _write_voice_map
+    from asset_convert.audio.audio_converter import load_voice_map
+
+    monkeypatch.setattr(equivalents, 'VOICE_TYPE_MAP',
+                        {('Nord', 'Male'): 1, ('Nord', 'Female'): 2})
+    monkeypatch.setattr(equivalents, 'VTYP_EDID_BY_FID', {1: male, 2: female})
+    source = tmp_path / 'shared-assets'
+    exports = tmp_path / 'records'
+    exports.mkdir()
+    _race_export(exports, [('Nord', 'Nord')])
+    output = tmp_path / 'output'
+    output.mkdir()
+    _write_voice_map(str(output / 'Test.esm'),
+                     {0xA1B2: 'generic', 0xA1B3: 'pinned\tTES4MaleCustom'})
+    voice_map = load_voice_map(output / 'Test.esm.voicemap.txt')
+    for gender in ('M', 'F'):
+        leaf = source / 'sound' / 'voice' / 'Test.esm' / 'Nord' / gender
+        leaf.mkdir(parents=True)
+        (leaf / 'old_0000a1b2_1.xwm').write_bytes(gender.encode())
+    (source / 'sound' / 'voice' / 'Test.esm' / 'Nord' / 'M'
+     / 'old_0000a1b3_1.xwm').write_bytes(b'pinned')
+    stale = output / 'sound' / 'Voice' / 'Test.esm' / 'TES4MaleOld'
+    stale.mkdir(parents=True)
+    (stale / 'generic_0000a1b2_1.xwm').write_bytes(b'stale')
+
+    stats = organize_voice_files(source, output, plugin_name='Test.esm',
+                                 convert_audio=False, voice_map=voice_map,
+                                 record_source_dir=exports)
+    root = output / 'sound' / 'Voice' / 'Test.esm'
+    assert stats['organized'] == 3 and stats['errors'] == 0
+    assert (root / male / 'generic_0000a1b2_1.xwm').read_bytes() == b'M'
+    assert (root / female / 'generic_0000a1b2_1.xwm').read_bytes() == b'F'
+    assert (root / 'TES4MaleCustom' / 'pinned_0000a1b3_1.xwm').read_bytes() == b'pinned'
+    assert not stale.exists()
+
+
 def test_race_folders_resolve_to_voice_types(tmp_path):
     """Every Oblivion voice folder resolves from the plugin's RACE records."""
     rv = load_race_voices(_race_export(tmp_path, _RACE_FOLDERS))
