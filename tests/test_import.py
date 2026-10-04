@@ -2247,8 +2247,9 @@ class TestServiceConversion:
         ('training', '00000113', 'TES4JobTrainerFaction'),
     ])
     @pytest.mark.parametrize('has_master_marker', [True, False])
+    @pytest.mark.parametrize('route', ['own-topic', 'master-topic'])
     def test_dialogue_only_plugin_service_gate(
-            self, kind, topic_fid, marker_edid, has_master_marker, monkeypatch):
+            self, kind, topic_fid, marker_edid, has_master_marker, route, monkeypatch):
         """Services for master NPCs retain their audience and availability gates."""
         from tes5_import.base import text_reader
         from tes5_import.dialogue.groups import build_dialog_groups
@@ -2278,9 +2279,15 @@ class TestServiceConversion:
         }
         actor_common.create_vendor_factions(by_type, writer, master)
         actor_common.create_trainer_records(by_type, writer, master)
-        build_dialog_groups(by_type, writer, npc_to_vtyp={}, master_index=master)
-
-        data = b''.join(writer._top_groups.get('DIAL', []))
+        if route == 'master-topic':
+            from types import SimpleNamespace
+            from tes5_import.overrides.nested import _convert_nested
+            ctx = SimpleNamespace(master_export={topic_fid: by_type['DIAL'][0]})
+            data, _ = _convert_nested('INFO', by_type['INFO'][0], ctx,
+                                       int(topic_fid, 16), (), [])
+        else:
+            build_dialog_groups(by_type, writer, npc_to_vtyp={}, master_index=master)
+            data = b''.join(writer._top_groups.get('DIAL', []))
         infos = [r for r in reader_records(data, b'INFO', span=(0, len(data)))
                  if r.form_id == info_fid]
         if not has_master_marker:
