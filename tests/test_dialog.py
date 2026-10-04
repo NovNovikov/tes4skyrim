@@ -131,6 +131,39 @@ def _walk_records(blob):
 # ---------------------------------------------------------------------------
 
 class TestCTDAConversion:
+    @pytest.mark.parametrize('speaker_vampire,player_vampire,eligible', [
+        (False, False, False), (False, True, True),
+        (True, False, False), (True, True, False),
+    ])
+    def test_vampire_refusal_requires_vampire_player_and_mortal_speaker(
+            self, speaker_vampire, player_vampire, eligible):
+        # Morroblivion INFO 0100A9AF: GetVampire(subject)==0 AND
+        # GetVampire(target)==1. This refusal must never reach a mortal player.
+        rec = {'Condition[0].Raw': _tes4_ctda(func=40, comp=0).hex(),
+               'Condition[1].Raw': _tes4_ctda(func=40, type_byte=2).hex()}
+        conditions = convert_ctda_list_with_strings(rec, offset=3,
+                                                    run_on_target_ref=0x14)
+        assert len(conditions) == 2
+        results = []
+        for condition, _ in conditions:
+            function = struct.unpack_from('<H', condition, 8)[0]
+            keyword = struct.unpack_from('<I', condition, 12)[0]
+            run_on, reference = struct.unpack_from('<II', condition, 20)
+            assert function == 560 and keyword == 0x000A82BB
+            assert (run_on, reference) in ((0, 0), (2, 0x14))
+            actor = speaker_vampire if run_on == 0 else player_vampire
+            results.append(float(actor) == struct.unpack_from('<f', condition, 4)[0])
+        assert all(results) is eligible
+
+    def test_vampire_alternative_keeps_or_and_target(self):
+        # A vampire gate may be an alternative to another valid response gate.
+        rec = {'Condition[0].Raw': _tes4_ctda(func=40, type_byte=3).hex(),
+               'Condition[1].Raw': _tes4_ctda(func=72, p1=0x1234).hex()}
+        conditions = convert_ctda_list(rec, offset=2)
+        assert len(conditions) == 2 and conditions[0][0] & CTDA_OR
+        assert struct.unpack_from('<I', conditions[0], 20)[0] == 1
+        assert struct.unpack_from('<I', conditions[0], 12)[0] == 0x000A82BB
+
     def test_size_and_field_positions(self):
         out = convert_ctda(_tes4_ctda(func=72, p1=0x1234), offset=0)
         assert out is not None and len(out) == 32
