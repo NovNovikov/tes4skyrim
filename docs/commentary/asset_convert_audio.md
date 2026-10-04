@@ -510,6 +510,11 @@ a race without one has no folder to route to. Oblivion's `VampireRace`
 
 ## VNAM: which race's actors voice a race
 
+Skyrim voice paths in BSA directories are written as UTF-8, matching plugin
+EditorIDs. Non-ASCII staging paths use temporary ASCII names so BSArch's Windows
+ANSI codepage cannot alter them; the final archive restores their UTF-8 spelling
+and hashes, retaining audio payloads. Non-ASCII case from the EditorID is kept.
+
 Dependent plugins use the selected converted masters' voice folders exclusively.
 The master variant matching the configured target install supplies both the
 VTYP records and its own race export; ancestors are resolved transitively.
