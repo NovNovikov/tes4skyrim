@@ -346,7 +346,7 @@ def plan_mod_run(app, plugins: list, *, rebuild=False):
     export_dir = str(EXPORT_DIR)
     tes4_data = app.tes4_var.get()
     order = topological_order(
-        list(plugins),
+        [p for p in plugins if source_registry.source_available(export_dir, p)],
         lambda n: resolve_plugin_path(n, tes4_data, export_dir))
     defaults = default_on_steps(app.pack_default_var.get())
     keys = {k for k in defaults if rebuild or runnable(app, k)}

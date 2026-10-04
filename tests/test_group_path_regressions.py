@@ -14,6 +14,7 @@ directly is both faster and a sharper statement of the contract.
 import json
 import os
 import sys
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -463,6 +464,11 @@ def test_mod_run_plans_shared_steps_once(tmp_path, monkeypatch):
     monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
     monkeypatch.setattr(sel, 'plugin_adds_records',
                         lambda app, name, sigs: name == 'A.esm')
+    from asset_convert.sources import source_registry
+    for name in ['A.esm', 'B.esp']:
+        records = source_registry.record_dir(exp, name)
+        records.mkdir(parents=True)
+        (records / '_HEADER.txt').write_text('Flags=0\n', encoding='utf-8')
     v.record_step_run('meshes', 'A.esm', version=v.current_version())
     v.record_step_run('extract', 'A.esm', version=v.current_version())
 
@@ -478,6 +484,96 @@ def test_mod_run_plans_shared_steps_once(tmp_path, monkeypatch):
     assert 'pack' not in by_name['A.esm']
     assert pack_with == 'A.esm'
     assert pack_steps == ['pack', 'pack_zip']
+
+
+def test_deleted_mod_members_disappear_from_selection_and_stale_run_plan(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from asset_convert.sources import source_registry as registry
+    import core.gui.selection as sel
+
+    exp = _fake_group(tmp_path, ['A.esm', 'Deleted.esp', 'Cached.esp'])
+    binary = registry.source_dir(exp, 'A.esm') / 'A.esm'
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b'x')
+    cached = registry.record_dir(exp, 'Cached.esp')
+    cached.mkdir(parents=True)
+    (cached / '_HEADER.txt').write_text('Flags=0\n', encoding='utf-8')
+    # A directory left by a failed Import is not an exported plugin.
+    registry.record_dir(exp, 'Deleted.esp').mkdir()
+    assert registry.all_sources(exp)[0]['plugins'] == ['A.esm', 'Cached.esp']
+    monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
+    monkeypatch.setattr(sel, 'plugin_adds_records', lambda *a: False)
+    monkeypatch.setattr(sel.version_info, 'steps_run_at', lambda *a, **k: {})
+    app = SimpleNamespace(tes4_var=SimpleNamespace(get=lambda: ''),
+                          pack_default_var=SimpleNamespace(get=lambda: True),
+                          step_widgets={})
+    for rebuild in (False, True):
+        runs, owner, _ = sel.plan_mod_run(
+            app, ['A.esm', 'Deleted.esp', 'Cached.esp'], rebuild=rebuild)
+        assert 'Deleted.esp' not in dict(runs)
+        assert owner != 'Deleted.esp'
+    # Removal is reversible: restoring a source makes it available again.
+    (binary.parent / 'Deleted.esp').write_bytes(b'x')
+    assert registry.all_sources(exp)[0]['plugins'] == [
+        'A.esm', 'Cached.esp', 'Deleted.esp']
+
+
+@pytest.mark.parametrize('rebuild', [False, True])
+@pytest.mark.parametrize('optimized', [False, True])
+def test_failed_export_skips_only_failed_plugin_and_dependents(tmp_path, monkeypatch,
+                                                            rebuild, optimized):
+    import queue
+    import struct
+    import threading
+    from types import SimpleNamespace
+    from asset_convert.sources import source_registry as registry
+    import core.gui.runner as runner
+
+    names = ['A.esm', 'Bad.esp', 'Dependent.esp', 'Good.esp']
+    exp = _fake_group(tmp_path, names)
+    for name in names:
+        masters = ['Bad.esp'] if name == 'Dependent.esp' else []
+        payload = b'HEDR' + struct.pack('<HfII', 12, 1.0, 0, 0)
+        for master in masters:
+            raw = master.encode('ascii') + b'\0'
+            payload += b'MAST' + struct.pack('<H', len(raw)) + raw
+        binary = registry.source_dir(exp, name) / name
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b'TES4' + struct.pack('<I', len(payload)) + bytes(16) + payload)
+    monkeypatch.setattr(runner, 'EXPORT_DIR', exp)
+    monkeypatch.setattr(runner, 'navmesh_pins_dir', lambda: 'pins')
+    app = SimpleNamespace(
+        cancel_evt=threading.Event(), tes4_var=SimpleNamespace(get=lambda: ''),
+        imported_mod_optimizations_var=SimpleNamespace(get=lambda: optimized),
+        navmesh_gen_var=SimpleNamespace(get=lambda: 'corridor'),
+        tes4_encoding_var=SimpleNamespace(get=lambda: 'auto'),
+        winding_on=lambda: False, parallax_var=SimpleNamespace(get=lambda: False))
+    out = tmp_path / 'output'
+    out.mkdir()
+    executed = []
+
+    def convert(cmd, *args, **kwargs):
+        name = cmd[cmd.index('-f') + 1]
+        executed.append(cmd)
+        if '--export-only' in cmd and name == 'Bad.esp':
+            return 1
+        if '--import-only' in cmd:
+            (out / name).write_bytes(b'converted')
+        return 0
+
+    monkeypatch.setattr(runner, 'run_process', convert)
+    runs = [(name, ['export', 'meshes', 'import_', 'sounds', 'scripts']) for name in names]
+    cmds = runner.mod_run_argv(app, runs, 'A.esm', ['pack', 'pack_zip'],
+                               str(out), rebuild=rebuild)
+    assert runner.run_commands(app, cmds, queue.Queue(), {}, 99) == 1
+    assert sorted(p.name for p in out.iterdir()) == ['A.esm', 'Good.esp']
+    assert not any('--pack-only' in c or '--pack-zip-only' in c for c in executed)
+    for cmd in executed:
+        name = cmd[cmd.index('-f') + 1]
+        assert name != 'Dependent.esp'
+        assert name != 'Bad.esp' or '--export-only' in cmd
+        if '--shared-textures-only' in cmd:
+            assert cmd[cmd.index('--shared-textures-only') + 1:] == ['A.esm', 'Good.esp']
 
 
 def test_rebuild_mod_ignores_history_and_selected_member_limits(tmp_path, monkeypatch):
@@ -500,6 +596,10 @@ def test_rebuild_mod_ignores_history_and_selected_member_limits(tmp_path, monkey
             payload += b'MAST' + struct.pack('<H', len(raw)) + raw
         (data / name).write_bytes(
             b'TES4' + struct.pack('<I', len(payload)) + bytes(16) + payload)
+        from asset_convert.sources import source_registry
+        retained = source_registry.source_dir(exp, name) / name
+        retained.parent.mkdir(parents=True, exist_ok=True)
+        retained.write_bytes((data / name).read_bytes())
     monkeypatch.setattr(v, 'SCRIPT_DIR', tmp_path)
     monkeypatch.setattr(v, 'STATE_FILE', tmp_path / '.conversion_state.json')
     monkeypatch.setattr(sel, 'EXPORT_DIR', exp)

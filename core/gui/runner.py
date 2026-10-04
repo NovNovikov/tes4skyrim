@@ -51,6 +51,7 @@ import os
 import queue
 import re
 import sys
+import struct
 import threading
 import time
 from pathlib import Path
@@ -1020,22 +1021,66 @@ def pipeline_argv(app, fname, out_dir, steps, subdirs) -> list:
 
 
 def run_commands(app, cmds, q, env, missing_dep) -> int:
-    """Run each command until one fails; returns the run's exit code.
+    """Run commands, skipping records whose export failed in this run.
 
-    A missing dependency stops the rest: each step is its own process, so
-    nothing else would prevent the remainder from producing half-converted
-    output.
+    Independent plugins continue. Dependencies are read only after an export
+    failure; final packaging waits for a run with all exports successful.
+    A missing tool dependency still stops the run.
     """
     ret = 0
+    failed_exports = set()
+    dependencies = {}
+    sounds_ran = False
+
+    def blocked(name):
+        if not failed_exports or not name:
+            return False
+        key = name.lower()
+        if key in failed_exports:
+            return True
+        if key not in dependencies:
+            from core.plugin_masters import binary_master_chain, master_chain
+            from source_paths import resolve_plugin_path
+            try:
+                dependencies[key] = set(binary_master_chain(
+                    [name], lambda n: resolve_plugin_path(
+                        n, app.tes4_var.get(), str(EXPORT_DIR))))
+            except (OSError, ValueError, struct.error):
+                dependencies[key] = set()
+            dependencies[key].update(m.lower() for m in master_chain(
+                source_registry.record_dir(EXPORT_DIR, name)))
+        return bool(dependencies[key] & failed_exports)
+
     for cmd in cmds:
         if app.cancel_evt.is_set():
             return RC_CANCELLED
+        if failed_exports and any(flag in cmd for flag in ('--pack-only', '--pack-zip-only')):
+            q.put('Skipping packaging: one or more plugin exports failed.')
+            continue
+        if failed_exports and '--shared-textures-only' in cmd:
+            index = cmd.index('--shared-textures-only') + 1
+            members = [n for n in cmd[index:] if not blocked(n)]
+            if not members:
+                continue
+            cmd = cmd[:index] + members
+            cmd[cmd.index('-f') + 1] = members[0]
+        name = cmd[cmd.index('-f') + 1] if '-f' in cmd else None
+        if blocked(name):
+            q.put(f'Skipping {name}: its export or a master export failed.')
+            continue
+        if '--sounds-only' in cmd:
+            if failed_exports and not sounds_ran:
+                cmd = [arg for arg in cmd if arg != '--skip-shared-sounds']
+            sounds_ran = True
         q.put(f"Running: {' '.join(cmd)}")
         r = run_process(cmd, q.put, env=env, cancel_event=app.cancel_evt)
         if r == RC_CANCELLED:
             return RC_CANCELLED
         if r == missing_dep:
             return r
+        if r != 0 and '--export-only' in cmd:
+            if name:
+                failed_exports.add(name.lower())
         if r != 0:
             ret = r
     return ret
@@ -1257,6 +1302,7 @@ def run_mod_clicked(app, missing_dep, *, rebuild=False) -> None:
         return
     row = app.scope_rows.get(app.scope_var.get()) or {}
     plugins = list(row.get('plugins') or []) if row.get('kind') == 'mod' else []
+    plugins = [p for p in plugins if source_registry.source_available(EXPORT_DIR, p)]
     if not plugins:
         app.info("Not A Mod",
                  "Select an imported mod in Source first.\n"
