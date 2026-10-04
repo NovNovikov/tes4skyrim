@@ -412,6 +412,15 @@ def convert_sounds(
 
     snd_src = _asset_root(extract_dir, source_name) / 'sound'
     if not snd_src.exists():
+        # A completely unvoiced plugin still needs runtime greeting rules.
+        organize_voice_files(
+            source_dir=_asset_root(extract_dir, source_name),
+            dest_dir=_out_root(output_dir, source_name, extract_dir),
+            plugin_name=source_name, convert_audio=False,
+            voice_map=find_voice_map(output_dir, source_name, extract_dir),
+            record_source_dir=record_dir(extract_dir, source_name),
+            master_output_root=output_dir, scope_plugin_voices=scope_plugin_voices,
+        )
         print(f'  No sound directory found at {snd_src}')
         return {'converted': 0, 'copied': 0, 'failed': 0, 'total': 0}
 
@@ -919,6 +928,16 @@ def organize_voice_files(
     if isinstance(lip_text, (str, Path)):
         lip_text = load_lip_text(lip_text)
 
+    record_source = Path(record_source_dir) if record_source_dir else source_dir
+    master_routes = (load_master_voice_routes(record_source, master_output_root)
+                     if master_output_root is not None else None)
+    if plugin_name and master_output_root is not None:
+        from asset_convert.audio.voice_redirects import write_voice_redirects
+        write_voice_redirects(dest_dir, plugin_name, record_source,
+                              master_output_root,
+                              master_routes[0] if master_routes is not None
+                              else converted_voices, load_voice_map)
+
     # BSA archives store every internal path lowercase (Windows' case-
     # insensitive filesystem never surfaced this); bsa_extract.py preserves
     # that casing verbatim, so the extracted folder is 'voice', not 'Voice'.
@@ -955,9 +974,6 @@ def organize_voice_files(
     stats = {'organized': 0, 'skipped': 0, 'no_match': 0, 'errors': 0}
     unmapped_races: set = set()
 
-    record_source = Path(record_source_dir) if record_source_dir else source_dir
-    master_routes = (load_master_voice_routes(record_source, master_output_root)
-                     if master_output_root is not None else None)
     forbidden_infos = set()
     if master_routes is not None:
         converted_voices, aliases, allowed = master_routes

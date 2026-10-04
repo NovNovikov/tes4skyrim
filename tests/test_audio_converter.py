@@ -12,6 +12,76 @@ from pathlib import Path
 
 import pytest
 
+
+def test_voice_redirect_rules_use_master_folders_without_audio_copies(tmp_path):
+    import json
+    from asset_convert.audio.voice_redirects import write_voice_redirects
+    from asset_convert.audio.audio_converter import load_voice_map
+
+    export, output = tmp_path / 'export', tmp_path / 'output'
+    master, plugin = export / 'Oblivion.esm', export / 'Morrowind_ob.esm'
+    master.mkdir(parents=True)
+    plugin.mkdir()
+    (plugin / '_HEADER.txt').write_text('Master[0]=Oblivion.esm\n', encoding='utf-8')
+    out_master = output / 'Oblivion.esm'
+    out_master.mkdir(parents=True)
+    (out_master / 'Oblivion.esm.voicemap.txt').write_text(
+        '062CB3=genericnor_hello\n062CAA=generichig_hello\n'
+        '0919A9=genericimp_hello\n', encoding='utf-8')
+    voices = {('Nord', 'M'): 'TES4MaleНорд',
+              ('Imperial', 'M'): 'TES4MaleИмперец',
+              ('DarkElf', 'F'): 'TES4FemaleВысокийэльф',
+              ('HighElf', 'F'): 'TES4FemaleВысокийэльф',
+              ('Imperial', 'F'): 'TES4FemaleИмперец',
+              ('GoldenSaint', 'F'): 'TES4FemaleGoldenSaint'}
+    dest = output / 'Morroblivion'
+    path = write_voice_redirects(dest, 'Morrowind_ob.esm', plugin, output,
+                                voices, load_voice_map)
+    rules = json.loads(path.read_text(encoding='utf-8'))['voices']
+    assert rules['TES4MaleНорд']['alternates'] == ['TES4MaleИмперец']
+    assert rules['TES4FemaleВысокийэльф']['alternates'] == ['TES4FemaleИмперец']
+    assert rules['TES4FemaleGoldenSaint']['alternates'] == []
+    assert rules['TES4MaleНорд']['greeting'] == (
+        'sound\\voice\\Oblivion.esm\\TES4MaleНорд\\genericnor_hello_00062cb3_1.wav')
+    assert set(rules) == set(voices.values())
+    assert [p for p in dest.rglob('*') if p.is_file()] == [path]
+
+
+def test_unvoiced_plugin_stages_redirects_without_source_audio(tmp_path):
+    from asset_convert.audio.audio_converter import VoiceMap
+    from asset_convert.audio import audio_converter as audio
+
+    export, output = tmp_path / 'export', tmp_path / 'output'
+    plugin = export / 'Oblivion.esm'
+    plugin.mkdir(parents=True)
+    voices = VoiceMap()
+    voices.race_voice_types = {('Nord', 'M'): 'TES4MaleНорд',
+                              ('Imperial', 'M'): 'TES4MaleИмперец'}
+    result = audio.organize_voice_files(
+        plugin, output / 'Oblivion.esm', plugin_name='Oblivion.esm',
+        voice_map=voices, convert_audio=False, record_source_dir=plugin,
+        master_output_root=output)
+    assert result['organized'] == 0
+    assert (output / 'Oblivion.esm/SKSE/Plugins/TESRuntime/Oblivion.esm.voice_redirects.json').is_file()
+    assert not (output / 'Oblivion.esm/sound').exists()
+
+
+def test_sounds_step_without_assets_still_stages_runtime_redirects(tmp_path):
+    from asset_convert.audio.audio_converter import convert_sounds
+
+    export, output = tmp_path / 'export', tmp_path / 'output'
+    (export / 'Oblivion.esm').mkdir(parents=True)
+    master = output / 'Oblivion.esm'
+    master.mkdir(parents=True)
+    (master / 'Oblivion.esm.voicemap.txt').write_text(
+        '# RaceVoice\tNord\tM\tTES4MaleНорд\n'
+        '# RaceVoice\tImperial\tM\tTES4MaleИмперец\n'
+        '062CB3=genericnor_hello\n', encoding='utf-8')
+    result = convert_sounds('Oblivion.esm', str(export), str(output))
+    assert result['total'] == 0
+    assert (master / 'SKSE/Plugins/TESRuntime/Oblivion.esm.voice_redirects.json').is_file()
+    assert not (master / 'sound').exists()
+
 from asset_convert.audio.audio_converter import (
     FONIX_MUTEX_NAME,
     VOICE_FILENAME_RE,
