@@ -518,6 +518,61 @@ def test_deleted_mod_members_disappear_from_selection_and_stale_run_plan(tmp_pat
         'A.esm', 'Cached.esp', 'Deleted.esp']
 
 
+def test_live_folder_removal_overrides_retained_binary_and_export(tmp_path, monkeypatch):
+    import zipfile
+    from types import SimpleNamespace
+    from asset_convert.sources import source_registry as registry
+    import core.gui.selection as sel
+    import convert
+
+    names = ['A.esm', 'Deleted.esp']
+    exp = _fake_group(tmp_path, names)
+    original = tmp_path / 'original'
+    original.mkdir()
+    for name in names:
+        (original / name).write_bytes(b'x')
+        binary = registry.source_dir(exp, name) / name
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b'x')
+        records = registry.record_dir(exp, name)
+        records.mkdir()
+        (records / '_HEADER.txt').write_text('Flags=0\n', encoding='utf-8')
+        entry = registry.get(exp, name)
+        entry.update(kind='folder', archive_original=str(original), plugin_member=name)
+        registry.put(exp, name, entry)
+    (original / 'Deleted.esp').unlink()
+
+    assert registry.all_sources(exp)[0]['plugins'] == ['A.esm']
+    assert registry.plugin_binary(exp, 'Deleted.esp').is_file()
+    monkeypatch.setattr(sel, 'EXPORT_DIR', exp)
+    monkeypatch.setattr(sel, 'plugin_adds_records', lambda *a: False)
+    monkeypatch.setattr(sel.version_info, 'steps_run_at', lambda *a, **k: {})
+    app = SimpleNamespace(tes4_var=SimpleNamespace(get=lambda: ''),
+                          pack_default_var=SimpleNamespace(get=lambda: True),
+                          step_widgets={})
+    for rebuild in (False, True):
+        runs, owner, _ = sel.plan_mod_run(app, names, rebuild=rebuild)
+        assert 'Deleted.esp' not in dict(runs)
+        assert owner != 'Deleted.esp'
+    args = SimpleNamespace(files=names, build_morrowind_patch=None)
+    assert convert._plugins_to_convert(args, {}, '', str(exp)) == ['A.esm']
+
+    monkeypatch.setattr(convert, 'SCRIPT_DIR', tmp_path)
+    out = tmp_path / 'output'
+    mod_out = out / 'My Pack'
+    mod_out.mkdir(parents=True)
+    for name in ['A.esm', 'Deleted.esp', 'OldUnregistered.esp', 'A_loader.esl', 'A.bsa']:
+        (mod_out / name).write_bytes(b'x')
+    (mod_out / 'OldUnregistered.esp.manifest.json').write_text('{}', encoding='utf-8')
+    assert convert.phase_pack_zip('A.esm', {}, str(out))
+    with zipfile.ZipFile(out / 'Finished Mods/My Pack.zip') as archive:
+        assert set(archive.namelist()) == {'A.esm', 'A_loader.esl', 'A.bsa'}
+    assert (mod_out / 'Deleted.esp').is_file()
+
+    (original / 'Deleted.esp').write_bytes(b'x')
+    assert registry.all_sources(exp)[0]['plugins'] == names
+
+
 @pytest.mark.parametrize('rebuild', [False, True])
 @pytest.mark.parametrize('optimized', [False, True])
 def test_failed_export_skips_only_failed_plugin_and_dependents(tmp_path, monkeypatch,

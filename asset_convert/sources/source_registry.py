@@ -638,21 +638,25 @@ def plugin_binary(export_dir, plugin: str):
 def source_available(export_dir, plugin: str) -> bool:
     """Keep imported sources that can be read or recovered, not stale names.
 
-    An exported header preserves import-only use without the original binary.
-    Retained archives and original folder members can restore deleted copies.
+    An accessible original folder determines which plugins still belong to it.
+    Cached exports and retained copies remain usable when that folder is offline
+    or the mod was imported from an archive.
     Asset-only mods have no binary to require. Registry metadata stays intact
     so restoring a removed source also restores its place in the GUI.
     """
     entry = get(export_dir, plugin)
     if not entry or not entry.get('plugin'):
         return True
+    original = entry.get('archive_original')
+    if entry.get('kind') == 'folder' and original and Path(original).is_dir():
+        member = entry.get('plugin_member') or entry['plugin']
+        return (Path(original) / member).is_file()
     if plugin_binary(export_dir, plugin):
         return True
     if (record_dir(export_dir, plugin) / '_HEADER.txt').is_file():
         return True
     if retained_archive(export_dir, plugin):
         return True
-    original = entry.get('archive_original')
     member = entry.get('plugin_member')
     return bool(original and member and (Path(original) / member).is_file())
 
