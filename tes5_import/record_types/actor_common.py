@@ -498,7 +498,8 @@ def create_vendor_factions(by_type: dict, writer, master_index=None,
     global _merchant_marker_faction_fid
     _vendor_faction_cache.clear()
     _merchant_faction_by_npc.clear()
-    _merchant_marker_faction_fid = 0
+    _merchant_marker_faction_fid = _adopted(
+        master_index, b'FACT', _MERCHANT_MARKER_EDID)
 
     vendor_actors, unique_services = _collect_vendor_actors(by_type)
     if not unique_services:
@@ -515,7 +516,7 @@ def create_vendor_factions(by_type: dict, writer, master_index=None,
         writer, vendor_actors, flst_by_svc, _build_merchant_chest_map(by_type),
         stock or {})
     _merchant_marker_faction_fid = (
-        _adopted(master_index, b'FACT', _MERCHANT_MARKER_EDID)
+        _merchant_marker_faction_fid
         or _write_merchant_marker(writer))
 
     print(f"  Vendor factions: {len(flst_by_svc)} shared service combos, "
@@ -621,7 +622,7 @@ def get_vendor_faction_fids_for_actor(actor_fid: int, services: int) -> list[int
 
 
 def get_merchant_faction_fid() -> int:
-    """The single FACT the Barter topic gates on (0 if no merchants exist).
+    """The Barter marker FACT, including one supplied by a master.
 
     See: docs/commentary/tes5_import_actors.md#barter-gate-ctda-limit
     """
@@ -683,7 +684,8 @@ def create_trainer_records(by_type: dict, writer, master_index=None,
     See: docs/commentary/tes5_import_actors.md#trainers
     """
     global _trainer_faction_fid
-    _trainer_faction_fid = 0
+    _trainer_faction_fid = _adopted(
+        master_index, b'FACT', _TRAINER_FACTION_EDID)
     _trainer_class_by_npc.clear()
 
     clas_by_fid = {get_formid(r, 'FormID'): r
@@ -703,7 +705,7 @@ def create_trainer_records(by_type: dict, writer, master_index=None,
     print(f"  Creating trainer records for {len(trainers)} trainer NPCs...")
 
     _trainer_faction_fid = (
-        _adopted(master_index, b'FACT', _TRAINER_FACTION_EDID)
+        _trainer_faction_fid
         or _write_trainer_faction(writer))
 
     clone_cache: dict[tuple, int] = {}
@@ -753,7 +755,7 @@ def create_service_records(by_type: dict, writer, ctx, export_dir: str,
 
 
 def get_trainer_faction_fid() -> int:
-    """The synthetic trainer FACT FormID (0 when no trainers exist)."""
+    """The trainer marker FACT, including one supplied by a master."""
     return _trainer_faction_fid
 
 
