@@ -432,6 +432,7 @@ def convert_sounds(
         voice_map=find_voice_map(output_dir, source_name, extract_dir),
         lip_text=find_lip_text(output_dir, source_name, extract_dir),
         record_source_dir=record_dir(extract_dir, source_name),
+        master_output_root=output_dir,
         scope_plugin_voices=scope_plugin_voices,
     )
 
@@ -633,6 +634,7 @@ from asset_convert.audio.audio_falloutnv import (folder_gender,
                                                   load_voice_type_edids,
                                                   voice_type_edid)
 from asset_convert.audio.voice_races import (load_race_voices,
+                                             load_master_voice_routes,
                                              voice_key,
                                              vtyp_edid as _vtyp_edid)
 
@@ -658,7 +660,8 @@ def _resolve_voice_type(race: str, gender: str, fallout: bool,
 
     A FO3/FNV folder IS the voice type. Oblivion resolves the race through the
     RACE records the importer built its VTYPs from -- the plugin's own and its
-    masters' -- falling back to a synthesised name recorded in *unmapped_races*.
+    masters'. When converted identities are supplied, unknown folders have no
+    destination: synthesizing a second-language voice folder is forbidden.
 
     See: docs/commentary/asset_convert_audio.md#race-identity-spans-the-masters
     """
@@ -672,8 +675,13 @@ def _resolve_voice_type(race: str, gender: str, fallout: bool,
                    and (edid, gender) in converted_voices}
         if len(targets) == 1:
             return targets.pop()
+        if converted_voices is not None:
+            unmapped_races.add((race, gender))
+            return ''
         return _vtyp_edid(key, gender)
     unmapped_races.add((race, gender))
+    if converted_voices is not None:
+        return ''
     return _vtyp_edid(voice_key(race), gender)
 
 
@@ -875,6 +883,7 @@ def organize_voice_files(
     lipgenerator_path: 'str | None' = None,
     prune: bool = True,
     record_source_dir=None,
+    master_output_root=None,
     scope_plugin_voices=True,
 ) -> dict:
     """Reorganise extracted TES4 voice files into the TES5 directory layout.
@@ -901,7 +910,7 @@ def organize_voice_files(
     dest_dir   = Path(dest_dir)
     if isinstance(voice_map, (str, Path)):
         voice_map = load_voice_map(voice_map)
-    converted_voices = getattr(voice_map, 'race_voice_types', {})
+    converted_voices = getattr(voice_map, 'race_voice_types', None) or None
     if voice_map:
         voice_map = {k: (v if isinstance(v, tuple) else (v, []))
                      for k, v in voice_map.items()}
@@ -945,6 +954,18 @@ def organize_voice_files(
     unmapped_races: set = set()
 
     record_source = Path(record_source_dir) if record_source_dir else source_dir
+    master_routes = (load_master_voice_routes(record_source, master_output_root)
+                     if master_output_root is not None else None)
+    forbidden_infos = set()
+    if master_routes is not None:
+        converted_voices, aliases, allowed = master_routes
+        voice_map = dict(voice_map or {})
+        for fid, (prefix, targets) in voice_map.items():
+            routed = [aliases.get(v, v) for v in targets]
+            if any(v not in allowed for v in routed):
+                forbidden_infos.add(fid)
+            voice_map[fid] = prefix, sorted(set(v for v in routed if v in allowed))
+        print('  Voice folders: converted masters only; synthesized aliases disabled')
     race_voices = load_race_voices(record_source)
     if race_voices:
         print(f'  Plugin races: {len(race_voices.keys)} voice identities '
@@ -960,6 +981,7 @@ def organize_voice_files(
         borrowed = bool(scope_plugin_voices and plugin_name
                         and plugin_dir.name.casefold() != plugin_name.casefold())
         effective_plugin = plugin_name or plugin_dir.name
+        plugin_roots.add(dest_dir / 'sound' / 'Voice' / effective_plugin)
         fallout = is_fallout_voice_root(plugin_dir)
         fnv_edids = load_voice_type_edids(record_source) if fallout else {}
 
@@ -983,6 +1005,9 @@ def organize_voice_files(
                         continue
                     if borrowed and (int(m.group(2), 16) & 0xFFFFFF) not in voice_map:
                         continue
+                    if (int(m.group(2), 16) & 0xFFFFFF) in forbidden_infos:
+                        stats['no_match'] += 1
+                        continue
                     if voice_type is None:
                         voice_type = _resolve_voice_type(race, gender, fallout,
                                                          race_voices, unmapped_races,
@@ -992,6 +1017,9 @@ def organize_voice_files(
                     dst_name, owned, text = _voice_destination(
                         m, voice_map, voice_type, lip_text, ffmpeg,
                         lipgenerator)
+                    if not voice_type and not owned:
+                        stats['no_match'] += 1
+                        continue
                     out_dirs = ([dest_dir / 'sound' / 'Voice' / effective_plugin
                                  / vt for vt in owned]
                                 if owned else [out_dir])
@@ -1030,7 +1058,9 @@ def organize_voice_files(
                          (ffmpeg, xwmaencode, lipgenerator), copy)
 
     if unmapped_races:
-        print('  Warning: unmapped race/gender combos (synthesised folder names):')
+        detail = ('no converted voice destination' if converted_voices is not None
+                  else 'synthesised folder names')
+        print(f'  Warning: unmapped race/gender combos ({detail}):')
         for r, g in sorted(unmapped_races):
             print(f'    {r}/{g}')
 

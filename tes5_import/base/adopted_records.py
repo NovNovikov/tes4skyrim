@@ -10,7 +10,8 @@ file the patch does not list -- creates its own.
 See: docs/commentary/tes5_import_pipeline.md#phase-0-dependent-skips-support-records
 """
 
-from asset_convert.audio.voice_races import load_race_voices, vtyp_edid
+from asset_convert.audio.voice_races import (load_race_voices, vtyp_edid,
+                                            master_voice_exports)
 
 from ..packages.escort_when_near import (ESCORT_WHEN_NEAR_EDID,
                                          set_escort_template_fid)
@@ -47,12 +48,12 @@ def _adopt_voice(index, voice_edid: str, race_edid: str, gender: str) -> bool:
     return bool(fid)
 
 
-def _adopt_race_voices(index, master_dirs) -> int:
+def _adopt_race_voices(index, master_dirs, output_root=None) -> int:
     """Adopt the VTYP of every race the masters' own RACE records define."""
     adopted = 0
-    for folder in master_dirs:
+    for folder, _ in master_voice_exports(master_dirs, output_root):
         try:
-            races = load_race_voices(folder)
+            races = load_race_voices(folder, include_masters=False)
         except OSError:
             continue
         for race_edid, key in sorted(races.by_race_edid.items()):
@@ -79,7 +80,8 @@ def adopt_master_special_records(ctx, master_dirs) -> int:
     voices = sum(_adopt_voice(index, voice_edid, race_edid, gender)
                  for voice_edid, (race_edid, gender)
                  in CUSTOM_VTYP_EDIDS.items())
-    derived = _adopt_race_voices(index, master_dirs)
+    derived = _adopt_race_voices(index, master_dirs,
+                                getattr(ctx, 'output_root', None))
     if voices or derived:
         extra = f"; {derived} from the master's own races" if derived else ''
         print(f"  Adopted {voices + derived} master voice types (VTYP){extra}")

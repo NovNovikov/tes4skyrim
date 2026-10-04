@@ -155,14 +155,14 @@ def _master_digest(path: str, modified: int, size: int) -> bytes:
     return digest.digest()
 
 
-def converted_master_path(out_root, plugin: str) -> Path:
+def converted_master_path(out_root, plugin: str, export_root=None) -> Path:
     """Use the converted variant installed in the configured target game.
 
     Localized conversions can share a filename but have different generated
     FormIDs. Match the complete file, and load its adjacent manifests too.
     Without an installed matching variant, preserve normal output routing.
     """
-    default = paths(plugin, out_root=out_root).esm
+    default = paths(plugin, export_root=export_root, out_root=out_root).esm
     variants = sorted(Path(out_root).glob(plugin + ' (*)/' + plugin))
     if not variants:
         return default
