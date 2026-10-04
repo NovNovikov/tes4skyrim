@@ -644,9 +644,9 @@ the simplest single-vtable modal panel the engine ships, and the one SKSE's
 lea   r8,   [rbx + 0x10]        ; &view            -> view    at 0x10
 mov   dword [rsp + 0x20], 3     ; scaleMode = 3, NOT 2
 call  0xf22f80                  ; GFxLoader::LoadMovie  (id 82325)
-mov   byte  [rbx + 0x18], 0xa   ; context          -> 0x18
+mov   byte  [rbx + 0x18], 0xa   ; depth            -> 0x18
 mov   dword [rbx + 0x1c], 0x11  ; flags            -> 0x1C, not 0x20
-mov   dword [rbx + 0x20], 1     ; depth            -> 0x20
+mov   dword [rbx + 0x20], 1     ; input context    -> 0x20
 call  0xc4d690                  ; IsGamepadEnabled (id 68622)
 test  al, al
 jne   skip
@@ -656,9 +656,16 @@ or    dword [rbx + 0x1c], 0x404 ; |= UsesCursor | UpdateUsesCursor
 | Offset | Field | Value a plain modal panel uses |
 |---|---|---|
 | `0x10` | `view` | filled by `LoadMovie` |
-| `0x18` | context | `0xA` |
+| `0x18` | depth (a byte) | `0xA` |
 | `0x1C` | **`flags`** | `0x11` = `kPausesGame \| kModal`, `\| 0x404` for the cursor |
-| `0x20` | depth | `1` |
+| `0x20` | input context | `1` (MenuMode) |
+
+These two were first named the other way round. The 1.6.1170 dispatcher
+settles it: it orders the menu stack by the `0x18` byte and picks the "top"
+menu by comparing it (`movzx eax, byte [rdx+0x18]` at `0xfa3f06`), and IMenu's
+own constructor (`0xfaecc0`) defaults it to 3 and `0x20` to `0x13`, the
+no-context value the close path skips (`0xfa43ca`). See the
+[perks button](#perks-button) for what the depth decides.
 
 Flags are set **after** `LoadMovie`, not before. `scaleMode` is **3**
 (`kNoBorder`) — every vanilla menu pushes 3, and the `2` first used here was a
@@ -3752,17 +3759,19 @@ the level-up step.
 `SkillCap=1`; a missing ini or key also means on. `Enabled=0` turns off the
 windows, the level-up step, the buffs and the cap together
 ([sheet off](#sheet-off)); `SkillCap=0` drops only the [cap](#skill-cap).
-`Hotkey` is a decimal virtual-key code, as `FalloutRuntime.ini`'s keys are, 75
-(K) when absent.
+`Hotkey` is a decimal virtual-key code, as `FalloutRuntime.ini`'s keys are, 67
+(C) when absent.
 
-**The default hotkey is K.** A census of Skyrim's own `interface/controls/pc/controlmap.txt`
-(read through `skyrim_assets.get_asset_bytes`): the letters it binds to nothing
-are G, H, K, U, Y, B and N (1-8 are the favorites hotkeys, which the file does
-not list). The key is read with `GetAsyncKeyState` on the shared fixed tick
-(`main_tick`, every 33 ms, paused or not): only while this process owns the
-foreground window, no menu pauses the game and no conversation is open; K again
-or Escape closes the window. Unverified in game: whether Skyrim's DirectInput
-keyboard leaves the async key state alone.
+**The default hotkey is C, and it works in the perks menu.** The sheet opens
+only from Skyrim's perks menu ([perks button](#perks-button)), so the key need
+only be free there. Skyrim's own `interface/controls/pc/controlmap.txt` binds C
+(scan code `0x2E`) in two contexts, Main Gameplay (Auto-Move) and Item Menus
+(Item Zoom); the perks menu's context, Stats, binds only `Rotate` (the left
+stick) beside Menu Mode's keys. The first build used K, which the same file
+binds nowhere, while the sheet still opened in the world. The key is read with
+`GetAsyncKeyState` on the shared fixed tick (`main_tick`, every 33 ms, paused
+or not), only while this process owns the foreground window; the key again,
+the button or Tab closes the window.
 
 **What the stats window shows.** Health, Magicka and Fatigue (Skyrim's Stamina)
 as `current/maximum`, the maximum being the current value over
@@ -3788,6 +3797,116 @@ attributes in two columns with `xN` beside any that would rise by more than 1.
 A click spends a coin (the last one moves once all are spent), the value shows
 the result, and OK stays disabled until the coins are spent. It has no cancel,
 as Morrowind's own has none.
+
+### <a id="perks-button"></a>The perks menu's Character button (confirmed in game 2026-10-03)
+
+**Code:** `plugin/perks_button.cpp`, `plugin/stats_sheet.cpp` (`Tick`),
+`plugin/menu.cpp` (overlay menus, `EngineMenuOpen`, `VisibleFrame`);
+`perks_button` in `tools/generators/gen_morrowind_stats_swf.py`.
+
+The sheet opens from Skyrim's perks menu (`StatsMenu`) and nowhere else. While
+that menu is open a key hint, **[C] CHARACTER**, sits in the screen's
+bottom-left corner, in the empty end of vanilla's bottom bar. Clicking it or
+pressing the key opens the sheet over the perks; the hint then reads **BACK TO
+PERKS**, and the click, the key or Tab returns to them. The key cap shows the
+configured `Hotkey`, drawn at 4x so it stays sharp up to a 4K screen.
+
+Measured in game on the user's 3440×1440 screen (log, 2026-10-03): the
+button placed at stage (-202, 666), so the visible stage starts 202 px left
+of the stage's own edge, and a click on it closed the sheet.
+
+**How the engine hands input to stacked menus** (1.6.1170):
+
+| Path | Who gets it | Rule |
+|---|---|---|
+| Mouse down/up | `ClickHandler` (`0x9499c0`) posts to the pseudo-name "Top Menu" | the dispatcher (`0xfa4191`) starts at the topmost menu whose depth is **below 14** (`0xfa3dc0`, cutoff `0xe`), then walks DOWN the stack while each menu returns 2 ("pass on"); a menu with flag `0x10` (modal) stops the walk (`0xfa4525`) |
+| The perks menu's rotation and perk clicks | its own `MenuEventHandler` (`CanProcess` `0x961030`) | runs only while the topmost menu with depth **below 6** is the perks menu itself |
+| The perks menu's movie | `StatsMenu::ProcessMessage` type 6 (`0x95fb39`) | only key events; mouse events never reach its movie, so a button cannot live inside it |
+| Whether the cursor shows | the cursor routine (`0xfa5fd9`-`0xfa60f5`) | the topmost menu with depth **below 11** and without flag `0x10000` decides: flag `0x4` (uses cursor) opens the Cursor Menu, anything else closes it |
+
+IMenu's constructor defaults the depth to 3, and `StatsMenu`'s never changes
+it; the Cursor Menu sits at 13 (`0x913d25`). Hence the two depths:
+
+- **The button is an overlay at depth 12**: flags 0 (no pause, no cursor, not
+  modal), input context `0x13` (none), and it returns "pass on" for every
+  event. It gets clicks (the log shows mouse types 1-3 arriving), yet both
+  the perks menu's below-6 input test and the below-11 cursor rule skip it,
+  so rotating, buying perks and the cursor all behave as in vanilla. The first
+  build put it at 10 with no cursor flag: it became the cursor rule's menu and
+  the cursor vanished from the perks menu, except while the sheet (which has
+  `0x4`) was open.
+- **The sheet opens at depth 4 over the perks.** That makes it the below-6 top
+  menu, so the perks stop reacting to clicks meant for the sheet, and being
+  modal it keeps Tab for itself. At 10 the perks menu would pick a perk under
+  the sheet's every click.
+
+**A click on the button stops there.** Reported in game: clicking the button
+with the mouse also started closing the perks menu. Passing events on is not
+what leaked: the perks menu's mouse buttons come through its own
+`MenuEventHandler`, and `MenuControls` (`0x947db0`) offers every input event to
+every registered handler whose `CanProcess` agrees -- it records the result
+and moves on, so no handler can consume an event for the rest. So the plugin
+swaps that handler's `CanProcess` (slot 1 of `StatsMenu`'s second vtable, id
+215975; the original is id 52518): while the button shows and the movie's
+own mouse is on it, a mouse BUTTON event (device 1 at `+0x8`, type 0 at
+`+0xC`) is refused. Moves, the keyboard and the controller still reach the
+perks.
+
+**Always the bottom-left corner.** The movie loads with show-all scaling,
+which centers the 1280×720 stage, so on an ultrawide or 16:10 screen the
+stage's corner is not the screen's. On every open the plugin reads
+`GFxMovieView::GetVisibleFrameRect` (slot `0x1F`, skse64's
+`ScaleformMovie.h`) and places the button at its left edge plus 18, centered
+in the 72 px bar above its bottom edge. Show-all fits one side of the stage
+exactly, which says whether the rectangle came in pixels or twips; the
+placement is logged once.
+
+**The perks menu is found by name**, `MenuManager::IsMenuOpen` (id 82074,
+`0xfa37b0`, SKSE's own address), with the name interned once. Its body (the
+table lookup at `+0x128`, then `test byte [rcx+0x1c], 0x40`) matches once in
+1.6.1170 and 1.6.659 and nowhere in SE 1.5.97 or VR, and `pre_ae_map` finds
+no anchor for it, so it stays out of the pre-AE tables. On those builds the
+button never shows and the hotkey opens the sheet in the world instead, as the
+install line in the log says.
+
+### <a id="controller"></a>Controllers: the engine's own stick cursor (confirmed in game 2026-10-03)
+
+**Code:** `plugin/menu.cpp` (`kMenuFlags`, `OnUserEvent`'s Accept),
+`plugin/perks_button.cpp` (`PollPad`).
+
+Our menus are driven by the mouse, and Skyrim already turns a controller into
+one. `controlmap.txt`'s **Cursor** context (9) binds the `Cursor` event to the
+mouse (`0xa`) AND the right stick (`0x000c`), and `Click` to the left mouse
+button AND A (`0x1000`). The Cursor Menu pushes that context when it refreshes
+(`0x913f30`: pop every 9, push one unless the current context binds `Cursor`
+itself, as the Map Menu's does) and handles `Cursor` in its own
+`MenuEventHandler` (`CanProcess` `0x913ec0` compares the event with `Cursor`,
+the input string at `+0x180`; the thumbstick slot calls `0xfba6c0`, which moves
+the cursor). `ClickHandler` turns `Click` into a mouse press for the top menu.
+The input lookup (`0xcd5020`) walks DOWN the context stack (ControlMap `+0x108`,
+count `+0x118`), so a binding lower down still applies when nothing above
+binds that input: B stays Menu Mode's `Cancel`.
+
+Vanilla menus set the cursor flag only without a gamepad (`StatsMenu`:
+`0xcd9100` on the input device manager, then `or [menu+0x1c], 4`); ours set it
+always (`kMenuFlags`), so the cursor and its context come up with a controller
+too. Hence, with no controller code of their own:
+
+| Controller | Does |
+|---|---|
+| Right stick | moves the cursor |
+| A | clicks (`Click`); where Menu Mode is higher on the stack it is `Accept` instead, which our menus also take as a click at the cursor -- except the class menu, which takes typed text and whose Enter is also `Accept` |
+| B | `Cancel`: closes the window, as Tab does |
+
+**Into the sheet: Y in the perks menu.** With a controller the perks menu has
+no cursor (its own gamepad check above), so the button cannot be clicked. Y
+opens and closes the sheet there instead: `controlmap.txt` binds `YButton`
+only in Item Menus, and the perks menu's Stats context binds only `Rotate`.
+It is read through XInput (`xinput1_4`, then `1_3`, then `9_1_0`), the API
+the game's own gamepad device uses, only while the button shows; the key cap
+reads **Y** while a controller is connected. The engine's own gamepad check
+was not used for the label: its id (443396) exists only on 1.6.1170, and its
+body matches nothing on 1.6.659 and twice on 1.7.104.
 
 ### <a id="leveling"></a>Leveling: Skyrim levels, Morrowind raises the attributes
 

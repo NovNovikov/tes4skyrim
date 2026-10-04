@@ -45,8 +45,10 @@ class CustomMenu {
 public:
     // `name` is what it registers under; `movie` is passed to LoadMovie
     // WITHOUT an extension, which the callee formats through
-    // "Interface/%s.swf".
-    CustomMenu(const char* name, const char* movie);
+    // "Interface/%s.swf". An `overlay` sits over an engine menu without
+    // pausing, taking input or holding anything back from the menu beneath.
+    // See: docs/commentary/morrowind_runtime.md#perks-button
+    CustomMenu(const char* name, const char* movie, bool overlay = false);
 
     // Registers the menu. False when an engine entry point is missing, in
     // which case NOTHING is hooked and the game behaves as without it.
@@ -74,6 +76,13 @@ public:
 
     void SetInput(const MenuInput& input) { mInput = input; }
 
+    // The depth its next open takes on the engine's stack; 0 is the build's own.
+    void SetDepth(std::uint8_t depth) { mDepth = depth; }
+
+    // The part of the stage on screen, as GetVisibleFrameRect reports it:
+    // left, top, right, bottom. False when the movie is absent.
+    bool VisibleFrame(float* rect);
+
     // True once Register accepted it, and while it is between its open and
     // close messages.
     bool Installed() const { return mInstalled; }
@@ -97,6 +106,8 @@ private:
 
     const char* mName;
     const char* mMovie;
+    bool mOverlay;
+    std::uint8_t mDepth = 0;
     bool mInstalled = false;
     bool mOpen = false;
     // Its movie failed to load; it will not open again this session.
@@ -129,6 +140,13 @@ bool InvokeMenuNumber(const char* path, const double* args, std::size_t count,
 void SetMenuInput(const MenuInput& input);
 bool MenuInstalled();
 const char* MenuName();
+
+// Whether the engine's menu `name` is open. False before any Install, or
+// where MenuManager::IsMenuOpen does not resolve.
+bool EngineMenuOpen(const char* name);
+
+// Whether this build can answer EngineMenuOpen: not on SE 1.5.97 or VR.
+bool EngineMenusQueryable();
 
 // How many OPEN menus pause the game, ours included. 0 before any Install.
 // See: docs/commentary/morrowind_runtime.md#the-tick-stops-while-the-game-is-paused

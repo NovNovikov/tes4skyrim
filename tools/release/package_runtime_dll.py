@@ -46,9 +46,11 @@ from core.chargen_source import CHARGEN_SOURCE_KEY, SHARED_CHARGEN, shared_lines
 from tools.generators.gen_morrowind_chargen_swf import (BIRTH_MOVIE, CLASS_MOVIE,
                                                         birth_window, class_window)
 from tools.generators.gen_morrowind_menu_swf import dialogue_window
-from tools.generators.gen_morrowind_stats_swf import (LEVELUP_MOVIE,
+from tools.generators.gen_morrowind_stats_swf import (BUTTON_MOVIE,
+                                                      LEVELUP_MOVIE,
                                                       STATS_MOVIE,
                                                       levelup_dialog,
+                                                      perks_button,
                                                       stats_window)
 
 MOD_NAME = "TESRuntime"
@@ -65,6 +67,7 @@ CONFIG_FILE = SCRIPT_DIR / "conversion_config.json"
 MENUS = ((Path("Interface") / "morrowind_dialogue.swf", dialogue_window),
          (Path("Interface") / STATS_MOVIE, stats_window),
          (Path("Interface") / LEVELUP_MOVIE, levelup_dialog),
+         (Path("Interface") / BUTTON_MOVIE, perks_button),
          (Path("Interface") / CLASS_MOVIE, class_window))
 
 #: The birthsign menu, which also carries the shared table's effect icons.

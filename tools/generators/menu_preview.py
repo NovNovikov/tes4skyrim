@@ -233,11 +233,18 @@ class Renderer:
         return image.width * fill[4], image.height * fill[5]
 
     def _draw(self, canvas, char: int, x: float, y: float, sx: float, sy: float) -> None:
-        """A shape's fills, or a sprite's children, at `x`, `y` scaled `sx`, `sy`."""
+        """A shape's fills, or a sprite's children (each as the state names
+        it), at `x`, `y` scaled `sx`, `sy`."""
         kind, body = self.chars[char]
         if kind == 'sprite':
             for child in body:
+                state = self.state.get(child['name'], {})
+                if not state.get('visible', True):
+                    continue
                 csx, csy, cx, cy = child['matrix']
+                if self.chars[child['char']][0] == 'text':
+                    self._text(canvas, self.chars[child['char']][1], state, (x + cx, y + cy))
+                    continue
                 self._draw(canvas, child['char'], x + cx * sx, y + cy * sy, sx * csx, sy * csy)
             return
         for fill in body:
@@ -256,13 +263,13 @@ class Renderer:
         canvas.alpha_composite(image.resize(size, Image.LANCZOS),
                                (round(x + fill[2] * sx), round(y + fill[3] * sy)))
 
-    def _text(self, canvas, field: dict, state: dict) -> None:
-        """A field's text, wrapped and aligned inside its rect."""
+    def _text(self, canvas, field: dict, state: dict, origin: tuple = (0, 0)) -> None:
+        """A field's text, wrapped and aligned inside its rect, from `origin`."""
         text = state.get('text', field['text'])
         if not text:
             return
         x, y, w, _h = field['rect']
-        x, y = state.get('x', x), state.get('y', y)
+        x, y = state.get('x', x + origin[0]), state.get('y', y + origin[1])
         draw = ImageDraw.Draw(canvas)
         rgb = state.get('color', field['rgb'])
         pitch = sum(self.font.getmetrics())
@@ -540,6 +547,15 @@ def birth_state(art) -> dict:
     return state
 
 
+def button_state(hover: bool, back: bool) -> dict:
+    """The perks button in a 16:9 screen's corner, as perks_button.cpp places it."""
+    y = dlg.STAGE_H - (st.PERKS_BAR_H + st.BUTTON_GLOW[3]) // 2
+    return {'Button': {'x': st.BUTTON_MARGIN, 'y': y}, 'Glow': {'visible': hover},
+            'Key': {'text': 'C'},
+            'Label': {'text': 'BACK TO PERKS' if back else 'CHARACTER',
+                      'color': (255, 255, 255) if hover else st.BUTTON_GRAY}}
+
+
 def scenes(art, export_root: str) -> list:
     """`(file name, movie, state)` for every sample this writes; the birthsign
     menu's effect icon comes from whichever install holds it."""
@@ -564,7 +580,9 @@ def scenes(art, export_root: str) -> list:
             ('class.png', cg.class_window(art), class_state(art, False)),
             ('class_custom.png', cg.class_window(art), class_state(art, True)),
             ('birthsign.png', cg.birth_window(art, effect_icons(export_root, LADY_ICONS)),
-             birth_state(art))]
+             birth_state(art)),
+            ('perks_button.png', st.perks_button(art), button_state(False, False)),
+            ('perks_button_back_hover.png', st.perks_button(art), button_state(True, True))]
 
 
 def main() -> int:

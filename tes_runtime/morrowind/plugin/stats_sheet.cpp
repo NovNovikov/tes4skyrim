@@ -23,6 +23,7 @@
 #include "menu_layout.h"
 #include "menu_widgets.h"
 #include "paths.h"
+#include "perks_button.h"
 #include "scope.h"
 #include "script_tables.h"
 #include "stat_rows.h"
@@ -36,13 +37,13 @@ namespace {
 namespace sl = stats_layout;
 
 // MorrowindRuntime.ini's [CharacterSheet]: Enabled and SkillCap are on unless
-// set to 0, and Hotkey is a virtual-key code in decimal. K by default: bound
-// to nothing in Skyrim's own controlmap.txt (every letter it leaves free is
-// G, H, K, U, Y, B and N).
+// set to 0, and Hotkey is a virtual-key code in decimal. C by default: the
+// sheet opens from the perks menu, where Skyrim's controlmap.txt leaves C free
+// (it binds it only in gameplay, Auto-Move, and the item menus, Item Zoom).
 // See: docs/commentary/morrowind_runtime.md#character-sheet
 constexpr const char* kIniName = "MorrowindRuntime.ini";
 constexpr const char* kIniSection = "CharacterSheet";
-constexpr int kDefaultHotkey = 'K';
+constexpr int kDefaultHotkey = 'C';
 constexpr int kDefaultOn = 1;
 int g_hotkey = kDefaultHotkey;
 
@@ -52,6 +53,11 @@ constexpr int kSampleEvery = 10;
 
 // Rows the wheel moves per notch.
 constexpr int kWheelRows = 3;
+
+// The sheet's depth over the perks menu: above its 3, and under the 6 below
+// which the engine names the top menu, so the perks stop taking input under it.
+// See: docs/commentary/morrowind_runtime.md#perks-button
+constexpr std::uint8_t kOverPerksDepth = 4;
 
 constexpr const char* kPlayer = "player";
 
@@ -424,26 +430,37 @@ bool Sample() {
     return SheetEnabled() && PendingLevelUps() > 0;
 }
 
-// K toggles the window; a script's class or birthsign menu, then a pending
-// level-up step, open before anything else.
+void OpenSheet(std::uint8_t depth) {
+    Menu().SetDepth(depth);
+    PushAll();
+    Menu().Open();
+}
+
+// The hotkey or the perks menu's button toggles the window, which opens only
+// over the perks -- in the world on a build that cannot see that menu; a
+// script's class or birthsign menu, then a pending level-up step, open before
+// anything else.
 void Tick() {
     const bool down = HotkeyDown();
     const bool pressed = down && !g_keyWasDown && SheetEnabled();
     g_keyWasDown = down;
     if (g_chargen && TickChargen()) return;
+    const bool toggled = TickPerksButton(Menu().IsOpen()) || pressed;
     if (Menu().IsOpen()) {
-        if (pressed) Menu().Close();
+        if (toggled) Menu().Close();
         return;
     }
-    if (LevelUpOpen() || !InGameplay()) return;
+    if (LevelUpOpen()) return;
+    if (PerksMenuOpen()) {
+        if (toggled) OpenSheet(kOverPerksDepth);
+        return;
+    }
+    if (!InGameplay()) return;
     if (Sample()) {
         OpenLevelUp();
         return;
     }
-    if (pressed) {
-        PushAll();
-        Menu().Open();
-    }
+    if (pressed && !EngineMenusQueryable()) OpenSheet(0);
 }
 
 int IniInt(const char* key, int fallback) {
@@ -467,6 +484,7 @@ void InstallCharacterSheet() {
     const bool stats = Menu().Install();
     const bool levelUp = InstallLevelUpMenu();
     g_chargen = InstallChargenMenus();
+    const bool button = InstallPerksButton(g_hotkey);
     MenuInput input;
     input.click = OnClick;
     input.hover = OnHover;
@@ -481,9 +499,10 @@ void InstallCharacterSheet() {
                          StartTick(PostToMainThread, kTickMs, Tick);
     // Only a working level-up step can raise the attribute that caps a skill.
     SetSkillCapEnabled(ticking && IniInt("SkillCap", kDefaultOn) != 0);
-    Log("sheet: stats window %s, level-up %s, hotkey %d %s, skill cap %s",
-        stats ? "ok" : "FAILED", levelUp ? "ok" : "FAILED", g_hotkey,
-        ticking ? "watching" : "NOT watching", SkillCapEnabled() ? "on" : "off");
+    Log("sheet: stats window %s, level-up %s, perks button %s, hotkey %d %s, skill cap %s",
+        stats ? "ok" : "FAILED", levelUp ? "ok" : "FAILED",
+        !button ? "FAILED" : EngineMenusQueryable() ? "ok" : "unavailable (hotkey opens in the world)",
+        g_hotkey, ticking ? "watching" : "NOT watching", SkillCapEnabled() ? "on" : "off");
 }
 
 bool StatsSheetOpen() { return Menu().IsOpen(); }

@@ -22,6 +22,8 @@ import argparse
 import os
 import struct
 
+from PIL import Image, ImageDraw
+
 from asset_convert.ui.menu_art import ICON_SETS, STYLES, menu_art
 from asset_convert.ui.morrowind_menu_art import SCROLL_TRACK, SCROLL_W
 from asset_convert.ui.swf import (Swf, Tag, define_bits_lossless2,
@@ -31,16 +33,17 @@ from asset_convert.ui.swf import (Swf, Tag, define_bits_lossless2,
 from asset_convert.ui.ui_menus import premultiplied_argb
 from tools.generators.gen_morrowind_menu_swf import (
     ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, BODY_HEIGHT_TWIPS, CAPTION_PAD,
-    CHAR_MW_FONT, STAGE_H, STAGE_W, TAG_END, TAG_FILE_ATTRIBUTES,
+    CHAR_FONT, CHAR_MW_FONT, STAGE_H, STAGE_W, TAG_END, TAG_FILE_ATTRIBUTES,
     TAG_SET_BACKGROUND_COLOR, TAG_SHOW_FRAME, THUMB_H, THUMB_W, THUMB_X, TWIP,
-    define_edit_text, embed_font, style_marker, text_top)
+    define_edit_text, embed_font, import_font, style_marker, text_top)
 
 #: Where the plugin's copy of both layouts is written.
 HEADER_PATH = 'tes_runtime/morrowind/plugin/stats_layout.h'
 
-#: The two movies, as the game loads them under Interface/.
+#: The movies, as the game loads them under Interface/.
 STATS_MOVIE = 'morrowind_stats.swf'
 LEVELUP_MOVIE = 'morrowind_levelup.swf'
+BUTTON_MOVIE = 'morrowind_perks_button.swf'
 
 #: `Morrowind.ini` `[FontColor]` color_health, color_magic, color_fatigue: the three bar tints.
 BAR_COLORS = ((200, 60, 30), (53, 69, 159), (0, 150, 60))
@@ -158,6 +161,27 @@ SKYRIM_SKILLS = range(6, 24)
 CHAR_TIP_SPRITE_FIRST = 400
 CHAR_TIP_COVER = 560
 CHAR_TIP_FIELD_FIRST = 600
+
+#: The perks menu's button in its own space: the hover glow (also the click area), the key cap, the label.
+BUTTON_GLOW = (0, 0, 200, 36)
+BUTTON_KEY = (8, 5, 26, 26)
+BUTTON_LABEL = (44, 6, 156, 26)
+
+#: Its text in the perks menu's own face: the key's letter, and the label in vanilla's bar gray.
+BUTTON_KEY_PX = 17
+BUTTON_LABEL_PX = 19
+BUTTON_INK = (20, 20, 20)
+BUTTON_GRAY = (153, 153, 153)
+
+#: The key cap and glow are drawn this many times their stage size, so a 4K screen still shows them sharp.
+BUTTON_SUPERSAMPLE = 4
+
+#: Vanilla statsmenu.swf's bottom bar, which the button centers in, and its gap from the screen's left edge.
+PERKS_BAR_H = 72
+BUTTON_MARGIN = 18
+
+#: Button character ids: key cap and glow (bitmap, shape), the glow's sprite, two fields, the button sprite.
+CHAR_BUTTON_FIRST = 700
 
 
 # ---------------------------------------------------------------------------
@@ -305,10 +329,10 @@ def tip_tags(art, depth: int) -> list:
     return tags + place_all([], tip_fields(art.colors), depth + 1)
 
 
-def movie(tags: list) -> Swf:
-    """A one-frame stage-sized movie of `tags`, with the embedded face."""
+def movie(tags: list, font: Tag = None) -> Swf:
+    """A one-frame stage-sized movie of `tags`, with `font` (the embedded face when None)."""
     head = [Tag(TAG_FILE_ATTRIBUTES, struct.pack('<I', 0)),
-            Tag(TAG_SET_BACKGROUND_COLOR, bytes([0, 0, 0])), embed_font()]
+            Tag(TAG_SET_BACKGROUND_COLOR, bytes([0, 0, 0])), font or embed_font()]
     tail = [Tag(TAG_SHOW_FRAME, b''), Tag(TAG_END, b'')]
     return Swf(version=9,
                frame_size=pack_rect(0, STAGE_W * TWIP, 0, STAGE_H * TWIP),
@@ -516,6 +540,50 @@ def levelup_dialog(art) -> Swf:
 
 
 # ---------------------------------------------------------------------------
+# The perks menu's Character button
+# ---------------------------------------------------------------------------
+
+def rounded(rect: tuple, rgba: tuple):
+    """One rounded rectangle of `rgba`, drawn BUTTON_SUPERSAMPLE times `rect`'s size."""
+    w, h = rect[2] * BUTTON_SUPERSAMPLE, rect[3] * BUTTON_SUPERSAMPLE
+    image = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(image).rounded_rectangle((0, 0, w - 1, h - 1), radius=4 * BUTTON_SUPERSAMPLE,
+                                            fill=rgba)
+    return image
+
+
+def button_text(char_id: int, rect: tuple, px: int, rgb: tuple, align: int) -> Tag:
+    """A field in the perks menu's own face at a button-space rect."""
+    return define_edit_text(char_id, *rect, '', '', font_id=CHAR_FONT, rgb=rgb,
+                            height=px * TWIP, align=align)
+
+
+def perks_button(_art) -> Swf:
+    """The key hint the plugin lays over Skyrim's perks menu, in that menu's
+    own look whatever the sheet's style: one `Button` sprite holding `Glow`,
+    the key cap, `Key` and `Label`, which the plugin moves to the screen's
+    bottom-left corner.
+
+    See: docs/commentary/morrowind_runtime.md#perks-button
+    """
+    first = CHAR_BUTTON_FIRST
+    key = rounded(BUTTON_KEY, (190, 190, 190, 255))
+    glow = rounded(BUTTON_GLOW, (255, 255, 255, 38))
+    tags = [define_bits_lossless2(first, *key.size, premultiplied_argb(key)),
+            define_shape3_bitmap_rects(first + 1, [(first, *BUTTON_KEY, key.size)]),
+            define_bits_lossless2(first + 2, *glow.size, premultiplied_argb(glow)),
+            define_shape3_bitmap_rects(first + 3, [(first + 2, *BUTTON_GLOW, glow.size)]),
+            define_sprite(first + 4, [place_object2(depth=1, character_id=first + 3)]),
+            button_text(first + 5, BUTTON_KEY, BUTTON_KEY_PX, BUTTON_INK, ALIGN_CENTER),
+            button_text(first + 6, BUTTON_LABEL, BUTTON_LABEL_PX, BUTTON_GRAY, ALIGN_LEFT)]
+    parts = ((first + 4, 'Glow'), (first + 1, 'Cap'), (first + 5, 'Key'), (first + 6, 'Label'))
+    tags.append(define_sprite(first + 7, [place_object2(depth=depth, character_id=char, name=name)
+                                          for depth, (char, name) in enumerate(parts, 1)]))
+    tags.append(place_object2(depth=1, character_id=first + 7, name='Button'))
+    return movie(tags, import_font())
+
+
+# ---------------------------------------------------------------------------
 # The plugin's header and the CLI
 # ---------------------------------------------------------------------------
 
@@ -588,22 +656,32 @@ def tip_lines() -> list:
             f'constexpr int kTipSkillIcons = {len(SKYRIM_SKILLS)};']
 
 
+def button_lines() -> list:
+    """The button's size, its place in the perks menu's bar, and its text sizes."""
+    return [f'constexpr int kButtonW = {BUTTON_GLOW[2]};',
+            f'constexpr int kButtonH = {BUTTON_GLOW[3]};',
+            f'constexpr int kButtonMargin = {BUTTON_MARGIN};',
+            f'constexpr int kPerksBarH = {PERKS_BAR_H};',
+            'constexpr unsigned kButtonGray = 0x%02x%02x%02x;' % BUTTON_GRAY]
+
+
 def layout_header() -> str:
-    """The plugin's copy of both layouts, generated so nothing can disagree."""
+    """The plugin's copy of every layout, generated so nothing can disagree."""
     lines = ['// GENERATED by tools/generators/gen_morrowind_stats_swf.py.',
              '// Edit the generator, not this file.', '', '#pragma once', '',
              'namespace tesruntime::mw::stats_layout {', '']
-    lines += stats_lines() + [''] + dialog_lines() + [''] + tip_lines()
+    lines += stats_lines() + [''] + dialog_lines() + [''] + tip_lines() + [''] + button_lines()
     lines += ['', '}  // namespace tesruntime::mw::stats_layout', '']
     return '\n'.join(lines)
 
 
 def write_movies(art, out_dir: str, compress: bool = True) -> list:
-    """Both movies in `art`'s look into `out_dir`; returns the paths written."""
+    """Every movie in `art`'s look into `out_dir`; returns the paths written."""
     os.makedirs(out_dir, exist_ok=True)
     written = []
     for name, build in ((STATS_MOVIE, stats_window),
-                        (LEVELUP_MOVIE, levelup_dialog)):
+                        (LEVELUP_MOVIE, levelup_dialog),
+                        (BUTTON_MOVIE, perks_button)):
         path = os.path.join(out_dir, name)
         with open(path, 'wb') as fh:
             fh.write(build(art).serialize(compress=compress))

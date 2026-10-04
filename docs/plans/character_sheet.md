@@ -13,7 +13,7 @@ crafting thresholds, level-up multipliers) and example character values.
 
 Work order: [bugs first](#bugs), then the [MVP](#mvp).
 
-**Built first, Morrowind only (unconfirmed in game):** the stats window (K), the
+**Built first, Morrowind only (unconfirmed in game):** the stats window (C, from the perks menu), the
 level-up dialog after Skyrim's own level-up, and skill increases credited to
 the governing attribute, all inside `MorrowindRuntime.dll` over the stat store
 it already keeps. It uses Morrowind's own governing attributes (each Skyrim skill
@@ -399,9 +399,12 @@ Today these conditions are dropped at import
 
 #### <a id="m10-input"></a>M10. Opening the sheet
 
-- **Hotkey:** to be chosen. The mockup's C collides with Skyrim's Auto-Move (verify).
+- **Hotkey:** C, only in Skyrim's perks menu, where it is free; the sheet opens
+  from there and nowhere else, through the key or a **[C] CHARACTER** button
+  (built 2026-10-03, [perks button](../commentary/morrowind_runtime.md#perks-button)).
 - **Other ways in:** the Nehrim journal item, and a Tween-menu entry if the engine allows it ([L9](#learn)).
-- **Gamepad** navigation.
+- **Gamepad:** the engine's stick cursor (right stick, A clicks, B closes) and Y
+  in the perks menu (built 2026-10-03, [controllers](../commentary/morrowind_runtime.md#controller)).
 
 ### <a id="oblivion-plan"></a>Oblivion and Nehrim: plan of attack (proposed 2026-10-02)
 

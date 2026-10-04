@@ -20,15 +20,17 @@ namespace tesruntime::mw {
 // 1.6.659) -- the simplest single-vtable modal panel the engine ships, and the
 // one SKSE's CustomMenu was itself modeled on:
 //   lea  r8,   [rbx+0x10]        ; &view
-//   mov  byte  [rbx+0x18], 0xa   ; context
+//   mov  byte  [rbx+0x18], 0xa   ; depth
 //   mov  dword [rbx+0x1c], 0x11  ; flags
-//   mov  dword [rbx+0x20], 1     ; depth
+//   mov  dword [rbx+0x20], 1     ; input context
+// The menu dispatcher (0xfa3dc0 on 1.6.1170) orders the stack by the +0x18
+// byte, and IMenu's own constructor defaults it to 3 and the context to 0x13.
 // See: docs/commentary/morrowind_runtime.md#imenu-layout
 constexpr std::size_t kMenuSize = 0xa8;
 constexpr std::size_t kOffView = 0x10;
-constexpr std::size_t kOffContext = 0x18;
+constexpr std::size_t kOffDepth = 0x18;
 constexpr std::size_t kOffFlags = 0x1c;
-constexpr std::size_t kOffDepth = 0x20;
+constexpr std::size_t kOffContext = 0x20;
 
 // Where our object keeps its window. Past the base IMenu (0x30), in the part
 // of the allocation only a MessageBoxMenu's own code would touch, so no
@@ -41,11 +43,11 @@ struct EngineMenu {
     void*         vtable;
     std::uint8_t  pad08[kOffView - 8];
     void*         view;
-    std::uint8_t  context;
-    std::uint8_t  pad19[kOffFlags - kOffContext - 1];
+    std::uint8_t  depth;
+    std::uint8_t  pad19[kOffFlags - kOffDepth - 1];
     std::uint32_t flags;
-    std::uint32_t depth;
-    std::uint8_t  pad24[kOffOwner - kOffDepth - 4];
+    std::uint32_t context;
+    std::uint8_t  pad24[kOffOwner - kOffContext - 4];
     CustomMenu*   owner;
     std::uint8_t  rest[kMenuSize - kOffOwner - sizeof(void*)];
 };
@@ -53,17 +55,27 @@ struct EngineMenu {
 static_assert(sizeof(EngineMenu) == kMenuSize,
               "the menu must be exactly the size the engine allocates");
 static_assert(offsetof(EngineMenu, view) == kOffView, "view offset");
-static_assert(offsetof(EngineMenu, context) == kOffContext, "context");
-static_assert(offsetof(EngineMenu, flags) == kOffFlags, "flags offset");
 static_assert(offsetof(EngineMenu, depth) == kOffDepth, "depth offset");
+static_assert(offsetof(EngineMenu, flags) == kOffFlags, "flags offset");
+static_assert(offsetof(EngineMenu, context) == kOffContext, "context offset");
 static_assert(offsetof(EngineMenu, owner) == kOffOwner, "owner offset");
 
 namespace {
 
-// The two scalars every menu sets beside its flags. Named for what the
-// constructors write, not for a meaning we have established.
-constexpr std::uint8_t  kMenuContext = 0xa;
-constexpr std::uint32_t kMenuDepth = 1;
+// The two scalars every menu sets beside its flags, as MessageBoxMenu does:
+// depth 10, which draws over the engine's own menus, and the MenuMode input
+// context.
+constexpr std::uint8_t  kMenuDepth = 0xa;
+constexpr std::uint32_t kMenuContext = 1;
+
+// An overlay pauses nothing, takes no cursor or input context of its own, and
+// is not modal, so every event it passes on reaches the menu beneath. Depth
+// 12: at 11 and up the cursor routine (0xfa5fd9) skips it and asks the menu
+// beneath, and under 14 "Top Menu" clicks still reach it first.
+// See: docs/commentary/morrowind_runtime.md#perks-button
+constexpr std::uint32_t kOverlayFlags = 0;
+constexpr std::uint32_t kNoInputContext = 0x13;
+constexpr std::uint8_t  kOverlayDepth = 0xc;
 
 // IMenu::flags, from that same constructor: 0x11, then |0x404 when no gamepad
 // is enabled. We always want the cursor, so both are set unconditionally --
@@ -82,6 +94,12 @@ constexpr std::uint32_t kAdvanceCatchUp = 2;
 // also comes as a Scaleform event of type 4, but the engine's binding for it
 // inside a menu is these two names, and they arrive reliably.
 constexpr const char* kCancelEvent = "Cancel";
+
+// Menu Mode's A (and E/Enter). The Cursor context's own A is "Click", which
+// arrives as a mouse press; whichever context is higher on the stack names the
+// button, so Accept clicks at the cursor too.
+// See: docs/commentary/morrowind_runtime.md#controller
+constexpr const char* kAcceptEvent = "Accept";
 constexpr const char* kWheelUpEvent = "Zoom In";
 constexpr const char* kWheelDownEvent = "Zoom Out";
 
@@ -102,6 +120,9 @@ using InvokeFn = bool (*)(void* movie, const char* path, void* result,
 using AdvanceFn = float (*)(void* movie, float seconds, std::uint32_t catchUp);
 using HandleEventFn = std::uint32_t (*)(void* movie, void* event);
 using RenderFn = void (*)(void* movie);
+using VisibleRectFn = float* (*)(void* movie, float* rect);
+using IsMenuOpenFn = bool (*)(void* manager, void** name);
+using FixedStringFn = void* (*)(void** out, const char* text);
 
 using CreatorFn = void* (*)();
 using RegisterFn = void (*)(void* manager, const char* name, CreatorFn creator);
@@ -162,18 +183,20 @@ struct alignas(8) NumberValue {
 // every open because the engine owns the object between them.
 // VR's IMenu is 0x40 bytes: its base constructor (0xf2a300 on 1.4.15) also
 // sets +0x30 to -1 (the int its slot 9 writes) and +0x34 to 1, and its
-// MessageBoxMenu sets context 0xb and flags 0x40013 -- no cursor bits, since
+// MessageBoxMenu sets depth 0xb and flags 0x40013 -- no cursor bits, since
 // VR points with the controllers. Ours is armed exactly as that menu is.
 // See: docs/reference/address_library_formats.md#pre-ae-tables
-constexpr std::uint8_t  kVrMenuContext = 0xb;
+constexpr std::uint8_t  kVrMenuDepth = 0xb;
 constexpr std::uint32_t kVrMenuFlags = 0x40013;
 constexpr std::size_t   kVrOffMenuSlot = 0x30;
 constexpr std::size_t   kVrOffMenuShown = 0x34;
 
-void ArmMenu(EngineMenu* menu) {
-    menu->context = IsVr() ? kVrMenuContext : kMenuContext;
-    menu->flags = IsVr() ? kVrMenuFlags : kMenuFlags;
-    menu->depth = kMenuDepth;
+// `depth` 0 keeps the kind's own; an overlay is armed as one on every build.
+void ArmMenu(EngineMenu* menu, bool overlay, std::uint8_t depth) {
+    const std::uint8_t own = overlay ? kOverlayDepth : IsVr() ? kVrMenuDepth : kMenuDepth;
+    menu->depth = depth ? depth : own;
+    menu->flags = overlay ? kOverlayFlags : IsVr() ? kVrMenuFlags : kMenuFlags;
+    menu->context = overlay ? kNoInputContext : kMenuContext;
     if (IsVr()) {
         At<std::int32_t>(menu, kVrOffMenuSlot) = -1;
         At<std::uint8_t>(menu, kVrOffMenuShown) = 1;
@@ -315,8 +338,8 @@ bool ResolveEngine() {
 
 }  // namespace
 
-CustomMenu::CustomMenu(const char* name, const char* movie)
-    : mName(name), mMovie(movie) {}
+CustomMenu::CustomMenu(const char* name, const char* movie, bool overlay)
+    : mName(name), mMovie(movie), mOverlay(overlay) {}
 
 bool CustomMenu::Install() {
     if (mInstalled) return true;
@@ -364,7 +387,7 @@ void* CustomMenu::Create() {
         ok = g_loadMovie(*g_gfxLoader, menu, &menu->view, mMovie,
                          ids::kScaleModeShowAll, 0.0f);
     }
-    ArmMenu(menu);
+    ArmMenu(menu, mOverlay, mDepth);
     Log("menu: LoadMovie('%s') %s, view=%p flags=%08x", mMovie,
         ok ? "ok" : "FAILED", menu->view, menu->flags);
     if (!ok) LogMovieLookup(mMovie);
@@ -393,7 +416,7 @@ void CustomMenu::OnOpen(EngineMenu* menu) {
     mOpen = true;
     mLive = menu;
     mKept = menu;
-    ArmMenu(menu);
+    ArmMenu(menu, mOverlay, mDepth);
     Log("menu: '%s' open, menu=%p view=%p flags=%08x", mName, menu, menu->view,
         menu->flags);
     for (const auto& field : mPending) {
@@ -451,18 +474,27 @@ std::uint32_t CustomMenu::OnScaleformEvent(EngineMenu* menu, char* data) {
         mInput.typed(*reinterpret_cast<const std::uint32_t*>(static_cast<char*>(event) +
                                                              ids::kCharEventCodeOffset));
     }
-    return ids::kResultHandled;
+    return mOverlay ? ids::kResultPassOn : ids::kResultHandled;
 }
 
-// Type 7: a named user event. Cancel closes; the wheel arrives as Zoom In
-// (up) and Zoom Out (down), delivered at the last known cursor position.
+// Type 7: a named user event. Cancel closes; Accept clicks at the cursor
+// (except where text is typed, whose Enter it also is); the
+// wheel arrives as Zoom In (up) and Zoom Out (down), delivered at the last
+// known cursor position. An overlay leaves every one to the menu beneath.
 std::uint32_t CustomMenu::OnUserEvent(char* data) {
     const char* name = data ? *reinterpret_cast<const char**>(
                                   data + ids::kUserEventNameOffset)
                             : nullptr;
-    if (!name) return ids::kResultPassOn;
+    if (!name || mOverlay) return ids::kResultPassOn;
     if (_stricmp(name, kCancelEvent) == 0) {
         if (mInput.cancel) mInput.cancel();
+        return ids::kResultHandled;
+    }
+    double x = 0, y = 0;
+    const bool clicks = mInput.click && !mInput.typed;
+    if (_stricmp(name, kAcceptEvent) == 0 && clicks && MousePosition(&x, &y)) {
+        mInput.click(x, y);
+        if (mInput.release) mInput.release();
         return ids::kResultHandled;
     }
     const bool up = _stricmp(name, kWheelUpEvent) == 0;
@@ -495,6 +527,13 @@ void CustomMenu::ApplyText(const char* variable, const char* text) {
 
 bool CustomMenu::MousePosition(double* x, double* y) {
     return GetNumber(kMouseX, x) && GetNumber(kMouseY, y);
+}
+
+bool CustomMenu::VisibleFrame(float* rect) {
+    void* view = LiveView();
+    if (!view) return false;
+    VCall<VisibleRectFn>(view, ids::kMovieViewVisibleRectSlot)(view, rect);
+    return true;
 }
 
 // 🛑 Text set BEFORE the menu opens is held and replayed by OnOpen. The movie
@@ -589,6 +628,29 @@ bool InvokeMenuNumber(const char* path, const double* args, std::size_t count,
 void SetMenuInput(const MenuInput& input) { DialogueMenu().SetInput(input); }
 bool MenuInstalled() { return DialogueMenu().Installed(); }
 const char* MenuName() { return DialogueMenu().Name(); }
+
+namespace {
+
+IsMenuOpenFn IsMenuOpenCall() {
+    static const auto isOpen = reinterpret_cast<IsMenuOpenFn>(
+        Resolve("MenuManager::IsMenuOpen", ids::kMenuManagerIsMenuOpen, nullptr));
+    return isOpen;
+}
+
+}  // namespace
+
+bool EngineMenusQueryable() { return IsMenuOpenCall() != nullptr; }
+
+bool EngineMenuOpen(const char* name) {
+    static const auto intern = reinterpret_cast<FixedStringFn>(
+        Resolve("BSFixedString ctor", ids::kBSFixedStringCtor, nullptr));
+    static std::map<std::string, void*> interned;
+    const IsMenuOpenFn isOpen = IsMenuOpenCall();
+    if (!isOpen || !intern || !g_menuManager || !*g_menuManager) return false;
+    void*& fixed = interned[name];
+    if (!fixed) intern(&fixed, name);
+    return fixed && isOpen(*g_menuManager, &fixed);
+}
 
 std::uint32_t PausingMenuCount() {
     if (!g_menuManager || !*g_menuManager) return 0;

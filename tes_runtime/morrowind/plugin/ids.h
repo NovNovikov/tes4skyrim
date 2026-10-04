@@ -33,6 +33,32 @@ constexpr std::uint64_t kMenuManagerSingleton = 400327;
 // See: docs/commentary/morrowind_runtime.md#the-tick-stops-while-the-game-is-paused
 constexpr std::size_t kOffMenuNumPauseGame = 0x160;
 
+// MenuManager::IsMenuOpen(this, BSFixedString* name) (0xfa37b0 on 1.6.1170,
+// SKSE's own address for it): looks the interned name up in the menu table at
+// +0x128 and tests flag 0x40, which the engine sets while a menu is on the stack.
+constexpr std::uint64_t kMenuManagerIsMenuOpen = 82074;
+
+// Skyrim's perks menu as the manager names it. Its constructor (0x95ed58 on
+// 1.6.1170) leaves IMenu's default depth, 3, and sets flags 0x8189.
+// See: docs/commentary/morrowind_runtime.md#perks-button
+constexpr const char* kPerksMenu = "StatsMenu";
+
+// StatsMenu's MenuEventHandler vtable (0x1901438 on 1.6.1170) and the
+// CanProcess its slot 1 holds (0x961030). MenuControls (0x947db0) offers every
+// input event to EVERY registered handler whose CanProcess agrees -- none can
+// consume one for the rest -- so a click on our button reaches the perks menu
+// unless its own gate refuses it. An InputEvent carries its device at +0x8
+// (1 mouse; the loop compares 2, the gamepad) and its type at +0xC (0 a
+// button, dispatched to ProcessButton).
+// See: docs/commentary/morrowind_runtime.md#perks-button
+constexpr std::uint64_t kPerksHandlerVtable = 215975;
+constexpr std::uint64_t kPerksCanProcess = 52518;
+constexpr std::size_t kCanProcessSlot = 0x8;
+constexpr std::size_t kOffInputDevice = 0x8;
+constexpr std::size_t kOffInputType = 0xC;
+constexpr std::uint32_t kDeviceMouse = 1;
+constexpr std::uint32_t kInputButton = 0;
+
 // MenuManager::Register(this, const char* name, IMenu* (*creator)())
 // (0xfa5480). Found as the jmp target shared by 10 distinct menu-name call
 // sites; identical to the RVA SKSE hardcodes.
@@ -743,6 +769,10 @@ constexpr std::size_t kMovieViewSetVariableSlot = 0x10;
 constexpr std::size_t kMovieViewGetVariableSlot = 0x11;
 constexpr std::size_t kMovieViewInvokeSlot = 0x16;
 constexpr std::size_t kMovieViewAdvanceSlot = 0x25;
+// GetVisibleFrameRect 0x1F (skse64 ScaleformMovie.h, after Get/SetViewScaleMode
+// and Get/SetViewAlignment at 0x1B-0x1E): the part of the stage on screen as
+// left, top, right, bottom floats, returned through a hidden pointer.
+constexpr std::size_t kMovieViewVisibleRectSlot = 0x1F;
 constexpr std::size_t kMovieViewRenderSlot = 0x26;
 constexpr std::size_t kMovieViewHandleEventSlot = 0x2d;
 

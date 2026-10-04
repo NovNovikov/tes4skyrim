@@ -25,6 +25,7 @@ from asset_convert.ui.morrowind_menu_art import (BORDER, BOX_BORDER,
                                                  compose_head, compose_stat_bar)
 from tools.generators import gen_morrowind_chargen_swf as chargen_swf
 from tools.generators import gen_morrowind_stats_swf as stats_swf
+from tools.generators import menu_preview
 from tools.generators.gen_morrowind_menu_swf import STYLE_MARKER, dialogue_window
 from tools.release import package_runtime_dll as pkg
 
@@ -149,12 +150,12 @@ def test_packaging_adds_every_composed_menu(tmp_path, monkeypatch):
 
 
 def test_the_character_sheet_ships_turned_on(tmp_path):
-    """TESRuntime.zip carries MorrowindRuntime.ini: the sheet and its skill cap on, on K."""
+    """TESRuntime.zip carries MorrowindRuntime.ini: the sheet and its skill cap on, on C."""
     arc = 'SKSE/Plugins/MorrowindRuntime/MorrowindRuntime.ini'
     assert arc in _packaged(tmp_path)
     with zipfile.ZipFile(tmp_path / 'Finished Mods' / 'TESRuntime.zip') as zf:
         lines = zf.read(arc).decode('ascii').splitlines()
-    assert '[CharacterSheet]' in lines and 'Hotkey=75' in lines
+    assert '[CharacterSheet]' in lines and 'Hotkey=67' in lines
     assert 'Enabled=1' in lines and 'SkillCap=1' in lines
 
 
@@ -246,6 +247,21 @@ def test_stats_and_levelup_movies_build(tmp_path):
     """Both movies compose from the install and parse as SWF."""
     for path in stats_swf.write_movies(MorrowindArt(_morrowind_art()), str(tmp_path)):
         assert Path(path).read_bytes()[:3] == b'CWS'
+
+
+def test_perks_button_holds_what_the_plugin_drives():
+    """The perks button movie: a `Button` sprite holding the `Glow`, `Cap`, `Key` and
+    `Label` perks_button.cpp writes, its key cap and glow drawn at 4x.
+
+    See: docs/commentary/morrowind_runtime.md#perks-button
+    """
+    chars = menu_preview.characters(stats_swf.perks_button(None).tags)
+    children = [sorted(p['name'] for p in body) for kind, body in chars.values() if kind == 'sprite']
+    assert ['Cap', 'Glow', 'Key', 'Label'] in children
+    scale = stats_swf.BUTTON_SUPERSAMPLE
+    sizes = {body.size for kind, body in chars.values() if kind == 'image'}
+    assert sizes == {(rect[2] * scale, rect[3] * scale)
+                     for rect in (stats_swf.BUTTON_KEY, stats_swf.BUTTON_GLOW)}
 
 
 # ---------------------------------------------------------------------------

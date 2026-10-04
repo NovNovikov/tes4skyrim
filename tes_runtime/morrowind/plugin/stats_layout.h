@@ -92,4 +92,10 @@ constexpr int kTipIcons = 8;
 constexpr int kTipSkillFirst = 6;
 constexpr int kTipSkillIcons = 18;
 
+constexpr int kButtonW = 200;
+constexpr int kButtonH = 36;
+constexpr int kButtonMargin = 18;
+constexpr int kPerksBarH = 72;
+constexpr unsigned kButtonGray = 0x999999;
+
 }  // namespace tesruntime::mw::stats_layout
