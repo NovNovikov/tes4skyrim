@@ -3799,39 +3799,27 @@ class TestAmbientChatterPacing:
     2. Oblivion paces ambient dialogue GLOBALLY via GMSTs, which were skipped.
     """
 
-    def test_interrupt_flags_not_force_enabled(self):
-        from tes5_import.packages.converter import DEFAULT_INTERRUPT
-        assert DEFAULT_INTERRUPT != 0xFFFF, \
-            "0xFFFF is the CK's 'set all interrupt flags'; it forces every " \
-            "NPC to be allowed to break off any activity to chatter"
-        # CHATTER bits stay off — hellos (0x01), random conversations (0x02),
-        # corpse greets (0x08), idle chatter (0x80): TES4 paces these through
-        # global GMSTs, never per package.
-        assert not (DEFAULT_INTERRUPT & (0x01 | 0x02 | 0x08 | 0x80))
+    @pytest.mark.parametrize('ptype,extra,expected', [
+        (1, {}, 0x47), (2, {}, 0x47), (4, {}, 0x47),
+        (5, {}, 0x47), (6, {}, 0x47), (7, {}, 0x47),
+        (9, {'PTDT.Type': '0', 'PTDT.Target': '00000007'}, 0xFEFF),
+        (5, {'MorrowindHello': '30'}, 0xD5),
+        (1, {'MorrowindHello': '30'}, 0x54),
+        (5, {'MorrowindHello': '0'}, 0x54),
+    ])
+    def test_converted_package_allows_its_ambient_speech(
+            self, ptype, extra, expected, monkeypatch):
+        """Output PACKs allow TES4 greetings while preserving TES3/forcegreet policy."""
+        from tes5_import.base import text_reader
+        from tes5_import.packages.converter import PackContext, convert_PACK
 
-    def test_interrupt_flags_authorise_combat_behaviour(self):
-        """The 0x0000 over-correction froze combat response: vanilla reserves
-        all-zero interrupts for scene lockdowns (dunCGAlduinBaitStayAtLinked-
-        RefNoCombat, pelagiusHoldPosSleepIgnoreCombat, CWFinaleEnemyLeader-
-        WaitForExecution...), while ordinary packages authorise the behaviour
-        bits (observe-combat set on 64.2% of Skyrim.esm's 5,961 packages).
-        With them denied the CharacterGen ambushes stood in a swords-out
-        staring match until the player threw the first punch — TES4 packages
-        never gate combat response at all."""
-        from tes5_import.packages.converter import DEFAULT_INTERRUPT
-        assert DEFAULT_INTERRUPT & 0x04, 'Observe combat behavior must be on'
-        assert DEFAULT_INTERRUPT & 0x40, 'Aggro Radius Behavior must be on'
-        # 0x10 "Reaction to player actions" authorises spoken reaction
-        # comments — a scene actor barking one over a scripted Say line
-        # disturbs conversation timing, so it stays OFF with the chatter bits.
-        assert not (DEFAULT_INTERRUPT & 0x10)
-
-    def test_pkdt_writes_the_interrupt_field(self):
-        import struct
-        from tes5_import.packages.converter import build_pkdt, DEFAULT_INTERRUPT
-        b = build_pkdt(0, 2)
-        assert len(b) == 12
-        assert struct.unpack_from('<H', b, 8)[0] == DEFAULT_INTERRUPT
+        monkeypatch.setattr(text_reader, '_formid_index_offset', 0)
+        rec = {'Signature': 'PACK', 'FormID': '00001000',
+               'EditorID': 'AmbientPackage', 'RecordFlags': '0',
+               'PKDT.Flags': '0', 'PKDT.Type': str(ptype), **extra}
+        data = convert_PACK(rec, PackContext())
+        package = next(reader_records(data, b'PACK', span=(0, len(data))))
+        assert struct.unpack_from('<H', package.sub(b'PKDT'), 8)[0] == expected
 
     def test_oblivion_pacing_gmsts_carried(self):
         """Oblivion is far slower than Skyrim on both ambient clocks; without
