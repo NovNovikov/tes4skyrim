@@ -36,7 +36,32 @@ constexpr std::size_t kOffMenuNumPauseGame = 0x160;
 // MenuManager::IsMenuOpen(this, BSFixedString* name) (0xfa37b0 on 1.6.1170,
 // SKSE's own address for it): looks the interned name up in the menu table at
 // +0x128 and tests flag 0x40, which the engine sets while a menu is on the stack.
+// SE 1.5.97 (0xebe150) and VR (0xf1a3b0) inline the lookup but test the same.
+// See: docs/reference/address_library_formats.md#hand-proven
 constexpr std::uint64_t kMenuManagerIsMenuOpen = 82074;
+
+// That menu table, walked to reach a menu's own object: capacity at +0x134,
+// entries at +0x150, each 0x20 bytes holding the interned name at +0, the
+// IMenu at +8 and the chain link at +0x18, null in an empty slot. The same on
+// all three builds' IsMenuOpen.
+constexpr std::size_t kOffMenuTableCapacity = 0x134;
+constexpr std::size_t kOffMenuTableEntries = 0x150;
+constexpr std::size_t kMenuTableEntrySize = 0x20;
+constexpr std::size_t kOffMenuEntryMenu = 0x8;
+constexpr std::size_t kOffMenuEntryNext = 0x18;
+
+// The perks menu's skills in label order: StatsMenu's array of actor values
+// at +0x50, its count at +0x60. Its fill (0x962450 on 1.6.1170, 0x8c20c0 on
+// 1.5.97) hands entry n's level, name and color to the movie's SkillText<n>.
+// VR's perks menu has neither the fill nor those labels.
+// See: docs/commentary/morrowind_runtime.md#capped-skills
+constexpr std::size_t kOffPerksSkills = 0x50;
+constexpr std::size_t kOffPerksSkillCount = 0x60;
+
+// GFxValue's ObjectInterface::ReleaseManaged(iface, value, data) (0xfac750,
+// skse64's ReleaseManaged_Internal), what the engine calls on every value the
+// movie owns once it is done with it -- a string read back from a movie is one.
+constexpr std::uint64_t kGfxReleaseManaged = 82270;
 
 // Skyrim's perks menu as the manager names it. Its constructor (0x95ed58 on
 // 1.6.1170) leaves IMenu's default depth, 3, and sets flags 0x8189.
@@ -783,6 +808,9 @@ constexpr std::size_t kGfxValueTypeOffset = 0x8;
 constexpr std::size_t kGfxValueDataOffset = 0x10;
 constexpr std::uint32_t kGfxValueTypeMask = 0x8f;
 constexpr std::uint32_t kGfxValueNumber = 3;
+// A string's data is its `const char*`, or a pointer to one when managed.
+constexpr std::uint32_t kGfxValueString = 4;
+constexpr std::uint32_t kGfxValueManaged = 0x40;
 
 // Debug.Notification(string) (0xa07340), global, the callback stored beside
 // "Notification": the same shape as Debug.MessageBox one id before it. What

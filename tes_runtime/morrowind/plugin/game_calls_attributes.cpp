@@ -211,19 +211,9 @@ float AttributeEffect(const std::string& actor, int tes3Index) {
     return found->second[tes3Index];
 }
 
-// Whether the player's skill (Skyrim actor value 6..23) is at or past its
-// governing attribute, as magic leaves it -- OpenMW checks getModified.
-bool Capped(std::uint32_t skill) {
-    if (!SkillCapEnabled() || !PlayerAttributesKnown() || !Hooks().baseActorValue) return false;
-    const int attribute = GoverningAttribute(static_cast<int>(skill));
-    const char* name = SkillName(static_cast<int>(skill));
-    if (attribute < 0 || !name) return false;
-    return Hooks().baseActorValue(kPlayerId, name) >= ActorAttribute(kPlayerId, attribute);
-}
-
 void AdvanceSkillHook(void* player, std::uint32_t skill, float points, void* form,
                       std::uint32_t unk) {
-    if (Capped(skill)) return;
+    if (SkillCapped(static_cast<int>(skill))) return;
     g_advanceSkill(player, skill, points, form, unk);
 }
 
@@ -231,7 +221,7 @@ void AdvanceSkillHook(void* player, std::uint32_t skill, float points, void* for
 void TrainHook(void* menu) {
     const std::uint32_t skill = At<std::uint32_t>(
         menu, IsVr() ? ids::kVrOffTrainingMenuSkill : ids::kOffTrainingMenuSkill);
-    if (Capped(skill)) {
+    if (SkillCapped(static_cast<int>(skill))) {
         Notify(GmstText("sNotifyMessage17",
                         "You cannot train a skill above its governing attribute."));
         return;
@@ -378,4 +368,15 @@ void InstallAttributeCalls(GameHooks& hooks) {
 }
 
 }  // namespace gamecalls
+
+// OpenMW checks the governing attribute's modified value, as magic leaves it.
+bool SkillCapped(int skill) {
+    if (!SkillCapEnabled() || !PlayerAttributesKnown() || !Hooks().baseActorValue) return false;
+    const int attribute = GoverningAttribute(skill);
+    const char* name = SkillName(skill);
+    if (attribute < 0 || !name) return false;
+    return Hooks().baseActorValue(gamecalls::kPlayerId, name) >=
+           ActorAttribute(gamecalls::kPlayerId, attribute);
+}
+
 }  // namespace tesruntime::mw

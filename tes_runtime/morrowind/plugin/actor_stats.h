@@ -45,4 +45,8 @@ bool SheetEnabled();
 void SetSkillCapEnabled(bool on);
 bool SkillCapEnabled();
 
+// Whether the cap holds the player's Skyrim skill (actor value 6..23): it is
+// at or past its governing attribute. Always false with the cap off.
+bool SkillCapped(int skill);
+
 }  // namespace tesruntime::mw

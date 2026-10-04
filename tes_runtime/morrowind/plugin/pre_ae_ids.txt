@@ -47,3 +47,11 @@ kVmMagicEffectApplySink
 kVmMagicEffectApplyProcess
 kActorGetFactionRank
 kActorSetFactionRank
+
+# The perks menu's button and skill colors: whether the menu is open, its
+# input gate, whose events carry the device at +0x8 and the type at +0xC on
+# every build, and the release of a string read back from its movie.
+kMenuManagerIsMenuOpen
+kPerksHandlerVtable
+kPerksCanProcess
+kGfxReleaseManaged

@@ -145,8 +145,17 @@ const char* MenuName();
 // where MenuManager::IsMenuOpen does not resolve.
 bool EngineMenuOpen(const char* name);
 
-// Whether this build can answer EngineMenuOpen: not on SE 1.5.97 or VR.
+// Whether this build can answer EngineMenuOpen.
 bool EngineMenusQueryable();
+
+// The engine's menu `name` (its IMenu) and that menu's movie, both null
+// unless the menu exists. Read on the game's thread while it is open.
+void* EngineMenuObject(const char* name, void** view);
+
+// A text variable of any movie, the engine's own included. MovieGetText is
+// false when the variable is missing or not a string.
+bool MovieGetText(void* view, const char* path, std::string* out);
+void MovieSetText(void* view, const char* path, const char* text);
 
 // How many OPEN menus pause the game, ours included. 0 before any Install.
 // See: docs/commentary/morrowind_runtime.md#the-tick-stops-while-the-game-is-paused

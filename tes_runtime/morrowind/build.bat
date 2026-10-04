@@ -65,7 +65,7 @@ echo [build] compiling plugin...
 cl %CXXFLAGS% %INCLUDES% plugin\plugin.cpp plugin\store.cpp plugin\scope.cpp ^
    "%COMMON%\log.cpp" "%COMMON%\paths.cpp" "%COMMON%\addresses.cpp" "%COMMON%\hook.cpp" ^
    plugin\menu.cpp plugin\menu_widgets.cpp plugin\leveling.cpp plugin\attribute_buffs.cpp ^
-   plugin\stat_tip.cpp plugin\stats_sheet.cpp plugin\stat_rows.cpp plugin\perks_button.cpp ^
+   plugin\stat_tip.cpp plugin\stats_sheet.cpp plugin\stat_rows.cpp plugin\perks_button.cpp plugin\perks_skills.cpp ^
    plugin\levelup_menu.cpp plugin\scaleform_log.cpp ^
    plugin\chargen_menu.cpp plugin\chargen_tables.cpp ^
    "%COMMON%\ui_message.cpp" "%COMMON%\crafting_client.cpp" ^

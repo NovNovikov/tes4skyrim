@@ -3862,12 +3862,39 @@ exactly, which says whether the rectangle came in pixels or twips; the
 placement is logged once.
 
 **The perks menu is found by name**, `MenuManager::IsMenuOpen` (id 82074,
-`0xfa37b0`, SKSE's own address), with the name interned once. Its body (the
-table lookup at `+0x128`, then `test byte [rcx+0x1c], 0x40`) matches once in
-1.6.1170 and 1.6.659 and nowhere in SE 1.5.97 or VR, and `pre_ae_map` finds
-no anchor for it, so it stays out of the pre-AE tables. On those builds the
-button never shows and the hotkey opens the sheet in the world instead, as the
-install line in the log says.
+`0xfa37b0`, SKSE's own address), with the name interned once. SE 1.5.97 and VR
+have it too (`0xebe150`, `0xf1a3b0`): they inline the table lookup that AE
+calls, so its body matches nothing there and `pre_ae_map` finds no anchor, but
+the sleep/wait toggle calls it with the menu manager on all three builds, and
+it ends in the same `test byte [menu+0x1c], 0x40`
+([hand-proven](../reference/address_library_formats.md#hand-proven)). The
+input gate below resolves on SE too (its `CanProcess` by masked bytes, the
+vtable by its class); VR's perks menu is a different one, so it has neither.
+
+### <a id="capped-skills"></a>A capped skill is named red in the perks menu (2026-10-03, unconfirmed in game)
+
+**Code:** `plugin/perks_skills.cpp`.
+
+While the perks menu is open, every quarter second, each skill the cap holds
+([skill cap](#skill-cap): at or past its governing attribute) has its name
+turned red in the menu's own movie, and turned back when it no longer is.
+
+- **Which label is which skill.** The perks menu keeps its skills' actor
+  values in label order at `+0x50` (count `+0x60`). Its fill (`0x962450` on
+  1.6.1170, `0x8c20c0` on SE) hands entry *n*'s level, name and color to
+  `UpdateSkillList`, which builds
+  `_root.StatsMenuBaseInstance.AnimatingSkillTextInstance.SkillText<n>.LabelInstance`
+  as `NAME <font … color='…'>LEVEL</font>`.
+- **Only the name changes.** The name carries no color of its own, so the first
+  color in the label's `htmlText`, read back, is the name's. That one value is
+  replaced and the rest written back as read, so the level keeps vanilla's
+  green or red. The red is vanilla's own for a lowered skill, `#FF0000`
+  (`0x97b0b0` picks `#FF0000`, `#189515` or `#FFFFFF`).
+- **Rebuilds.** The game rewrites a label when it rebuilds the list; the next
+  pass reads the name's own color again and paints it again.
+- **A string read back is the movie's**, so it is released through
+  `ReleaseManaged` (id 82270, `0xfac750`), as the fill releases its own.
+- Not on VR: its perks menu has no `UpdateSkillList` and no such labels.
 
 ### <a id="controller"></a>Controllers: the engine's own stick cursor (confirmed in game 2026-10-03)
 
@@ -4320,6 +4347,7 @@ On these two builds the runtime loads a generated table of addresses
 It holds only the ids in `pre_ae_ids.txt`, the ones whose struct offsets were
 checked on both builds. These features run:
 - the character sheet, its Statistics tab and the level-up step;
+- the perks menu's button (and on SE its input gate and red capped skills);
 - the class and birthsign menus;
 - the attribute globals that converted TES4 scripts and conditions read;
 - the skill cap, on skill use and at trainers;

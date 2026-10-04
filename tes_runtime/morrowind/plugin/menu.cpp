@@ -123,6 +123,7 @@ using RenderFn = void (*)(void* movie);
 using VisibleRectFn = float* (*)(void* movie, float* rect);
 using IsMenuOpenFn = bool (*)(void* manager, void** name);
 using FixedStringFn = void* (*)(void** out, const char* text);
+using ReleaseManagedFn = void (*)(void* iface, void* value, void* data);
 
 using CreatorFn = void* (*)();
 using RegisterFn = void (*)(void* manager, const char* name, CreatorFn creator);
@@ -517,12 +518,7 @@ void* CustomMenu::LiveView() const {
 // Writes one field into the LIVE movie, if there is one. Silent when there is
 // not: the value is already recorded and OnOpen replays it.
 void CustomMenu::ApplyText(const char* variable, const char* text) {
-    void* view = LiveView();
-    if (!view || !g_setString) return;
-    alignas(8) char value[ids::kGfxValueSize] = {0};
-    g_setString(value, text);
-    VCall<SetVariableFn>(view, ids::kMovieViewSetVariableSlot)(view, variable,
-                                                              value, 0);
+    MovieSetText(LiveView(), variable, text);
 }
 
 bool CustomMenu::MousePosition(double* x, double* y) {
@@ -637,19 +633,66 @@ IsMenuOpenFn IsMenuOpenCall() {
     return isOpen;
 }
 
+// `name` as the engine interns it, kept once made; null before the menus resolve.
+void* Interned(const char* name) {
+    static const auto intern = reinterpret_cast<FixedStringFn>(
+        Resolve("BSFixedString ctor", ids::kBSFixedStringCtor, nullptr));
+    static std::map<std::string, void*> interned;
+    if (!intern || !g_menuManager || !*g_menuManager) return nullptr;
+    void*& fixed = interned[name];
+    if (!fixed) intern(&fixed, name);
+    return fixed;
+}
+
 }  // namespace
 
 bool EngineMenusQueryable() { return IsMenuOpenCall() != nullptr; }
 
 bool EngineMenuOpen(const char* name) {
-    static const auto intern = reinterpret_cast<FixedStringFn>(
-        Resolve("BSFixedString ctor", ids::kBSFixedStringCtor, nullptr));
-    static std::map<std::string, void*> interned;
     const IsMenuOpenFn isOpen = IsMenuOpenCall();
-    if (!isOpen || !intern || !g_menuManager || !*g_menuManager) return false;
-    void*& fixed = interned[name];
-    if (!fixed) intern(&fixed, name);
+    void* fixed = isOpen ? Interned(name) : nullptr;
     return fixed && isOpen(*g_menuManager, &fixed);
+}
+
+void* EngineMenuObject(const char* name, void** view) {
+    *view = nullptr;
+    void* fixed = Interned(name);
+    if (!fixed) return nullptr;
+    void* manager = *g_menuManager;
+    char* entries = At<char*>(manager, ids::kOffMenuTableEntries);
+    const std::uint32_t capacity = At<std::uint32_t>(manager, ids::kOffMenuTableCapacity);
+    for (std::uint32_t i = 0; entries && i < capacity; ++i) {
+        char* entry = entries + std::size_t{i} * ids::kMenuTableEntrySize;
+        if (!At<void*>(entry, ids::kOffMenuEntryNext) || At<void*>(entry, 0) != fixed) continue;
+        auto* menu = At<EngineMenu*>(entry, ids::kOffMenuEntryMenu);
+        if (menu) *view = menu->view;
+        return menu;
+    }
+    return nullptr;
+}
+
+bool MovieGetText(void* view, const char* path, std::string* out) {
+    static const auto release = reinterpret_cast<ReleaseManagedFn>(
+        Resolve("GFxValue release", ids::kGfxReleaseManaged, nullptr));
+    if (!view || !release) return false;
+    alignas(8) char value[ids::kGfxValueSize] = {0};
+    const bool found = VCall<GetVariableFn>(view, ids::kMovieViewGetVariableSlot)(view, value, path);
+    const auto type = At<std::uint32_t>(value, ids::kGfxValueTypeOffset);
+    void* data = At<void*>(value, ids::kGfxValueDataOffset);
+    const bool managed = (type & ids::kGfxValueManaged) != 0;
+    const bool text = found && (type & ids::kGfxValueTypeMask) == ids::kGfxValueString && data;
+    const char* chars = !text ? nullptr
+                        : managed ? *static_cast<const char**>(data) : static_cast<const char*>(data);
+    if (chars) *out = chars;
+    if (managed) release(At<void*>(value, 0), value, data);
+    return text;
+}
+
+void MovieSetText(void* view, const char* path, const char* text) {
+    if (!view || !g_setString) return;
+    alignas(8) char value[ids::kGfxValueSize] = {0};
+    g_setString(value, text);
+    VCall<SetVariableFn>(view, ids::kMovieViewSetVariableSlot)(view, path, value, 0);
 }
 
 std::uint32_t PausingMenuCount() {

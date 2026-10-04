@@ -138,7 +138,8 @@ mnemonic similarity score as a second check.
 used beside it is also right on that build, and offsets are not ids. So the
 header holds just the ids the plugin's `pre_ae_ids.txt` lists, the ones whose
 paths were checked per build. MorrowindRuntime's list covers the character
-sheet, the attribute globals, the skill cap and attribute magic, with
+sheet, the perks menu's button and skill colors, the attribute globals, the
+skill cap and attribute magic, with
 `Actor.Get/SetFactionRank` (54686, 54750) for a TES4 NPC's attributes. The
 two natives were matched by masked body bytes at similarity 1.00 (and
 GetFactionRank by its registration string too); SetFactionRank's
@@ -171,6 +172,8 @@ row was read out of the disassembly:
 | `kMenuManagerRegister` (82086) | `0xebf9c0` | `0xf1be20` | The jump that follows a menu-name string load (`MessageBoxMenu`, `Console`, `TweenMenu`, …) lands on one function in each build, at 14 of 14 such sites. On AE that function is `0xfa5480`, which `ids.h` records |
 | `kControlMapAllowTextInput` (68552) | `0xc11f30` | `0xc4e8d0` | The one match in each build for AE's body (`0xcd5910`: raise or lower the byte at `rcx+0x128`) with the offset left free: SE `+0x120` (its SE id 67252 agrees), VR `+0x140`. Too small for the shape match |
 | `kControlMapSingleton` (400863) | `0x2ec5bd0` | `0x2f8aaa0` | The global loaded into `rcx` before the calls to that function: 18 of its call sites on SE (SE id 514705 agrees), 20 on VR |
+| `kMenuManagerIsMenuOpen` (82074) | `0xebe150` | `0xf1a3b0` | The sleep/wait toggle (AE `0x95e0d0`) calls it with the menu manager singleton in `rcx` and an interned menu name in `rdx`; the same instructions before it, `mov dword [rdi], 0x46` onward, occur twice in each build. SE and VR inline the menu-table lookup that AE calls (`0xfa7020`), with the same layout (entries `+0x150`, capacity `+0x134`), then test `byte [menu+0x1c], 0x40` as AE does |
+| `kGfxReleaseManaged` (82270) | `0xecb0e0` | — | The perks menu's skill fill (AE `0x962450`, SE `0x8c20c0`) releases each value it overwrites: AE calls `0xfac750` 19 times and SE `0xecb0e0` 18, both as `rcx=[v]`, `rdx=v`, `r8=[v+0x10]`, and the two bodies are the same 155 bytes but for displacements. Its add-ref partner is called 7 times in each. VR is not needed: its perks menu has no skill labels |
 
 ## <a id="two-id-generations"></a>There are TWO id generations
 

@@ -52,7 +52,9 @@ RESOLVED_NATIVES = {'kGetFormFromFile': ('Game', 'GetFormFromFile')}
 HAND_PROVEN = {'kTrainingMenuTrain': {SE_VERSION: 0x8ce8e0, 'VR': 0x8fb9c0},
                'kMenuManagerRegister': {SE_VERSION: 0xebf9c0, 'VR': 0xf1be20},
                'kControlMapAllowTextInput': {SE_VERSION: 0xc11f30, 'VR': 0xc4e8d0},
-               'kControlMapSingleton': {SE_VERSION: 0x2ec5bd0, 'VR': 0x2f8aaa0}}
+               'kControlMapSingleton': {SE_VERSION: 0x2ec5bd0, 'VR': 0x2f8aaa0},
+               'kMenuManagerIsMenuOpen': {SE_VERSION: 0xebe150, 'VR': 0xf1a3b0},
+               'kGfxReleaseManaged': {SE_VERSION: 0xecb0e0}}
 
 #: SKSE's packed runtime version of each pre-AE build: major<<24 | minor<<16 | build<<4.
 RUNTIMES = {SE_VERSION: 0x01050610, 'VR': 0x010400F0}

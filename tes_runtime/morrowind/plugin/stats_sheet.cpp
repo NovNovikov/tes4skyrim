@@ -24,6 +24,7 @@
 #include "menu_widgets.h"
 #include "paths.h"
 #include "perks_button.h"
+#include "perks_skills.h"
 #include "scope.h"
 #include "script_tables.h"
 #include "stat_rows.h"
@@ -452,6 +453,7 @@ void Tick() {
     }
     if (LevelUpOpen()) return;
     if (PerksMenuOpen()) {
+        TickPerksSkills();
         if (toggled) OpenSheet(kOverPerksDepth);
         return;
     }

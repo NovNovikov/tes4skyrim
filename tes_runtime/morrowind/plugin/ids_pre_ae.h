@@ -13,6 +13,7 @@ constexpr IdRva kBuild1597[] = {
     {13631, 0x1652d0},  // kUIAddMessage
     {40488, 0x6a2540},  // kPlayerAdvanceSkill
     {51740, 0x886a40},  // kGfxSetString
+    {52518, 0x8c0b80},  // kPerksCanProcess
     {52662, 0x8ce590},  // kTrainingMenuTrainCaller
     {52667, 0x8ce8e0},  // kTrainingMenuTrain
     {53978, 0x927620},  // kVmMagicEffectApplyProcess
@@ -31,9 +32,12 @@ constexpr IdRva kBuild1597[] = {
     {68552, 0xc11f30},  // kControlMapAllowTextInput
     {69161, 0xc28bf0},  // kBSFixedStringCtor
     {69161, 0xc28bf0},  // kFixedStringCtor
+    {82074, 0xebe150},  // kMenuManagerIsMenuOpen
     {82086, 0xebf9c0},  // kMenuManagerRegister
+    {82270, 0xecb0e0},  // kGfxReleaseManaged
     {82325, 0xece790},  // kGFxLoaderLoadMovie
     {208040, 0x16635e0},  // kPlayerVtable
+    {215975, 0x16bc168},  // kPerksHandlerVtable
     {217097, 0x16cdfd0},  // kVmMagicEffectApplySink
     {400327, 0x1ebeb20},  // kMenuManagerSingleton
     {400445, 0x1ec0a70},  // kUIManagerSingleton
@@ -64,6 +68,7 @@ constexpr IdRva kBuildVR[] = {
     {68552, 0xc4e8d0},  // kControlMapAllowTextInput
     {69161, 0xc6db20},  // kBSFixedStringCtor
     {69161, 0xc6db20},  // kFixedStringCtor
+    {82074, 0xf1a3b0},  // kMenuManagerIsMenuOpen
     {82086, 0xf1be20},  // kMenuManagerRegister
     {82325, 0xf2b480},  // kGFxLoaderLoadMovie
     {208040, 0x16e2230},  // kPlayerVtable
