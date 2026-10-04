@@ -1,6 +1,6 @@
 // Morrowind's character sheet: the stats window OpenMW draws from
-// `openmw_stats_window.layout`, opened with K, and the level-up step that
-// follows Skyrim's own level-up.
+// `openmw_stats_window.layout`, opened from Skyrim's perks menu
+// (perks_button.h), and the level-up step that follows Skyrim's own level-up.
 //
 // Read-only over what the runtime already keeps: Skyrim's health, magicka
 // and stamina, the eight attributes and 27 skills (actor_stats.h), level,

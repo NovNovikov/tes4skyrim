@@ -48,7 +48,7 @@ from core.gui.config import (
 )
 from core.gui.menubar_behavior import (add_tipped_command, enable_hover_switch,
                                        enable_tips)
-from core.gui.morrowind import add_source_menu
+from core.gui.morrowind import add_chargen_menu, add_menu_style_menu, add_source_menu
 from core.gui.selection import runnable
 from core.navmesh_options import CORRIDOR, LATTICE
 from core.tes4_encoding import ENCODING_CHOICES
@@ -224,7 +224,7 @@ def _add_lod_detail_menu(app, settings_menu, menu_opts) -> None:
 
 
 def _build_settings_menu(app, menubutton, menu_opts) -> None:
-    """Settings: workers, cache download, packing, winding, navmesh, LOD and Morrowind."""
+    """Settings: workers, cache download, packing, winding, navmesh, LOD, Morrowind, menu style."""
     settings_menu = menubutton("Settings")
     _add_workers_menu(app, settings_menu, menu_opts)
     _add_cache_download(app, settings_menu)
@@ -236,6 +236,9 @@ def _build_settings_menu(app, menubutton, menu_opts) -> None:
     _add_lod_detail_menu(app, settings_menu, menu_opts)
     add_source_menu(app, settings_menu, menu_opts, app.cfg, load_config,
                     save_config, EXPORT_DIR)
+    add_menu_style_menu(settings_menu, menu_opts, app.cfg, load_config, save_config,
+                        EXPORT_DIR)
+    add_chargen_menu(settings_menu, menu_opts, app.cfg, load_config, save_config, EXPORT_DIR)
 
 
 # ---------------------------------------------------------------------------

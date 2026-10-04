@@ -504,7 +504,6 @@ COMMAND_ROWS = {
     'getplayerskeletonpath': Cmd(note='{f} - no Papyrus equivalent ({f} {a})'),
     #: Form-type tests and fileexists are NOT here -- both need handlers.
     'getgodmode': Cmd(note='{f} - no Papyrus equivalent ({f} {a})'),
-    'getplayerbirthsign': Cmd(note='{f} - no Papyrus equivalent ({f} {a})'),
     'getdisplayname': Cmd(note='{f} - no Papyrus equivalent ({f} {a})'),
     'getname': Cmd(note='{f} - no Papyrus equivalent ({f} {a})'),
     #: Dead by construction. See: docs/commentary/script_convert.md#neutralised-command-inert-in-position
@@ -851,7 +850,7 @@ COMMAND_ROWS = {
 
     #: See: docs/commentary/script_convert.md#closing-oblivion-gate-destroyed-flag
     'closecurrentobliviongate': Cmd(
-        'TES4Polyfill.CloseCurrentOblivionGate({destroyed})'),
+        'TES4Polyfill.CloseCurrentOblivionGate({destroyed}, {gates_shut})'),
     'forcecloseobliviongate': Cmd(
         'TES4Polyfill.CloseOblivionGate({ref}, {destroyed})'),
     'closeobliviongate': Cmd(
@@ -1030,7 +1029,7 @@ HANDLED_COMMANDS = frozenset((
     'getmenustringvalue', 'getmodindex', 'getnextref', 'getnthspell',
     'getownership', 'getpcfactionattack', 'getpcfactionattack',
     'getpcfactionmurder', 'getpcfactionsteal', 'getpcfactionsteal',
-    'getpcisclass', 'getpcismurderer', 'getpcisrace', 'getpcissex',
+    'getpcisclass', 'getpcismurderer', 'getpcisrace', 'getpcissex', 'getplayerbirthsign',
     'getsecondspassed', 'getself', 'getspellcount',
     'holdkey', 'isactionref', 'isactivator', 'isarmor', 'isbook',
     'isclothing', 'iscontainer', 'isdoor', 'isingredient', 'iskey', 'islight',

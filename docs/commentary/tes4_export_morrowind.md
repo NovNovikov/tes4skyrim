@@ -781,6 +781,15 @@ every player, and Ordinators set fight 100 and attacked on sight. A `set`
 cannot repair it either: the compiler's `getGlobalType` returns `' '` for an
 unknown global, so the patch's own `OrdinatorUniform` script fails to compile.
 
+BSGN is always filled for the same reason: a birthsign is read, by the
+runtime's one birthsign menu, never placed, and Morroblivion's 13 signs are
+Oblivion's records with Oblivion's effects. The patch carries Morrowind's 13,
+which take Oblivion's slots by name in the menu (`message_menus._birthsign_plan`,
+later wins); their spells resolve to Morroblivion's copies where it has them
+(`elfborn ability` is `Morrowind_ob.esm|01060332`) and to the patch's own
+otherwise (`star-curse`). See
+[morrowind_runtime.md](morrowind_runtime.md#chargen-menus).
+
 ### <a id="split-pairs"></a>Two-handed pairs are split back into left and right
 
 **Code:** `tes4_export/morroblivion_pairs.py`.
@@ -1516,9 +1525,17 @@ Two things kept the master's cell invisible to the export:
 * It is not indexed. `_add_record` keyed exterior cells on `XCLC` alone, and a
   persistent cell carries `XCLC` too (Morrowind_ob's reads `(0, 0)`), so it was
   filed as the real cell at grid (0, 0). `_add_cell` now checks the Persistent
-  bit first and keys it under `persistent_key(<worldspace>)`.
+  bit first and keys it under `persistent_key(<worldspace>)`. Our own TES3
+  export writes the cell with NO `XCLC`, so `_add_record` must route a
+  persistent cell to `_add_cell` on the flag alone; gating on `XCLC` filed
+  Morrowind.esm's as an interior named `WrldMorrowindPersistent`.
 * `persistent_cell_id` derived unconditionally. It now prefers
   `index.lookup_persistent`, so a dependent plugin names the MASTER's cell.
+  `IdIndex` keys are lowercase, so the lookup must lowercase too: an
+  uppercase `persistent:008D2E7E` never matched, and Morroblivion's
+  `00380000` only worked because it has no hex letters. Pure-Morrowind
+  dependents (worldspace `008D2E7E`) minted their own cell and lost every
+  exterior load door and map marker.
 
 **The cell is written either way.** A plugin that rehomes a persistent
 reference defines the cell holding it, re-emitting a master's as an OVERRIDE at

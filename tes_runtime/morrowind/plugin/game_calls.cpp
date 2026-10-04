@@ -630,9 +630,30 @@ float BaseActorValue(const std::string& actor, const char* valueName) {
     return g_getBaseValue(PapyrusVm(), 0, ref, &name);
 }
 
-const void* RaceOf(const std::string& actor) {
+std::uint32_t RaceOf(const std::string& actor) {
     void* ref = OwnerRef(actor);
-    return ref && g_getRace ? g_getRace(PapyrusVm(), 0, ref) : nullptr;
+    void* race = ref && g_getRace ? g_getRace(PapyrusVm(), 0, ref) : nullptr;
+    return race ? FormIdOf(race) : 0;
+}
+
+std::string RaceNameOf(const std::string& actor) {
+    void* ref = OwnerRef(actor);
+    void* race = ref && g_getRace ? g_getRace(PapyrusVm(), 0, ref) : nullptr;
+    const char* name = race ? At<const char*>(race, ids::kOffRaceFullName) : nullptr;
+    return name ? name : "";
+}
+
+int QuestStageOf(const std::string& plugin, std::uint32_t formId) {
+    void* quest = FormFromFile(plugin.c_str(), formId & kLocalMask);
+    return quest ? At<std::uint16_t>(quest, ids::kOffQuestCurrentStage) : -1;
+}
+
+// TESNPC::GetSex, read in place: an NPC_ base whose +0x38 bit 0 is set.
+bool FemaleOf(const std::string& actor) {
+    void* ref = OwnerRef(actor);
+    void* base = ref ? At<void*>(ref, ids::kOffRefBase) : nullptr;
+    return base && At<std::uint8_t>(base, ids::kOffFormType) == ids::kFormTypeNpc &&
+           (At<std::uint8_t>(base, ids::kOffNpcSexFlags) & 1) != 0;
 }
 
 // Writes a Skyrim actor value by name, for the stat commands.
@@ -1023,6 +1044,9 @@ void InstallGameCalls() {
     hooks.statPercent = StatPercent;
     hooks.baseActorValue = BaseActorValue;
     hooks.race = RaceOf;
+    hooks.raceName = RaceNameOf;
+    hooks.questStageOf = QuestStageOf;
+    hooks.female = FemaleOf;
     hooks.advanceSkill = AdvanceSkill;
     hooks.showBarterMenu = ShowBarterMenu;
     hooks.showTrainingMenu = ShowTrainingMenu;
@@ -1070,6 +1094,7 @@ void InstallGameCalls() {
     InstallMessageCalls();
     InstallTeleportCalls();
     InstallFlightCalls(hooks);
+    InstallAttributeCalls(hooks);
     InstallAnimCalls(hooks);
     Log("game: %zu spell(s) and %zu magic effect(s) resolvable by id",
         SpellCount(), EffectCount());

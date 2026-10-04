@@ -127,7 +127,7 @@ void InstallSpellOps(OpcodeInstaller& into);
 void InstallAnimOps(OpcodeInstaller& into);
 
 // The seven player-control switches -- enable, disable and getdisabled for
-// each -- and EnableRaceMenu. script_ops_control.cpp.
+// each -- and the race, class and birthsign menus. script_ops_control.cpp.
 // See: docs/commentary/morrowind_runtime.md#the-control-switches
 void InstallControlOps(OpcodeInstaller& into);
 

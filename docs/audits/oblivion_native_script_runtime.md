@@ -20,8 +20,10 @@ much Oblivion.exe code sits behind them?
   command's name is counted, so the counts are an upper bound.
 - **MorrowindRuntime coverage:** joined by name against
   `tools/script/mwscript_opcode_audit.py --tsv` (508 registrations; ported, no-op
-  or stub). **Name match is an upper bound on reuse.** For example, MWScript
-  `Say` plays a sound file, while TES4 `Say` speaks a topic.
+  or stub). **Name match is an upper bound on reuse:** the Skyrim-side call
+  carries over, but each TES4 difference is extra work. For example, both
+  runtimes' `Say` speak a topic through `ObjectReference.Say`
+  (`game_calls.cpp:SayLine`), but TES4's `Say` also returns the line's length.
 - **Handler size:** the bytes reachable by recursive descent inside each
   execute handler, without following calls (capstone, x86-32).
 
@@ -30,11 +32,14 @@ much Oblivion.exe code sits behind them?
 | | Commands | Call sites | Share |
 |---|---:|---:|---:|
 | Used by Oblivion.esm or Nehrim.esm | 270 | 59,601 | 100% |
-| Same name already ported in MorrowindRuntime | 52 | 26,121 | 43.8% |
+| Same name already ported in MorrowindRuntime | 54 | 27,779 | 46.6% |
 | Same name, MorrowindRuntime no-op | 1 | 185 | 0.3% |
-| Same name, MorrowindRuntime stub | 7 | 1,708 | 2.9% |
+| Same name, MorrowindRuntime stub | 5 | 50 | 0.1% |
 | No MorrowindRuntime counterpart | 210 | 31,587 | 53.0% |
-| **New work (not ported)** | **218** | **33,480** | 56.2% |
+| **New work (not ported)** | **216** | **31,822** | 53.4% |
+
+MorrowindRuntime coverage re-measured 2026-10-02, after `PlayGroup` and
+`SkipAnim` were ported (`19864fa8`).
 
 Oblivion.esm uses 252 distinct commands and Nehrim.esm uses 176.
 
@@ -42,10 +47,10 @@ How concentrated the new work is:
 
 | First N new commands | Call sites covered | Share of new |
 |---:|---:|---:|
-| 20 | 24,051 | 72% |
-| 50 | 29,960 | 89% |
-| 100 | 32,467 | 97% |
-| 150 | 33,265 | 99.4% |
+| 20 | 22,771 | 72% |
+| 50 | 28,403 | 89% |
+| 100 | 30,838 | 97% |
+| 150 | 31,617 | 99.4% |
 
 **Handler code:** the 270 used handlers total 41,972 bytes (median 91 bytes,
 largest `PlaceAtMe` at 2,016). All 501 table handlers total 83,415 bytes.
@@ -101,58 +106,58 @@ bytecode (`SCDA`) is not exported. A runtime has two options:
 | 2 | `GetStage` | | 2078 | 1049 | 89 | — |
 | 3 | `MoveToMarker` | `MoveTo` | 850 | 1468 | 159 | — |
 | 4 | `EvaluatePackage` | `evp` | 1163 | 699 | 62 | — |
-| 5 | `PlayGroup` | | 841 | 815 | 742 | stub |
-| 6 | `SetActorValue` | `SetAV` | 416 | 868 | 138 | — |
-| 7 | `Message` | | 313 | 926 | 527 | — |
-| 8 | `IsActionRef` | | 757 | 279 | 136 | — |
-| 9 | `GetSelf` | `this` | 619 | 186 | 119 | — |
-| 10 | `MessageBox` | | 482 | 255 | 893 | — |
-| 11 | `SayTo` | | 318 | 366 | 352 | — |
-| 12 | `SetFactionRank` | | 542 | 90 | 182 | — |
-| 13 | `GetParentRef` | | 426 | 145 | 97 | — |
-| 14 | `Look` | | 182 | 375 | 145 | — |
-| 15 | `StopQuest` | | 441 | 55 | 80 | — |
-| 16 | `GetDead` | | 405 | 86 | 23 | — |
-| 17 | `PlayMagicShaderVisuals` | `PMS` | 149 | 333 | 450 | — |
-| 18 | `GetInCell` | | 394 | 57 | 89 | — |
-| 19 | `SetAlert` | | 263 | 179 | 117 | — |
-| 20 | `GetStageDone` | | 319 | 73 | 105 | — |
-| 21 | `AddScriptPackage` | | 275 | 101 | 407 | — |
-| 22 | `SetEssential` | | 279 | 84 | 134 | — |
-| 23 | `StartQuest` | | 324 | 11 | 80 | — |
-| 24 | `StartConversation` | | 165 | 124 | 374 | — |
-| 25 | `PickIdle` | | 189 | 96 | 248 | — |
-| 26 | `KillActor` | `kill` | 167 | 113 | 115 | — |
-| 27 | `IsAnimPlaying` | | 211 | 62 | 254 | — |
-| 28 | `SetGhost` | | 89 | 168 | 140 | — |
-| 29 | `GetActorValue` | `GetAV` | 94 | 128 | 89 | — |
-| 30 | `SetQuestObject` | | 191 | 30 | 113 | — |
-| 31 | `DisableLinkedPathPoints` | | 141 | 79 | 22 | — |
-| 32 | `Reset3DState` | | 125 | 81 | 28 | — |
-| 33 | `EquipItem` | `EquipObject` | 157 | 46 | 514 | — |
-| 34 | `RemoveMe` | | 7 | 192 | 283 | — |
-| 35 | `ShowMap` | | 171 | 14 | 259 | no-op |
-| 36 | `SetDestroyed` | | 157 | 26 | 102 | — |
-| 37 | `EnableLinkedPathPoints` | | 110 | 67 | 22 | — |
-| 38 | `StopMagicShaderVisuals` | `SMS` | 92 | 79 | 169 | — |
-| 39 | `GetRandomPercent` | | 91 | 64 | 23 | — |
-| 40 | `SetOpenState` | | 73 | 65 | 178 | — |
-| 41 | `ModPCFame` | | 138 | 0 | 136 | — |
-| 42 | `TriggerHitShader` | `ths` | 36 | 102 | 78 | — |
-| 43 | `GetIsCurrentPackage` | | 123 | 8 | 102 | — |
-| 44 | `ModPCMiscStat` | `ModPCMS` | 40 | 76 | 98 | — |
-| 45 | `SetOwnership` | | 112 | 0 | 125 | — |
-| 46 | `IsInCombat` | | 31 | 80 | 25 | — |
-| 47 | `PlayMagicEffectVisuals` | `PME` | 109 | 1 | 762 | — |
-| 48 | `ModActorValue` | `ModAV` | 91 | 18 | 176 | — |
-| 49 | `GetIsID` | | 90 | 15 | 89 | — |
-| 50 | `SetCellPublicFlag` | `setpublic` | 101 | 0 | 107 | — |
+| 5 | `SetActorValue` | `SetAV` | 416 | 868 | 138 | — |
+| 6 | `Message` | | 313 | 926 | 527 | — |
+| 7 | `IsActionRef` | | 757 | 279 | 136 | — |
+| 8 | `GetSelf` | `this` | 619 | 186 | 119 | — |
+| 9 | `MessageBox` | | 482 | 255 | 893 | — |
+| 10 | `SayTo` | | 318 | 366 | 352 | — |
+| 11 | `SetFactionRank` | | 542 | 90 | 182 | — |
+| 12 | `GetParentRef` | | 426 | 145 | 97 | — |
+| 13 | `Look` | | 182 | 375 | 145 | — |
+| 14 | `StopQuest` | | 441 | 55 | 80 | — |
+| 15 | `GetDead` | | 405 | 86 | 23 | — |
+| 16 | `PlayMagicShaderVisuals` | `PMS` | 149 | 333 | 450 | — |
+| 17 | `GetInCell` | | 394 | 57 | 89 | — |
+| 18 | `SetAlert` | | 263 | 179 | 117 | — |
+| 19 | `GetStageDone` | | 319 | 73 | 105 | — |
+| 20 | `AddScriptPackage` | | 275 | 101 | 407 | — |
+| 21 | `SetEssential` | | 279 | 84 | 134 | — |
+| 22 | `StartQuest` | | 324 | 11 | 80 | — |
+| 23 | `StartConversation` | | 165 | 124 | 374 | — |
+| 24 | `PickIdle` | | 189 | 96 | 248 | — |
+| 25 | `KillActor` | `kill` | 167 | 113 | 115 | — |
+| 26 | `IsAnimPlaying` | | 211 | 62 | 254 | — |
+| 27 | `SetGhost` | | 89 | 168 | 140 | — |
+| 28 | `GetActorValue` | `GetAV` | 94 | 128 | 89 | — |
+| 29 | `SetQuestObject` | | 191 | 30 | 113 | — |
+| 30 | `DisableLinkedPathPoints` | | 141 | 79 | 22 | — |
+| 31 | `Reset3DState` | | 125 | 81 | 28 | — |
+| 32 | `EquipItem` | `EquipObject` | 157 | 46 | 514 | — |
+| 33 | `RemoveMe` | | 7 | 192 | 283 | — |
+| 34 | `ShowMap` | | 171 | 14 | 259 | no-op |
+| 35 | `SetDestroyed` | | 157 | 26 | 102 | — |
+| 36 | `EnableLinkedPathPoints` | | 110 | 67 | 22 | — |
+| 37 | `StopMagicShaderVisuals` | `SMS` | 92 | 79 | 169 | — |
+| 38 | `GetRandomPercent` | | 91 | 64 | 23 | — |
+| 39 | `SetOpenState` | | 73 | 65 | 178 | — |
+| 40 | `ModPCFame` | | 138 | 0 | 136 | — |
+| 41 | `TriggerHitShader` | `ths` | 36 | 102 | 78 | — |
+| 42 | `GetIsCurrentPackage` | | 123 | 8 | 102 | — |
+| 43 | `ModPCMiscStat` | `ModPCMS` | 40 | 76 | 98 | — |
+| 44 | `SetOwnership` | | 112 | 0 | 125 | — |
+| 45 | `IsInCombat` | | 31 | 80 | 25 | — |
+| 46 | `PlayMagicEffectVisuals` | `PME` | 109 | 1 | 762 | — |
+| 47 | `ModActorValue` | `ModAV` | 91 | 18 | 176 | — |
+| 48 | `GetIsID` | | 90 | 15 | 89 | — |
+| 49 | `SetCellPublicFlag` | `setpublic` | 101 | 0 | 107 | — |
+| 50 | `StopLook` | | 88 | 11 | 72 | — |
 
-The other 168 each have fewer than 100 call sites across both plugins.
+The other 166 each have fewer than 100 call sites across both plugins.
 
-**Same-name commands MorrowindRuntime already ports (52):** Disable, Enable,
+**Same-name commands MorrowindRuntime already ports (54):** PlayGroup, SkipAnim, Disable, Enable,
 GetSecondsPassed, AddItem, PlaySound, Activate, GetDistance, RemoveItem,
-GetItemCount, Say (different meaning), AddSpell, Cast, RemoveSpell, GetDisabled,
+GetItemCount, Say, AddSpell, Cast, RemoveSpell, GetDisabled,
 StartCombat, ModDisposition, GetLevel, Unlock, SetPos, GetPos, GetDeadCount,
 Lock, AddTopic, PlaySound3D, EnablePlayerControls, DisablePlayerControls,
 ResurrectActor, StopCombat, PlaceAtMe, GetButtonPressed, SetFactionReaction,

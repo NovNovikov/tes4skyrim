@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "actor_stats.h"
+#include "stat_tip.h"
 #include "leveling.h"
 #include "log.h"
 #include "menu.h"
@@ -21,13 +22,6 @@ namespace sl = stats_layout;
 
 constexpr const char* kPlayer = "player";
 constexpr int kAttributeMax = 100;
-
-// The attribute names' GMSTs and Morrowind.esm's text for them.
-constexpr const char* kAttributeGmst[][2] = {
-    {"sAttributeStrength", "Strength"}, {"sAttributeIntelligence", "Intelligence"},
-    {"sAttributeWillpower", "Willpower"}, {"sAttributeAgility", "Agility"},
-    {"sAttributeSpeed", "Speed"}, {"sAttributeEndurance", "Endurance"},
-    {"sAttributePersonality", "Personality"}, {"sAttributeLuck", "Luck"}};
 
 // Where a coin sits beside a chosen attribute: 22 px left of its name, 20
 // more when a multiplier is shown there (LevelupDialog::assignCoins).
@@ -48,6 +42,11 @@ CustomMenu& Menu() {
     return menu;
 }
 
+StatTip& Tip() {
+    static StatTip tip(Menu());
+    return tip;
+}
+
 std::string Field(const char* name, int index, const char* property) {
     return "_root." + std::string(name) + std::to_string(index) + property;
 }
@@ -60,8 +59,9 @@ void SetNumber(const std::string& path, double value) {
     Menu().SetNumber(path.c_str(), value);
 }
 
+// The base the step raises: a Fortify active now is not part of it.
 int Current(int attribute) {
-    return static_cast<int>(ActorAttribute(kPlayer, attribute));
+    return static_cast<int>(ActorBaseAttribute(kPlayer, attribute));
 }
 
 bool Available(int attribute) { return Current(attribute) < kAttributeMax; }
@@ -77,10 +77,6 @@ int RowX(int attribute) {
 
 int RowY(int attribute) {
     return sl::kGridY + (attribute % sl::kGridPerColumn) * sl::kGridRowH;
-}
-
-std::string Name(int attribute) {
-    return GmstText(kAttributeGmst[attribute][0], kAttributeGmst[attribute][1]);
 }
 
 // The name's clickable span: from where it starts to past its value.
@@ -127,13 +123,13 @@ void PushClassImage() {
 void PushAttribute(int attribute) {
     const int gain = AttributeGain(attribute);
     const bool open = Available(attribute);
-    const std::string name = Name(attribute);
+    const std::string name = AttributeName(attribute);
     const int value = std::min(kAttributeMax, Current(attribute) + (Spent(attribute) ? gain : 0));
     SetText(Field("Mult", attribute, ".text"), open && gain > 1 ? "x" + std::to_string(gain) : "");
     SetText(Field("AttrName", attribute, ".text"), name);
     SetText(Field("AttrValue", attribute, ".text"), std::to_string(value));
-    unsigned color = attribute == g_hover ? layout::kColorNormalOver : layout::kColorNormal;
-    if (!open) color = layout::kColorDisabled;
+    unsigned color = attribute == g_hover ? Colors().normalOver : Colors().normal;
+    if (!open) color = Colors().disabled;
     SetNumber(Field("AttrName", attribute, ".textColor"), color);
     SetNumber(Field("AttrValue", attribute, "._x"),
               RowX(attribute) + sl::kMultiplierW + TextWidth(name) + kValueGap);
@@ -165,8 +161,8 @@ bool Ready() { return static_cast<int>(g_spent.size()) >= g_coins; }
 
 void PushOk() {
     SetText("_root.OkCaption.text", GmstText("sOK", "OK"));
-    unsigned color = g_hoverOk ? layout::kColorNormalOver : layout::kColorNormal;
-    if (!Ready()) color = layout::kColorDisabled;
+    unsigned color = g_hoverOk ? Colors().normalOver : Colors().normal;
+    if (!Ready()) color = Colors().disabled;
     SetNumber("_root.OkCaption.textColor", color);
 }
 
@@ -224,6 +220,7 @@ void OnClick(double x, double y) {
 void OnHover(double x, double y) {
     const int hover = AttributeAt(x, y);
     const bool ok = kOk.Contains(x, y);
+    Tip().HoverAttribute(hover, x, y);
     if (hover == g_hover && ok == g_hoverOk) return;
     g_hover = hover;
     g_hoverOk = ok;
@@ -249,7 +246,12 @@ bool InstallLevelUpMenu() {
     MenuInput input;
     input.click = OnClick;
     input.hover = OnHover;
-    input.opened = PushAll;
+    input.opened = []() {
+        PickColors(Menu());
+        Tip().Hide();
+        PushAll();
+    };
+    input.tick = []() { Tip().Tick(); };
     Menu().SetInput(input);
     return Menu().Install();
 }

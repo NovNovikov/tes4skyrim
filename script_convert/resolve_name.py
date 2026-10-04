@@ -79,7 +79,7 @@ BARE_COMMANDS = frozenset({
     'isspelltarget', 'isguard', 'getnextref', 'isowner', 'getbaseobject',
     'isonground', 'isthirdperson', 'isplayerinjail', 'getpcinfamy',
     'getrestrained', 'ispcamurderer', 'getcrimegold', 'getpcfame',
-    'gettalkedtopc', 'payfine', 'getdayofweek', 'getdayoftheweek',
+    'gettalkedtopc', 'payfine', 'getdayofweek', 'getdayoftheweek', 'getplayerbirthsign',
 })
 
 

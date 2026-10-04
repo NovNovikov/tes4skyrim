@@ -1,4 +1,10 @@
-"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI."""
+"""Pipeline orchestration — convert all scripts, VMAD helpers, CLI.
+
+Conversion is pure-Python CPU work, so batches run across a ProcessPoolExecutor:
+the read-only CrossRefGraph and plan dicts reach each worker once through the
+pool initializer, and each job is a (kind, records) chunk whose .psc files the
+worker writes itself.
+"""
 
 import argparse
 import json
@@ -41,22 +47,21 @@ from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
 from script_convert.symbols import property_declarations, IMPLICIT_NAMES
 from script_convert.tes5.blocks import Kind, classify
 from tes5_import.base.text_reader import info_result_script
+from tes5_import.dialogue.conversation_routes import (conversation_routes,
+                                                      generate_route_psc,
+                                                      reachable_topics,
+                                                      route_script_name,
+                                                      routed_starts)
 from tes5_import.dialogue.conversations import (build_conversation_plan,
-                                                build_script_chain_map,
                                                 generate_driver_psc)
 from tes5_import.dialogue.say_topics import build_force_greet_slots
 from tes5_import.dialogue.say_topics import build_force_flee_slots
 from tes5_import.dialogue.unlocks import build_unlock_plan
 
 
-# ===========================================================================
+# ---------------------------------------------------------------------------
 # Process-pool plumbing
-#
-# Script conversion is pure-Python CPU work (ScriptConverter holds the GIL),
-# so batches run across a ProcessPoolExecutor. The read-only CrossRefGraph and
-# plan dicts are shipped once per worker via the pool initializer; each job is
-# a (kind, records) chunk whose .psc files the worker writes directly.
-# ===========================================================================
+# ---------------------------------------------------------------------------
 
 _WORKER_CTX: dict = {}
 
@@ -122,7 +127,7 @@ def _load_music_cues(output_dir) -> dict:
     return cues
 
 
-def _script_worker_init(xref, output_dir, info_reveals, service_topics,
+def script_worker_init(xref, output_dir, info_reveals, service_topics,
                         stage_reveals, say_durations=None,
                         quest_script_vars=None,
                         quest_edid_by_fid=None, topic_unlock_globals=None,
@@ -130,7 +135,7 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
                         chargen_menus=None, say_topics=None,
                         music_cues=None, namespace=None,
                         quest_delays=None, quest_objectives=None,
-                        conversation_chains=None, force_greet_slots=None,
+                        conversation_starts=None, force_greet_slots=None,
                         force_flee_slots=None):
     """Seed one worker with the parent state that spawning does not carry.
 
@@ -171,7 +176,7 @@ def _script_worker_init(xref, output_dir, info_reveals, service_topics,
     # DIAL EditorID -> unlock global, so a script `AddTopic X` opens the same
     # gate the INFO/QUST fragments do.
     ScriptConverter.topic_unlock_globals = topic_unlock_globals or {}
-    ScriptConverter.conversation_chains = conversation_chains or {}
+    ScriptConverter.conversation_starts = conversation_starts or {}
     ScriptConverter.force_greet_slots = force_greet_slots or {}
     ScriptConverter.force_flee_slots = force_flee_slots or {}
     # script EditorID -> button-MessageBox MESG plan; the importer writes the
@@ -225,7 +230,7 @@ def _chunk(records: list, size: int):
 def build_script_context(export_dir: str, output_dir: str) -> dict:
     """Everything a script-conversion worker needs, built ONCE per plugin.
 
-    Returns {'initargs': tuple for _script_worker_init, 'scpt_work': [...],
+    Returns {'initargs': tuple for script_worker_init, 'scpt_work': [...],
     'info_work': [...], 'qust_work': [...], 'stats': dict}.  Shared by
     convert_all_scripts and tools/script/convert_scripts_subset.py, so a
     subset build is the SAME conversion as the full one.
@@ -258,6 +263,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     quest_script_vars = build_quest_script_vars(by_type)
     _write_conversation_driver(export_dir, output_dir, by_type,
                                quest_script_vars, say_durations)
+    conversation_starts = _write_route_script(export_dir, output_dir, by_type)
     message_menus = build_message_plan(by_type['SCPT'], by_type['MESG'])
     if message_menus:
         print(f'    Button menus: {sum(len(v) for v in message_menus.values())} '
@@ -271,7 +277,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 _load_music_cues(output_dir), current_namespace(),
                 quest_script_delays(by_type),
                 quest_objective_indices(by_type),
-                build_script_chain_map(by_type),
+                conversation_starts,
                 build_force_greet_slots(by_type),
                 build_force_flee_slots(by_type))
     stats['written'] = _drain_written()
@@ -304,6 +310,27 @@ def _write_conversation_driver(export_dir: str, output_dir: str,
               f"({len(plan['skipped'])} skipped)")
 
 
+def _write_route_script(export_dir: str, output_dir: str, by_type: dict) -> dict:
+    """Write the plugin's StartConversation routing script.
+
+    Returns {started topic EditorID (lower): routing script name} for the
+    call sites whose conversation continues past one line.
+    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
+    """
+    own_file = os.path.basename(os.path.normpath(export_dir))
+    routes = conversation_routes(by_type, own_file,
+                                 masters_from_export_header(export_dir))
+    name = route_script_name(own_file)
+    psc = generate_route_psc(name, routes)
+    if not psc:
+        return {}
+    write_psc(output_dir, name, psc)
+    starts = routed_starts(by_type, routes)
+    print(f'    StartConversation walks: {len(starts)} topics, '
+          f'{len(routes)} routed lines -> {name}.psc')
+    return dict.fromkeys(starts, name)
+
+
 def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -> dict:
     """Convert all TES4 scripts from export directory to Papyrus .psc files.
 
@@ -326,14 +353,14 @@ def convert_all_scripts(export_dir: str, output_dir: str, workers: int = None) -
             + [('info', c) for c in _chunk(info_work, 128)]
             + [('qust', c) for c in _chunk(qust_work, 8)])
     if workers <= 1 or len(jobs) <= 2:
-        _script_worker_init(*initargs)
+        script_worker_init(*initargs)
         for job in jobs:
             _merge_stats(stats, _script_worker_run(job))
         _WORKER_CTX.clear()
     else:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=min(workers, len(jobs)),
-                                 initializer=_script_worker_init,
+                                 initializer=script_worker_init,
                                  initargs=initargs) as ex:
             for part in ex.map(_script_worker_run, jobs):
                 _merge_stats(stats, part)
@@ -517,6 +544,23 @@ _DECL_RE = re.compile(r'^\s*(?:\w+(?:\[\])?)\s+(?:Property\s+)?(\w+)\b',
 _SIG_PARAMS_RE = re.compile(r'\((.*)\)')
 
 
+def primed_converter(rec: dict, xref: CrossRefGraph, source: str) -> ScriptConverter:
+    """A converter primed for one record's script as the script stage primes it.
+
+    Preloads the record's SCRO refs, maps names `source` spells staler than the
+    SCRO table onto it (resolve_scro_aliases), and sets the quest poll delay and
+    whether the script sits on a book. Reads the state script_worker_init seeds.
+    """
+    formid = rec.get('FormID', '')
+    conv = ScriptConverter(xref)
+    preload_scro_refs(conv, rec, xref)
+    conv.set_scro_aliases(resolve_scro_aliases(source, scro_list(rec), xref))
+    conv.sc.quest_delay = _WORKER_CTX.get('quest_delays', {}).get(
+        formid.upper(), 0.0)
+    conv.sc.on_book = xref.attached_signatures(formid) == {'BOOK'}
+    return conv
+
+
 def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict):
     """Convert a batch of SCPT records (runs in parent or worker process)."""
     for rec in records:
@@ -528,15 +572,7 @@ def _scpt_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict
 
         try:
             extends = xref.get_extends_class(formid)
-            conv = ScriptConverter(xref)
-            preload_scro_refs(conv, rec, xref)
-            # Recover names the source text spells staler than the SCRO table
-            # the engine runs off (see resolve_scro_aliases).
-            conv.set_scro_aliases(resolve_scro_aliases(
-                sctx, scro_list(rec), xref))
-            conv.sc.quest_delay = _WORKER_CTX.get('quest_delays', {}).get(
-                formid.upper(), 0.0)
-            conv.sc.on_book = xref.attached_signatures(formid) == {'BOOK'}
+            conv = primed_converter(rec, xref, sctx)
             name = sanitize_name(edid or f'Script_{formid}')
             papyrus = conv.convert_standalone(name, sctx, extends, edid)
 
@@ -625,7 +661,7 @@ def _info_begin_fragment(body_lines: list, seq_gate: str,
             gated_rest, _ = split_stage_advances(rest)
             handoff, _ = split_turn_handoff(counter_step, gated_rest)
     out = ['Function Fragment_1(ObjectReference akSpeakerRef)',
-           f'  TES4Polyfill.LineBegan(akSpeakerRef, {length:g})']
+           f'  TES4Polyfill.LineBegan(akSpeakerRef, {length:g}, Self.GetFormID())']
     if handoff:
         out.append(f"  If {seq_gate}  ; still this line's turn")
         out.extend('  ' + b for b in handoff)
@@ -667,29 +703,14 @@ def _info_end_fragment(body_lines: list, seq_gate: str, reveals,
 def _info_batch(records: list, output_dir: str, xref: CrossRefGraph,
                 stats: dict, info_reveals: dict = None,
                 service_topics: dict = None):
-    """Convert a batch of INFO records into TopicInfo fragment .psc files.
+    """Convert a batch of INFO records into `TES4_TIF__<fid>` fragment scripts.
 
-    EVERY INFO gets a fragment script `TES4_TIF__<fid>` (the importer writes
-    the matching VMAD on every INFO — build_vmad_info_fragment, flags 0x03):
+    Fragment_1 (OnBegin) calls LineBegan with the line's length and FormID;
+    Fragment_0 (OnEnd) sets `info_reveals` unlock globals, runs the TES4 result,
+    opens the `service_topics` menu, then calls LineEnded. Must match the VMADs
+    the importer writes from the same plans.
 
-        Fragment_1 (OnBegin)  TES4Polyfill.LineBegan(akSpeakerRef, <length>)
-        Fragment_0 (OnEnd)    [unlock globals] [TES4 result script]
-                              [service menu]  TES4Polyfill.LineEnded(akSpeakerRef)
-
-    The Begin/End hooks are how a converted `set T to Say topic` learns that
-    the engine has started the line and how long it is (see
-    TES4Polyfill.SayLine); they carry the speaker only, so no property is
-    bound and no INFO can be missed.  The TES4 result script stays in the End
-    fragment: Oblivion ran an INFO's result when the line FINISHED (the CS
-    wiki's own scripted-conversation recipe writes `set Q.convTimer to <pause>`
-    in results as an after-line pause, which only works at end).
-
-    info_reveals ({info_fid24: [unlock global names]}) marks AddTopic revealer
-    INFOs: their End fragment sets the unlock globals. Must stay in sync with
-    the VMADs the importer writes (same unlock plan).
-
-    service_topics ({dial_formid_str: 'barter'|'training'}) marks the service-
-    menu topics; fragments for their INFOs also open the corresponding menu.
+    See: docs/commentary/script_convert.md#polled-conversations
     """
     info_reveals = info_reveals or {}
     service_topics = service_topics or {}
@@ -733,10 +754,7 @@ def _info_batch(records: list, output_dir: str, xref: CrossRefGraph,
             body_lines = []
             prop_refs = {}
             if has_script:
-                conv = ScriptConverter(xref)
-                preload_scro_refs(conv, rec, xref)
-                conv.set_scro_aliases(resolve_scro_aliases(
-                    result_script, scro_list(rec), xref))
+                conv = primed_converter(rec, xref, result_script)
                 body_lines = conv.convert_fragment(result_script, 'TopicInfo')
                 prop_refs = dict(conv.sc.property_refs)
 
@@ -925,7 +943,7 @@ _TES4_SAY_RE = re.compile(
 
 def scan_say_topic_fids(by_type: dict) -> set:
     """DIAL FormIDs (upper hex, as INFO.ParentDIAL stores them) whose topic a
-    script drives via Say/SayTo.
+    script drives via Say/SayTo or a StartConversation walk reaches.
 
     Keyed by FORMID, not EditorID: an INFO record carries only
     `ParentDIAL=000000AA`, so the emitter would otherwise have to resolve a
@@ -933,13 +951,12 @@ def scan_say_topic_fids(by_type: dict) -> set:
     info_needs_fragment() is a plain set membership test.
     """
     names = scan_say_topics(by_type)
-    if not names:
-        return set()
+    walked = reachable_topics(by_type)
     out = set()
     for rec in by_type.get('DIAL', []):
         edid = (rec.get('EditorID') or '').strip().lower()
         fid = (rec.get('FormID') or '').strip().upper()
-        if edid and fid and edid in names:
+        if fid and ((edid and edid in names) or int(fid, 16) in walked):
             out.add(fid)
     return out
 

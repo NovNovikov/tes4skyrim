@@ -4,11 +4,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <string>
 #include <vector>
 
 #include "activation.h"
 #include "actor_stats.h"
+#include "attribute_buffs.h"
+#include "chargen_menu.h"
 #include "conversation.h"
 #include "dialogue_state.h"
 #include "leveling.h"
@@ -20,8 +23,12 @@
 #include "menu_layout.h"
 #include "menu_widgets.h"
 #include "paths.h"
+#include "perks_button.h"
+#include "perks_skills.h"
 #include "scope.h"
 #include "script_tables.h"
+#include "stat_rows.h"
+#include "stat_tip.h"
 #include "stats_layout.h"
 
 namespace tesruntime::mw {
@@ -30,14 +37,15 @@ namespace {
 
 namespace sl = stats_layout;
 
-// MorrowindRuntime.ini's [CharacterSheet]: the windows stay off unless
-// Enabled=1, and Hotkey is a virtual-key code in decimal. K by default: bound
-// to nothing in Skyrim's own controlmap.txt (every letter it leaves free is
-// G, H, K, U, Y, B and N).
+// MorrowindRuntime.ini's [CharacterSheet]: Enabled and SkillCap are on unless
+// set to 0, and Hotkey is a virtual-key code in decimal. C by default: the
+// sheet opens from the perks menu, where Skyrim's controlmap.txt leaves C free
+// (it binds it only in gameplay, Auto-Move, and the item menus, Item Zoom).
 // See: docs/commentary/morrowind_runtime.md#character-sheet
 constexpr const char* kIniName = "MorrowindRuntime.ini";
 constexpr const char* kIniSection = "CharacterSheet";
-constexpr int kDefaultHotkey = 'K';
+constexpr int kDefaultHotkey = 'C';
+constexpr int kDefaultOn = 1;
 int g_hotkey = kDefaultHotkey;
 
 // The tick's period, and how many ticks pass between reads of the skills.
@@ -47,6 +55,11 @@ constexpr int kSampleEvery = 10;
 // Rows the wheel moves per notch.
 constexpr int kWheelRows = 3;
 
+// The sheet's depth over the perks menu: above its 3, and under the 6 below
+// which the engine names the top menu, so the perks stop taking input under it.
+// See: docs/commentary/morrowind_runtime.md#perks-button
+constexpr std::uint8_t kOverPerksDepth = 4;
+
 constexpr const char* kPlayer = "player";
 
 // Skyrim's actor values for Health, Magicka and Fatigue, and their GMST names.
@@ -54,37 +67,30 @@ constexpr const char* kDynamicValues[] = {"Health", "Magicka", "Stamina"};
 constexpr const char* kDynamicGmst[][2] = {
     {"sHealth", "Health"}, {"sMagic", "Magicka"}, {"sFatigue", "Fatigue"}};
 
-// The eight attributes and 27 skills by TES3 index: GMST name, and the text
-// Morrowind.esm gives it, for a chain that stages none.
-constexpr const char* kAttributeGmst[][2] = {
-    {"sAttributeStrength", "Strength"}, {"sAttributeIntelligence", "Intelligence"},
-    {"sAttributeWillpower", "Willpower"}, {"sAttributeAgility", "Agility"},
-    {"sAttributeSpeed", "Speed"}, {"sAttributeEndurance", "Endurance"},
-    {"sAttributePersonality", "Personality"}, {"sAttributeLuck", "Luck"}};
-constexpr const char* kSkillGmst[][2] = {
-    {"sSkillBlock", "Block"}, {"sSkillArmorer", "Armorer"},
-    {"sSkillMediumarmor", "Medium Armor"}, {"sSkillHeavyarmor", "Heavy Armor"},
-    {"sSkillBluntweapon", "Blunt Weapon"}, {"sSkillLongblade", "Long Blade"},
-    {"sSkillAxe", "Axe"}, {"sSkillSpear", "Spear"},
-    {"sSkillAthletics", "Athletics"}, {"sSkillEnchant", "Enchant"},
-    {"sSkillDestruction", "Destruction"}, {"sSkillAlteration", "Alteration"},
-    {"sSkillIllusion", "Illusion"}, {"sSkillConjuration", "Conjuration"},
-    {"sSkillMysticism", "Mysticism"}, {"sSkillRestoration", "Restoration"},
-    {"sSkillAlchemy", "Alchemy"}, {"sSkillUnarmored", "Unarmored"},
-    {"sSkillSecurity", "Security"}, {"sSkillSneak", "Sneak"},
-    {"sSkillAcrobatics", "Acrobatics"}, {"sSkillLightarmor", "Light Armor"},
-    {"sSkillShortblade", "Short Blade"}, {"sSkillMarksman", "Marksman"},
-    {"sSkillMercantile", "Mercantile"}, {"sSkillSpeechcraft", "Speechcraft"},
-    {"sSkillHandtohand", "Hand-to-hand"}};
-constexpr int kSkillCount = 27;
 constexpr const char* kSpecializationGmst[][2] = {
     {"sSpecializationCombat", "Combat"}, {"sSpecializationMagic", "Magic"},
     {"sSpecializationStealth", "Stealth"}};
+
+// Skyrim's 18 skills by actor value, in the three groups its own skills menu
+// draws (warrior, mage, thief), under Morrowind's specialization headings.
+// See: docs/commentary/morrowind_runtime.md#skyrim-skill-list
+constexpr int kSkillGroups[][6] = {{6, 7, 8, 9, 10, 11},
+                                   {18, 19, 20, 21, 22, 23},
+                                   {12, 13, 14, 15, 16, 17}};
+
+// The packaged table of Skyrim's own skill names and descriptions.
+constexpr const char* kSkillTable = "skyrim_skills.txt";
 
 constexpr Rect kSkillView{sl::kSkillViewX, sl::kSkillViewY, sl::kSkillViewW,
                           sl::kSkillViewH};
 constexpr Rect kSkillScroll{sl::kSkillScrollX, sl::kSkillScrollY,
                             sl::kSkillScrollW, sl::kSkillScrollH};
+constexpr Rect kLevelRow{sl::kLevelRowX, sl::kLevelRowY, sl::kLevelRowW, sl::kLevelRowH};
+constexpr Rect kTabs[] ={{sl::kTab0X, sl::kTab0Y, sl::kTab0W, sl::kTab0H},
+                          {sl::kTab1X, sl::kTab1Y, sl::kTab1W, sl::kTab1H}};
+constexpr const char* kTabGmst[][2] = {{"sSkills", "Skills"}, {"sStatistics", "Statistics"}};
+constexpr int kStatisticsTab = 1;
+
 constexpr Rect kBarFill[] = {
     {sl::kBarFill0X, sl::kBarFill0Y, sl::kBarFill0W, sl::kBarFill0H},
     {sl::kBarFill1X, sl::kBarFill1Y, sl::kBarFill1W, sl::kBarFill1H},
@@ -99,18 +105,44 @@ struct Row {
     std::string name;
     std::string value;
     bool heading = false;
+    // The Skyrim skill (actor value) the row shows, for its tooltip; -1 for
+    // any other row.
+    int skill = -1;
+    // A faction row's 0-based rank and its FACT (null when the plugin has
+    // none), for its tooltip; rank -1 for any other row.
+    int rank = -1;
+    const FactionDef* faction = nullptr;
 };
 
 std::vector<Row> g_rows;
 int g_scroll = 0;
+// The right pane's tab, and the one under the pointer.
+int g_tab = 0;
+int g_hoverTab = -1;
 bool g_captionDirty = false;
 bool g_keyWasDown = false;
 int g_untilSample = 0;
+// The class and birthsign menus installed, so the tick serves their requests.
+bool g_chargen = false;
 ThumbDrag g_drag;
 
 CustomMenu& Menu() {
     static CustomMenu menu("MorrowindStatsMenu", "morrowind_stats");
     return menu;
+}
+
+StatTip& Tip() {
+    static StatTip tip(Menu());
+    return tip;
+}
+
+// The attribute whose row is under the point, or -1.
+int AttributeAt(double x, double y) {
+    for (int i = 0; i < sl::kAttributeRows; ++i) {
+        const Rect row{sl::kAttrRowX, sl::kAttrRowY + i * sl::kRowH, sl::kAttrRowW, sl::kRowH};
+        if (row.Contains(x, y)) return i;
+    }
+    return -1;
 }
 
 std::string Path(const std::string& name, const char* property) {
@@ -152,13 +184,14 @@ void PushBar(int row) {
     Menu().SetNumber(Path(cover, "._visible").c_str(), rest > 0.5 ? 1 : 0);
 }
 
+// OpenMW's level, race and class box, as wide as the attribute rows. A
+// custom class's name is kept short enough to fit (chargen_menu.cpp).
 void PushInfo() {
     const std::string rows[][2] = {
         {GmstText("sLevel", "Level"),
          std::to_string(Hooks().playerLevel ? Hooks().playerLevel() : 1)},
-        {GmstText("sReputation", "Reputation"), std::to_string(State().reputation)},
-        {GmstText("sBounty", "Bounty"),
-         std::to_string(static_cast<int>(PlayerCrimeLevelNow()))}};
+        {GmstText("sRace", "Race"), Hooks().raceName ? Hooks().raceName(kPlayer) : ""},
+        {GmstText("sClass", "Class"), ChosenClassText()}};
     for (int row = 0; row < sl::kInfoRows; ++row) {
         SetText(Indexed("InfoName", row, ".text"), rows[row][0]);
         SetText(Indexed("InfoValue", row, ".text"), rows[row][1]);
@@ -167,23 +200,34 @@ void PushInfo() {
 
 void PushAttributes() {
     for (int i = 0; i < sl::kAttributeRows; ++i) {
-        SetText(Indexed("AttrName", i, ".text"), Gmst(kAttributeGmst[i]));
+        SetText(Indexed("AttrName", i, ".text"), AttributeName(i));
         SetText(Indexed("AttrValue", i, ".text"),
                 std::to_string(static_cast<int>(ActorAttribute(kPlayer, i))));
     }
 }
 
-// Each specialization's skills under its heading, by name, as OpenMW groups
-// the stats window's skills; then the factions the player belongs to.
+// The Statistics tab's rows.
+void BuildStatisticRows() {
+    g_rows.clear();
+    for (const StatisticRow& row : StatisticRows()) g_rows.push_back({row.name, row.value, row.heading});
+}
+
+// Skyrim's skills, each group under its heading and by name, as OpenMW lays
+// the stats window's skills out; then the factions the player belongs to.
+// The Statistics tab's rows instead while it is the one shown.
 void BuildRows() {
+    if (g_tab == kStatisticsTab) {
+        BuildStatisticRows();
+        return;
+    }
     g_rows.clear();
     for (int spec = 0; spec < kSpecializationCount; ++spec) {
         std::vector<Row> skills;
-        for (int i = 0; i < kSkillCount; ++i) {
-            const SkillDef* def = FindSkill(i);
-            if (!def || def->specialization != spec) continue;
-            skills.push_back({Gmst(kSkillGmst[i]),
-                              std::to_string(static_cast<int>(ActorSkill(kPlayer, i)))});
+        for (int av : kSkillGroups[spec]) {
+            const char* name = SkillName(av);
+            const float value = name && Hooks().actorValue ? Hooks().actorValue(kPlayer, name) : 0;
+            skills.push_back({SkyrimSkillName(av), std::to_string(static_cast<int>(value)),
+                              false, av});
         }
         std::sort(skills.begin(), skills.end(),
                   [](const Row& a, const Row& b) { return a.name < b.name; });
@@ -204,7 +248,8 @@ void BuildRows() {
         const bool ranked = def && membership.rank < static_cast<int>(def->rankNames.size());
         g_rows.push_back({def && !def->id.empty() ? def->id : id,
                           ranked ? def->rankNames[membership.rank]
-                                 : std::to_string(membership.rank + 1)});
+                                 : std::to_string(membership.rank + 1),
+                          false, -1, membership.rank, def});
     }
 }
 
@@ -231,7 +276,7 @@ void PushRows() {
         SetText(Path(name, ".text"), row.name);
         SetText(Path(value, ".text"), row.value);
         Menu().SetNumber(Path(name, ".textColor").c_str(),
-                         row.heading ? layout::kColorHeader : layout::kColorNormal);
+                         row.heading ? Colors().header : Colors().normal);
         Menu().SetNumber(Path(name, "._y").c_str(), top + kTextShift);
         Menu().SetNumber(Path(value, "._y").c_str(), top + kTextShift);
     }
@@ -253,7 +298,20 @@ void PushCaption() {
     g_captionDirty = false;
 }
 
+void PushTabs() {
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        const std::string field = "Tab" + std::to_string(tab);
+        SetText(Path(field, ".text"), Gmst(kTabGmst[tab]));
+        unsigned color = tab == g_hoverTab ? Colors().normalOver : Colors().normal;
+        if (tab == g_tab) color = Colors().normalPressed;
+        Menu().SetNumber(Path(field, ".textColor").c_str(), color);
+    }
+}
+
 void PushAll() {
+    PickColors(Menu());
+    PushTabs();
+    Tip().Hide();
     SetText("_root.Title.text", PlayerName());
     g_captionDirty = true;
     for (int row = 0; row < sl::kBarRows; ++row) PushBar(row);
@@ -272,6 +330,13 @@ void Scroll(int pixels) {
 // ------------------------------------------------------------- the input
 
 void OnClick(double x, double y) {
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        if (!kTabs[tab].Contains(x, y) || tab == g_tab) continue;
+        g_tab = tab;
+        g_scroll = 0;
+        PushAll();
+        return;
+    }
     const int range = ListRange();
     if (!kSkillScroll.Contains(x, y) || range <= 0) return;
     const double fraction = static_cast<double>(g_scroll) / range;
@@ -280,7 +345,45 @@ void OnClick(double x, double y) {
     Scroll(sl::kRowH * ScrollClick(kSkillScroll, y, fraction, page));
 }
 
-void OnHover(double, double y) {
+// The list row fully in view under the point, or -1.
+int RowAt(double x, double y) {
+    if (!kSkillView.Contains(x, y)) return -1;
+    const int index = (static_cast<int>(y) - kSkillView.y + g_scroll) / sl::kRowH;
+    const int top = kSkillView.y + index * sl::kRowH - g_scroll;
+    const bool shown = index < static_cast<int>(g_rows.size()) && top >= kSkillView.y &&
+                       top + sl::kRowH <= kSkillView.y + kSkillView.h;
+    return shown ? index : -1;
+}
+
+// The tooltip for what is under the point: an attribute, the level, or a
+// skill or faction row; none while the thumb is dragged.
+void HoverTip(double x, double y) {
+    const bool idle = !g_drag.Active();
+    const int attribute = idle ? AttributeAt(x, y) : -1;
+    const bool level = idle && kLevelRow.Contains(x, y);
+    const int index = idle ? RowAt(x, y) : -1;
+    const Row* row = index >= 0 ? &g_rows[static_cast<std::size_t>(index)] : nullptr;
+    if (attribute >= 0) {
+        Tip().HoverAttribute(attribute, x, y);
+    } else if (level) {
+        Tip().HoverLevel(true, x, y);
+    } else if (row && row->rank >= 0) {
+        Tip().HoverFaction(index, row->faction, row->rank, x, y);
+    } else {
+        Tip().HoverSkill(row ? row->skill : -1, x, y);
+    }
+}
+
+void OnHover(double x, double y) {
+    int hoverTab = -1;
+    for (int tab = 0; tab < static_cast<int>(std::size(kTabs)); ++tab) {
+        if (kTabs[tab].Contains(x, y)) hoverTab = tab;
+    }
+    if (hoverTab != g_hoverTab) {
+        g_hoverTab = hoverTab;
+        PushTabs();
+    }
+    HoverTip(x, y);
     if (!g_drag.Active()) return;
     const int to = static_cast<int>(std::lround(g_drag.Fraction(y) * ListRange()));
     if (to != g_scroll) Scroll(to - g_scroll);
@@ -294,6 +397,7 @@ void OnWheel(double x, double y, double delta) {
 
 void OnTick() {
     if (g_captionDirty) PushCaption();
+    Tip().Tick();
 }
 
 // ------------------------------------------------------------- the tick
@@ -314,29 +418,51 @@ bool InGameplay() {
            Hooks().gamePaused && !Hooks().gamePaused() && !ConversationOpen();
 }
 
-// K toggles the window; out in the world the skills are read now and then,
-// and a pending level-up opens its step before anything else.
+// Now and then out in the world: the skills and level are read, the TES4
+// scripts' attribute globals settled, and the buffs held where the attributes
+// put them -- or handed back with the sheet off. True when a level-up step is
+// waiting.
+bool Sample() {
+    if (--g_untilSample > 0) return false;
+    g_untilSample = kSampleEvery;
+    if (SheetEnabled()) SampleLeveling();
+    if (Hooks().syncAttributeGlobals) Hooks().syncAttributeGlobals();
+    HoldAttributeBuffs();
+    return SheetEnabled() && PendingLevelUps() > 0;
+}
+
+void OpenSheet(std::uint8_t depth) {
+    Menu().SetDepth(depth);
+    PushAll();
+    Menu().Open();
+}
+
+// The hotkey or the perks menu's button toggles the window, which opens only
+// over the perks -- in the world on a build that cannot see that menu; a
+// script's class or birthsign menu, then a pending level-up step, open before
+// anything else.
 void Tick() {
     const bool down = HotkeyDown();
-    const bool pressed = down && !g_keyWasDown;
+    const bool pressed = down && !g_keyWasDown && SheetEnabled();
     g_keyWasDown = down;
+    if (g_chargen && TickChargen()) return;
+    const bool toggled = TickPerksButton(Menu().IsOpen()) || pressed;
     if (Menu().IsOpen()) {
-        if (pressed) Menu().Close();
+        if (toggled) Menu().Close();
         return;
     }
-    if (LevelUpOpen() || !InGameplay()) return;
-    if (--g_untilSample <= 0) {
-        g_untilSample = kSampleEvery;
-        SampleLeveling();
-        if (PendingLevelUps() > 0) {
-            OpenLevelUp();
-            return;
-        }
+    if (LevelUpOpen()) return;
+    if (PerksMenuOpen()) {
+        TickPerksSkills();
+        if (toggled) OpenSheet(kOverPerksDepth);
+        return;
     }
-    if (pressed) {
-        PushAll();
-        Menu().Open();
+    if (!InGameplay()) return;
+    if (Sample()) {
+        OpenLevelUp();
+        return;
     }
+    if (pressed && !EngineMenusQueryable()) OpenSheet(0);
 }
 
 int IniInt(const char* key, int fallback) {
@@ -347,13 +473,20 @@ int IniInt(const char* key, int fallback) {
 }  // namespace
 
 void InstallCharacterSheet() {
-    if (IniInt("Enabled", 0) == 0) {
-        Log("sheet: off (%s [%s] Enabled=1 turns it on)", kIniName, kIniSection);
+    SetSheetEnabled(IniInt("Enabled", kDefaultOn) != 0);
+    if (!SheetEnabled()) {
+        // Still ticking: a save made with the sheet on holds buffs to hand back.
+        const bool ticking = CanPostToMainThread() && StartTick(PostToMainThread, kTickMs, Tick);
+        Log("sheet: off (%s [%s] Enabled=0); attributes read 100, buffs %s", kIniName,
+            kIniSection, ticking ? "released" : "NOT released");
         return;
     }
     g_hotkey = IniInt("Hotkey", kDefaultHotkey);
+    LoadSkyrimSkills(SidecarDir() + kSkillTable);
     const bool stats = Menu().Install();
     const bool levelUp = InstallLevelUpMenu();
+    g_chargen = InstallChargenMenus();
+    const bool button = InstallPerksButton(g_hotkey);
     MenuInput input;
     input.click = OnClick;
     input.hover = OnHover;
@@ -366,8 +499,12 @@ void InstallCharacterSheet() {
     Menu().SetInput(input);
     const bool ticking = stats && levelUp && CanPostToMainThread() &&
                          StartTick(PostToMainThread, kTickMs, Tick);
-    Log("sheet: stats window %s, level-up %s, hotkey %d %s", stats ? "ok" : "FAILED",
-        levelUp ? "ok" : "FAILED", g_hotkey, ticking ? "watching" : "NOT watching");
+    // Only a working level-up step can raise the attribute that caps a skill.
+    SetSkillCapEnabled(ticking && IniInt("SkillCap", kDefaultOn) != 0);
+    Log("sheet: stats window %s, level-up %s, perks button %s, hotkey %d %s, skill cap %s",
+        stats ? "ok" : "FAILED", levelUp ? "ok" : "FAILED",
+        !button ? "FAILED" : EngineMenusQueryable() ? "ok" : "unavailable (hotkey opens in the world)",
+        g_hotkey, ticking ? "watching" : "NOT watching", SkillCapEnabled() ? "on" : "off");
 }
 
 bool StatsSheetOpen() { return Menu().IsOpen(); }

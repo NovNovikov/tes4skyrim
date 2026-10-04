@@ -50,10 +50,8 @@ from output_layout import paths
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-# Papyrus type -> record signatures that satisfy it. Only the types the
-# converter actually emits need an entry; anything else is reported as unknown
-# rather than guessed at.
-_ACCEPTS = {
+#: Papyrus type -> record signatures that satisfy it; an unlisted type is skipped, never guessed.
+ACCEPTS = {
     'Armor': {'ARMO'}, 'Weapon': {'WEAP'}, 'Book': {'BOOK'},
     'Potion': {'ALCH'}, 'Ingredient': {'INGR'}, 'Light': {'LIGH'},
     'MiscObject': {'MISC'}, 'Key': {'KEYM'}, 'Ammo': {'AMMO'},
@@ -80,8 +78,8 @@ _ACCEPTS = {
     'ObjectReference': {'REFR', 'ACHR', 'ACRE'},
     'Actor': {'ACHR', 'ACRE', 'REFR'},
 }
-# These accept anything; never report them.
-_PERMISSIVE = {'Form', 'ScriptObject', 'Alias', 'ReferenceAlias'}
+#: Types that accept any record; never reported.
+PERMISSIVE = frozenset({'Form', 'ScriptObject', 'Alias', 'ReferenceAlias'})
 
 
 def _read_vmad_bindings(path):
@@ -267,11 +265,11 @@ def _accepted(ptype, script_types):
     A property typed as a converted script binds any record carrying that
     script, so only the record's existence is checked (an OBSE function's host quest).
     """
-    if ptype is None or ptype in _PERMISSIVE:
+    if ptype is None or ptype in PERMISSIVE:
         return None
     if ptype.lower() in script_types:
         return ()
-    return _ACCEPTS.get(ptype)
+    return ACCEPTS.get(ptype)
 
 
 class _MasterTables:
@@ -483,9 +481,9 @@ def main():
                     errors='replace').read()
         for m in decl.finditer(text):
             ptype, pname = m.group(1), m.group(2)
-            if ptype in _PERMISSIVE or ptype.startswith('TES4_'):
+            if ptype in PERMISSIVE or ptype.startswith('TES4_'):
                 continue
-            accepts = _ACCEPTS.get(ptype)
+            accepts = ACCEPTS.get(ptype)
             if accepts is None:
                 continue
             # `Player` is bound to PlayerRef (0x14), a REFR, never to the base

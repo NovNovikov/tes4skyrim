@@ -6058,13 +6058,12 @@ class TestMgefConversion:
         endurance = magic_variants.get_mgef_formid('DGAT', 5)
         assert strength and endurance and strength != endurance
 
-        avs = {}
+        kinds = {}
         for _, blob in writer.records:
             data = _find_subrecord(blob, b'DATA')
-            avs[_s.unpack_from('<I', blob, 12)[0]] = \
-                _s.unpack_from('<i', data, 68)[0]
-        assert avs[strength] == magic.AV_CARRY_WEIGHT
-        assert avs[endurance] == magic.AV_HEALTH
+            kinds[_s.unpack_from('<I', blob, 12)[0]] = (
+                _s.unpack_from('<I', data, magic.O_ARCHETYPE)[0], _s.unpack_from('<i', data, 68)[0])
+        assert kinds[strength] == kinds[endurance] == (magic.A_SCRIPT, magic.AV_NONE)
 
     def test_ability_effects_are_constant_on_self(self):
         """Every effect slot carries its owner's casting type and delivery.
