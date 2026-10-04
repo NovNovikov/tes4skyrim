@@ -58,15 +58,8 @@ and removing only those 86 references allowed the Russian ESP to survive a
 45-second SKSE startup check. Leaving the references while restoring NAM1
 to CP1251 also started, but only hid the reference defect.
 
-`dialogue/choices.py` now checks the final output after dialogue construction
-and adoption of generated master records. It keeps forward references and
-inherited DIALs, lets local overrides win, and removes choices whose target
-is absent, deleted or has another signature. An unavailable master index
-cannot prove absence, so references to unindexed masters are preserved.
-The response text and UTF-8 writer are unchanged. This mirrors the engine's
-removal of invalid choices without entering its unsafe diagnostic path.
-
-This is a startup-safety fix, not a dialogue restoration. The
+Removing those references was a startup-safety workaround, not a dialogue
+restoration. The
 [English source/output audit](english_dialogue_loss_audit.md) establishes that
 all 86 targets resolve in the original plugins, and identifies omitted
 multi-topic conversations with quest-stage result fragments. The source

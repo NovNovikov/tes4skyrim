@@ -40,7 +40,6 @@ from .base.object_scripts import write_udf_host_quests
 from .overrides.manifest import write_manifest
 from .overrides.nested import (build_nested_overrides)
 from .dialogue.arrest import morrowind_arrest_topic
-from .dialogue.choices import prune_invalid_choices
 from .dialogue.groups import build_dialog_groups
 from .runtime_sidecars import sweep_stale_sidecars
 from .base.owned_records import (
@@ -246,18 +245,6 @@ def run_finalize_phases(st, export_dir: str, phase_done,
         st.ctx.report()
         _finalize_adoption(st.writer)
 
-    from .dialogue.runtime_graph import bind_graph, seal_manifest
-    graph_quest = bind_graph(export_dir, st.output_path, st.writer,
-                             st.ctx.master_index if st.ctx else None)
-    if graph_quest:
-        st.sge_quest_fids.add(graph_quest)
-
-    n_choices = prune_invalid_choices(
-        st.writer, st.ctx.master_index if st.ctx else None,
-        getattr(st.writer, 'conversation_hidden_topics', ()))
-    if n_choices:
-        print(f"  Removed {n_choices} unsafe/NPC-only player choices; NPC routing is preserved in the conversation graph")
-
     t3 = time.time()
     print(f"\nConverted {st.converted} records ({st.errors} errors) in {t3-st.t2:.2f}s")
 
@@ -266,7 +253,6 @@ def run_finalize_phases(st, export_dir: str, phase_done,
 
     os.makedirs(os.path.dirname(st.output_path) or '.', exist_ok=True)
     st.writer.write(st.output_path)
-    seal_manifest(export_dir, st.output_path, active=bool(graph_quest))
     phase_done('write output file')
 
     mpath = write_manifest(st.output_path, os.path.basename(st.output_path),
