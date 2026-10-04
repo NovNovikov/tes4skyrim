@@ -887,7 +887,7 @@ def test_dependent_voices_use_selected_master_folders_exclusively(tmp_path, monk
         'FormID': '02000001', 'RNAM.Race': '000224FD', 'ACBS.Flags': '0'}]}, 1
     )[0x03000001] == 0x01000002
     source, dest = tmp_path / 'assets', output / 'Pack'
-    for race, fid in [('Nord', 1), ('Nord', 2), ('Gnome', 3), ('Nord', 4)]:
+    for race, fid in [('Nord', 1), ('Nord', 2), ('Gnome', 3), ('Nord', 4), ('Норд', 5)]:
         leaf = source / 'sound' / 'voice' / 'Patch.esp' / race / 'M'
         leaf.mkdir(parents=True, exist_ok=True)
         (leaf / f'old_{fid:08x}_1.xwm').write_bytes(bytes([fid]))
@@ -898,9 +898,11 @@ def test_dependent_voices_use_selected_master_folders_exclusively(tmp_path, monk
         source, dest, plugin_name='Patch.esp', convert_audio=False,
         record_source_dir=export / 'Patch.esp', master_output_root=output,
         voice_map={1: ('generic', []), 2: ('pinned', ['TES4MaleNord']),
-                   3: ('unknown', []), 4: ('invalid', ['TES4MaleGnome'])})
+                   3: ('unknown', []), 4: ('invalid', ['TES4MaleGnome']),
+                   5: ('localized', [])})
     root = dest / 'sound' / 'Voice' / 'Patch.esp'
-    assert result['organized'] == 2 and result['no_match'] == 2
+    assert result['organized'] == 3 and result['no_match'] == 2
     assert [p.name for p in root.iterdir()] == [russian]
     assert (root / russian / 'generic_00000001_1.xwm').read_bytes() == b'\1'
     assert (root / russian / 'pinned_00000002_1.xwm').read_bytes() == b'\2'
+    assert (root / russian / 'localized_00000005_1.xwm').read_bytes() == b'\5'

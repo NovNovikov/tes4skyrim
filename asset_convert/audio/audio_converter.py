@@ -634,6 +634,8 @@ from asset_convert.audio.audio_falloutnv import (folder_gender,
                                                   load_voice_type_edids,
                                                   voice_type_edid)
 from asset_convert.audio.voice_races import (load_race_voices,
+                                             master_voice_exports,
+                                             master_race_dirs,
                                              load_master_voice_routes,
                                              voice_key,
                                              vtyp_edid as _vtyp_edid)
@@ -967,6 +969,14 @@ def organize_voice_files(
             voice_map[fid] = prefix, sorted(set(v for v in routed if v in allowed))
         print('  Voice folders: converted masters only; synthesized aliases disabled')
     race_voices = load_race_voices(record_source)
+    if master_routes is not None:
+        for folder, _ in master_voice_exports(
+                master_race_dirs(record_source), master_output_root):
+            selected = load_race_voices(folder, include_masters=False)
+            source_keys = {key: race_voices.by_race_edid.setdefault(edid, key)
+                           for edid, key in selected.by_race_edid.items()}
+            for name, key in selected.by_folder.items():
+                race_voices.by_folder.setdefault(name, source_keys[key])
     if race_voices:
         print(f'  Plugin races: {len(race_voices.keys)} voice identities '
               f'from {len(race_voices.by_race_edid)} RACE records')
