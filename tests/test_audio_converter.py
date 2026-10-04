@@ -434,12 +434,26 @@ def _race_export(tmp_path, names):
 def test_generic_voice_uses_imported_race_identity(tmp_path, monkeypatch, male, female):
     """Generic lines follow Import's voices; pinned speakers keep their own."""
     from tes5_import.base import equivalents
+    from tes5_import.base.adopted_records import _adopt_voice
+    from tes5_import.base.writer import PluginWriter, pack_record, pack_string_subrecord
+    from tes5_import.overrides.master_index import MasterIndex
     from tes5_import.pipeline_finalize import _write_voice_map
     from asset_convert.audio.audio_converter import load_voice_map
 
-    monkeypatch.setattr(equivalents, 'VOICE_TYPE_MAP',
-                        {('Nord', 'Male'): 1, ('Nord', 'Female'): 2})
-    monkeypatch.setattr(equivalents, 'VTYP_EDID_BY_FID', {1: male, 2: female})
+    monkeypatch.setattr(equivalents, 'VOICE_TYPE_MAP', {})
+    monkeypatch.setattr(equivalents, 'VTYP_EDID_BY_FID', {})
+    monkeypatch.setattr('tes5_import.base.adopted_records.VTYP_EDID_BY_FID',
+                        equivalents.VTYP_EDID_BY_FID)
+
+    master = PluginWriter(masters=['Skyrim.esm'])
+    for fid, edid in ((0x01000001, male), (0x01000002, female)):
+        master.add_record('VTYP', pack_record(
+            'VTYP', fid, 0, pack_string_subrecord('EDID', edid)))
+    master_path = tmp_path / 'Master.esm'
+    master.write(str(master_path))
+    index = MasterIndex(str(master_path))
+    _adopt_voice(index, male, 'Nord', 'Male')
+    _adopt_voice(index, female, 'Nord', 'Female')
     source = tmp_path / 'shared-assets'
     exports = tmp_path / 'records'
     exports.mkdir()
