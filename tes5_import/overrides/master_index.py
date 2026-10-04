@@ -16,7 +16,7 @@ authors never touched. Authorship now comes from diffing the two TES4 exports
 import os
 import struct
 import zlib
-from output_layout import paths
+from output_layout import paths, converted_master_path
 
 from ..base.tes5_reader import REC_HDR as _HEADER_SIZE
 from ..base.tes5_reader import first_sub, masters, walk
@@ -645,7 +645,7 @@ def resolve_master_outputs(masters: list, tes4_master_count: int,
     for name in masters[len(masters) - tes4_master_count:]:
         # convert.py writes the ESM into the plugin's output folder, which
         # for an imported mod is its MOD's folder, not one named for it.
-        path = str(paths(name, out_root=output_root).esm)
+        path = str(converted_master_path(output_root, name))
         out.append((name, path if os.path.isfile(path) else None))
     return out
 

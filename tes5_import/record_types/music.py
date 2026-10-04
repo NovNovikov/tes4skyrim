@@ -129,8 +129,9 @@ def master_music_types(writer, output_root=None) -> dict:
     for name in writer.masters:
         music_name = name
         if output_root is not None:
-            from output_layout import paths
-            manifest_path = paths(name, out_root=output_root).out / 'music_tracks.json'
+            from output_layout import converted_master_path
+            manifest_path = (converted_master_path(output_root, name).parent
+                             / 'music_tracks.json')
             try:
                 manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
                 music_name = manifest.get('plugin') or name
