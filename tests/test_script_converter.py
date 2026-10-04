@@ -2539,12 +2539,12 @@ class TestInfoFragmentEmission:
                          {'info:00032469': 12.62})
         begin = psc.split('Function Fragment_1', 1)[1].split('EndFunction')[0]
         end = psc.split('Function Fragment_0', 1)[1].split('EndFunction')[0]
-        assert 'TES4Polyfill.LineBegan(akSpeakerRef, 12.62)' in begin
+        assert 'TES4Polyfill.LineBegan(akSpeakerRef, 12.62, Self.GetFormID())' in begin
         assert 'TES4Polyfill.LineEnded(akSpeakerRef, 12.62)' in end
 
     def test_unmeasured_line_reports_zero(self, tmp_path):
         psc = self._emit(tmp_path, {'FormID': '00000ABC'})
-        assert 'TES4Polyfill.LineBegan(akSpeakerRef, 0)' in psc
+        assert 'TES4Polyfill.LineBegan(akSpeakerRef, 0, Self.GetFormID())' in psc
 
     def test_result_runs_before_line_ended(self, tmp_path):
         """A poll waiting on this speaker (SayLine's busy wait) proceeds the
@@ -2706,6 +2706,20 @@ class TestSayTimerConversion:
         finally:
             ScriptConverter.force_greet_slots = saved
         assert 'TES4Polyfill.ForceGreet(TES4ForceGreets, 1, 1, GaiusRef)' in result
+
+    def test_startconversation_walk_runs_the_route_script(self, converter):
+        """A started topic whose lines continue hands both actors to the plugin's walk.
+
+        See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
+        """
+        saved = ScriptConverter.conversation_starts
+        ScriptConverter.conversation_starts = {'sermon01': 'TES4_ConvRoute_Knights'}
+        try:
+            result = conv_lines(converter, 'StartConversation ProphetRef Sermon01', 'Actor')
+        finally:
+            ScriptConverter.conversation_starts = saved
+        assert result.startswith('TES4_ConvRoute_Knights.Run(Self, ')
+        assert result.endswith(', Sermon01)')
 
     def test_forceflee_joins_its_destinations_flee_pool(self, converter):
         """`ForceFlee <cell>, <ref>` fills a slot of that destination's pool; a variable named Flee does not count.

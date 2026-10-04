@@ -2311,57 +2311,67 @@ class TestNpcConversationChains:
         assert len(done1) == 2      # its own block and chain 0's
 
 
-class TestScriptStartedChains:
-    """`StartConversation A B topic` hands a whole chain to Oblivion's
-    scheduler; Skyrim's Say plays ONE line, so the chain must be replayed.
-    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains"""
+class TestStartConversationWalk:
+    """`StartConversation A B topic` continues through each played line's Choice list.
 
-    QUEST, TOPIC = 0x000BBB10, 0x000BBB20
-    A_BASE, B_BASE = 0x000BBB01, 0x000BBB02
+    Modeled on Knights.esp's ND09ProphetSermon01 -> 02 -> 03 (`setstage ND09 25`).
+    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
+    """
+
+    S1, S2, S3, CHAT, BYE = 0x01000100, 0x01000200, 0x01000300, 0x01000400, 0x01000500
+    QUEST, OTHER_QUEST = 0x01000900, 0x01000901
 
     @staticmethod
-    def _f(v: float) -> int:
-        """`v` as its raw float bits, the CTDA comparison encoding."""
-        return struct.unpack('<I', struct.pack('<f', v))[0]
+    def _dial(fid, edid):
+        """A Type-1 conversation topic."""
+        return {'Signature': 'DIAL', 'FormID': f'{fid:08X}', 'EditorID': edid,
+                'DATA.Type': '1'}
 
-    def _line(self, fid, conv_value, npc_addressed=True):
-        """One INFO gated on `conv == conv_value`."""
-        conds = [_tes4_ctda(func=72, p1=self.A_BASE)]
-        if npc_addressed:
-            conds.append(_tes4_ctda(type_byte=0x02, func=72, p1=self.B_BASE))
-        conds.append(_tes4_ctda(func=79, comp=self._f(float(conv_value)),
-                                p1=self.QUEST, p2=9))
-        rec = {'Signature': 'INFO', 'FormID': f'{fid:08X}',
-               'ParentDIAL': f'{self.TOPIC:08X}', 'DATA.DialogType': '1',
-               'DATA.NextSpeaker': '0',
-               'QSTI.Quest': f'{self.QUEST:08X}',
-               'ConditionCount': str(len(conds))}
-        for i, c in enumerate(conds):
-            rec[f'Condition[{i}].Raw'] = c.hex()
+    @staticmethod
+    def _info(fid, parent, quest, choices=(), ns=1):
+        """A line under `parent` owned by `quest`, naming `choices` next."""
+        rec = {'Signature': 'INFO', 'FormID': f'{fid:08X}', 'ParentDIAL': f'{parent:08X}',
+               'QSTI.Quest': f'{quest:08X}', 'DATA.NextSpeaker': str(ns)}
+        rec.update({f'Choice[{i}]': f'{c:08X}' for i, c in enumerate(choices)})
         return rec
 
-    def _map(self, edid='MyConvo', lines=3, npc_addressed=True):
-        """The chain map for one topic carrying `lines` gated INFOs."""
-        from tes5_import.dialogue.conversations import build_script_chain_map
-        infos = [self._line(0x000BBB30 + n, n, npc_addressed)
-                 for n in range(lines)]
-        return build_script_chain_map({
-            'DIAL': [{'Signature': 'DIAL', 'FormID': f'{self.TOPIC:08X}',
-                      'EditorID': edid, 'DATA.Type': '1'}],
-            'INFO': infos,
-        })
+    def _by_type(self):
+        """Three chained sermon topics, plus off-quest chatter and GOODBYE choices."""
+        return {
+            'DIAL': [self._dial(self.S1, 'Sermon01'), self._dial(self.S2, 'Sermon02'),
+                     self._dial(self.S3, 'Sermon03'), self._dial(self.CHAT, 'Chatter'),
+                     self._dial(self.BYE, 'GOODBYE')],
+            'INFO': [self._info(0x01000101, self.S1, self.QUEST, (self.S2,)),
+                     self._info(0x01000201, self.S2, self.QUEST,
+                                (self.S3, self.CHAT, self.BYE), ns=0),
+                     self._info(0x01000301, self.S3, self.QUEST),
+                     self._info(0x01000401, self.CHAT, self.OTHER_QUEST, (self.S1,)),
+                     self._info(0x01000501, self.BYE, self.QUEST)],
+            'SCPT': [{'SCTX': 'begin GameMode\nstartconversation ProphetRef Sermon01\nend'}],
+        }
 
-    def test_consecutive_counter_run_is_a_chain(self):
-        """A run of conv==0..3 is four lines to replay."""
-        assert self._map(lines=4) == {'myconvo': 4}
+    def test_walk_keeps_continuations_only(self):
+        """Choice-linked topics are reached; another quest's chatter and GOODBYE are not."""
+        from tes5_import.dialogue.conversation_routes import reachable_topics
+        assert set(reachable_topics(self._by_type())) == {self.S1, self.S2, self.S3}
 
-    def test_single_line_topic_is_not_a_chain(self):
-        """One line needs no replay -- it keeps the plain Say."""
-        assert self._map(lines=1) == {}
+    def test_routes_follow_each_line(self):
+        """Each line routes to its own reached next topics; a line with none ends it."""
+        from tes5_import.dialogue.conversation_routes import conversation_routes, routed_starts
+        by_type = self._by_type()
+        routes = conversation_routes(by_type, 'Knights.esp', ['Oblivion.esm'])
+        assert routes == {0x000101: (1, [('Knights.esp', 0x000200)]),
+                          0x000201: (0, [('Knights.esp', 0x000300)])}
+        assert routed_starts(by_type, routes) == {'sermon01'}
 
-    def test_player_facing_topic_is_excluded(self):
-        """No run-on-target identity means no chain: else GREETING loops."""
-        assert self._map(edid='GREETING', npc_addressed=False) == {}
+    def test_route_script_names_topics_by_plugin(self):
+        """The generated script finds each next topic in its own plugin file."""
+        from tes5_import.dialogue.conversation_routes import (conversation_routes,
+                                                              generate_route_psc)
+        psc = generate_route_psc('TES4_ConvRoute_Knights', conversation_routes(
+            self._by_type(), 'Knights.esp', ['Oblivion.esm']))
+        assert 'Game.GetFormFromFile(0x000300, "Knights.esp") as Topic' in psc
+        assert '  If aiInfo == 0x000201\n    Return 1\n' in psc
 
 
 class TestForceGreetOncePerDay:

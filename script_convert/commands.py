@@ -18,7 +18,7 @@ argument text -- so those are properties of the CALL and live on it.
 
 from script_convert import resolve_name as _resolve_name
 from script_convert.constants import (
-    ANIM_GROUP_EVENTS, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE,
+    ANIM_GROUP_EVENTS, ATTRIBUTE_STUB_VALUE, AV_ARGUMENT_NAMES, CASTABLE, CONV_WALK_VAR,
     FORCE_FLEE_QUEST, FORCE_GREET_QUEST, PLACED_REF_SIGS, PRIMARY_STATS, TES4_ASSAULT_BOUNTY,
     SPLIT_SKILLS, TES4_MISC_STAT_NAMES, TES4_MURDER_BOUNTY,
     TES4_STEAL_BOUNTY, is_generated_script_type, mgef_family_keyword_name,
@@ -342,12 +342,28 @@ def start_conversation(ctx, call) -> str:
     if len(parts) >= 2 and parts[1].strip():
         topic = parts[1].strip().split()[0]
         ctx._mark_topic_property(topic)
-        lines = ctx.conversation_chains.get(topic.lower())
-        if lines:
-            return _replay_chain(ctx, ref, call, lines)
+        route = ctx.conversation_starts.get(topic.lower())
+        if route:
+            return _walk(ctx, call, route)
         return f'{ref}.Say({call.arg(1)})'
     ctx.sc.property_refs['GREETING'] = 'Topic'
     return f'{ref}.Say(GREETING)'
+
+
+def _walk(ctx, call, route: str) -> str:
+    """The plugin's StartConversation walk; in a poll, bracketed by the overlap deadline.
+
+    The walk waits out the whole conversation, so the poll's insurance pass
+    must not re-run the call meanwhile.
+    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
+    """
+    listener = ctx._cast(ctx.arg_expr(0, call.extends), 'Actor')
+    run = f'{route}.Run({_actor_arg(ctx, call)}, {listener}, {call.arg(1)})'
+    if ctx._current_event != 'Event OnUpdate()':
+        return run
+    ctx.sc.uses_conv_walk = True
+    return '\n  '.join((f'{CONV_WALK_VAR} = TES4Polyfill.WalkDeadline()', run,
+                        f'{CONV_WALK_VAR} = 0.0'))
 
 
 def _force_greet(ctx, ref: str, parts: list) -> str:
@@ -389,30 +405,6 @@ def force_flee(ctx, call) -> str:
     ctx.sc.property_refs[FORCE_FLEE_QUEST] = 'Quest'
     return (f'TES4Polyfill.FillPoolSlot({FORCE_FLEE_QUEST}, {slot[0]}, '
             f'{slot[1]}, {_actor_arg(ctx, call)})')
-
-
-#: SayLine's assumed length for an unmeasured line, and the beat between them.
-_CHAIN_LINE_SECONDS = 3.0
-_CHAIN_BEAT = 0.6
-
-
-def _replay_chain(ctx, ref: str, call, lines: int) -> str:
-    """Say a multi-line NPC-to-NPC topic once per line, alternating speakers.
-
-    Oblivion's StartConversation handed the whole chain to the scheduler;
-    `Say` plays one line, so the chain must be walked here. Line selection
-    stays with the engine -- each Say picks the first INFO whose conditions
-    pass -- so End fragments advance the counter exactly as before.
-    See: docs/commentary/tes5_import_dialogue.md#script-started-conversation-chains
-    """
-    listener = ctx._cast(ctx.arg_expr(0, call.extends), 'Actor')
-    out = []
-    for n in range(lines):
-        speaker = ref if n % 2 == 0 else listener
-        out.append(f'Utility.Wait(TES4Polyfill.SayLine({speaker}, '
-                   f'{call.arg(1)}, {_CHAIN_LINE_SECONDS:g}) '
-                   f'+ {_CHAIN_BEAT})')
-    return '\n  '.join(out)
 
 
 @command('addtopic')

@@ -615,6 +615,9 @@ PLACED_REF_SIGS = ('ACHR', 'ACRE', 'REFR')
 #: The importer's force-greet alias quest, which StartConversation's Quest property names.
 FORCE_GREET_QUEST = 'TES4ForceGreets'
 
+#: Poll variable holding a running StartConversation walk's deadline (TES4Polyfill.WalkDeadline).
+CONV_WALK_VAR = 'TES4_WalkUntil'
+
 #: The importer's flee alias quest, which ForceFlee's Quest property names.
 FORCE_FLEE_QUEST = 'TES4ForceFlees'
 

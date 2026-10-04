@@ -102,8 +102,8 @@ class ScriptConverter:
     #: DIAL EditorID (lower) -> `TES4Unlock_<topic>` global, from build_unlock_plan.
     topic_unlock_globals: dict = {}
 
-    #: DIAL EditorID (lower) -> chain line count, from build_script_chain_map.
-    conversation_chains: dict = {}
+    #: Started topic EditorID (lower) -> its plugin's StartConversation routing script.
+    conversation_starts: dict = {}
 
     #: StartConversation topic (lower, '' = none) -> (first alias, count), from build_force_greet_slots.
     force_greet_slots: dict = {}
