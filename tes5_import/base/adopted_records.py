@@ -14,7 +14,7 @@ from asset_convert.audio.voice_races import load_race_voices, vtyp_edid
 
 from ..packages.escort_when_near import (ESCORT_WHEN_NEAR_EDID,
                                          set_escort_template_fid)
-from .equivalents import CUSTOM_VTYP_EDIDS, set_voice_type
+from .equivalents import CUSTOM_VTYP_EDIDS, VTYP_EDID_BY_FID, set_voice_type
 from .owned_records import PLAYER_ATTRIBUTE_GLOBALS, WELL_KNOWN_PROPERTIES
 
 #: Synthesized stand-in records -> signature; a mastered plugin adopts the master's.
@@ -43,6 +43,7 @@ def _adopt_voice(index, voice_edid: str, race_edid: str, gender: str) -> bool:
     fid = index.find_by_edid(b'VTYP', voice_edid)
     if fid:
         set_voice_type(race_edid, gender, fid)
+        VTYP_EDID_BY_FID[fid] = voice_edid
     return bool(fid)
 
 

@@ -152,7 +152,7 @@ class MasterIndex:
         table = self._edid_tables.get(signature)
         if table is None:
             table = self._edid_tables[signature] = self._scan_edids(signature)
-        return table.get(edid.encode('ascii', 'replace'), 0)
+        return table.get(edid.encode('utf-8'), 0)
 
     def _scan_edids(self, signature: bytes) -> dict:
         """{EditorID bytes: FormID} for one signature's uncompressed records."""

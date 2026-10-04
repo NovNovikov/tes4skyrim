@@ -3,6 +3,7 @@
 See: docs/commentary/tes5_import_override.md#generated-records-reuse-the-masters
 """
 
+import json
 import struct
 import sys
 from collections import Counter
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tes5_import.actors.creature_races import _shared_creatures
 from tes5_import.base.writer import PluginWriter, pack_record, pack_string_subrecord
 from tes5_import.overrides.adoption import MasterAdoption, generated_formid
+from tes5_import.overrides.master_index import MasterIndex
 from tes5_import.overrides.builder import apply_changes, split_subrecords
 from tes5_import.overrides.nested import OverrideContext
 from tes5_import.record_types.common import register_music_types
@@ -177,3 +179,46 @@ def test_child_music_falls_back_to_the_masters_categories():
     writer = _writer({0x01001000: _record('MUSC', 0x01001000, 'MUSNehrimesmDungeon', ''),
                       0x01001001: _record('MUSC', 0x01001001, 'MUSNehrimesmExplore', '')})
     assert master_music_types(writer) == {0: 0x01001001, 2: 0x01001000}
+
+
+def test_child_music_uses_the_converted_masters_install_name(tmp_path):
+    """A renamed localized master still supplies the child's music categories."""
+    folder = tmp_path / 'Nehrim.esm'
+    folder.mkdir()
+    (folder / 'music_tracks.json').write_text(
+        json.dumps({'plugin': 'Nehrim.esm (Deutsch)'}), encoding='utf-8')
+    writer = _writer({
+        0x01001000: _record('MUSC', 0x01001000, 'MUSNehrimesmDeutschDungeon', ''),
+        0x01001001: _record('MUSC', 0x01001001, 'MUSNehrimesmDeutschExplore', ''),
+        0x01001002: _record('MUSC', 0x01001002, 'MUSNehrimesmDeutschPublic', ''),
+    })
+    assert master_music_types(writer, output_root=tmp_path) == {
+        0: 0x01001001, 1: 0x01001002, 2: 0x01001000}
+
+
+def test_child_npc_adopts_the_localized_master_voice(tmp_path, monkeypatch):
+    """The child uses the existing Russian VTYP and publishes its audio folder."""
+    from tes5_import.base.adopted_records import _adopt_race_voices
+    from tes5_import.base.equivalents import VOICE_TYPE_MAP, VTYP_EDID_BY_FID
+    from tes5_import.dialogue.converter import build_npc_to_vtyp_map
+
+    english_fid, russian_fid = 0x01001000, 0x01001001
+    russian_edid = 'TES4MaleВысокийэльф'
+    master = PluginWriter(masters=['Skyrim.esm'])
+    for fid, edid in [(english_fid, 'TES4MaleHighElf'),
+                      (russian_fid, russian_edid)]:
+        master.add_record('VTYP', _record('VTYP', fid, edid, ''))
+    path = tmp_path / 'Oblivion.esm'
+    master.write(str(path))
+    (tmp_path / 'RACE.txt').write_text(
+        '---RECORD_BEGIN---\nFormID=00000001\nEditorID=HighElf\n'
+        'FULL=Высокий эльф\n---RECORD_END---\n', encoding='utf-8')
+    monkeypatch.setitem(VOICE_TYPE_MAP, ('HighElf', 'Male'), english_fid)
+    monkeypatch.setitem(VTYP_EDID_BY_FID, russian_fid, '')
+    assert _adopt_race_voices(MasterIndex(str(path)), [tmp_path]) == 1
+    by_type = {
+        'RACE': [{'FormID': '00000001', 'EditorID': 'HighElf'}],
+        'NPC_': [{'FormID': '01000080', 'RNAM.Race': '00000001', 'ACBS.Flags': '0'}],
+    }
+    assert build_npc_to_vtyp_map(by_type, 1)[0x02000080] == russian_fid
+    assert VTYP_EDID_BY_FID[russian_fid] == russian_edid
