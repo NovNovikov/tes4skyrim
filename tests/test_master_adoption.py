@@ -101,6 +101,23 @@ def test_translated_record_keeps_the_masters_other_fields():
     assert list(writer.top_records()) == [packed('Grey Wolf', 7)]
 
 
+def test_finalize_keeps_ours_when_the_master_record_is_missing(capsys):
+    """An adopted id with no master bytes ships ours instead of crashing.
+
+    The master index can answer an EDID with an id whose bytes are then
+    unavailable (truncated output, an unroutable slot). finalize used to die
+    with struct.error on the empty buffer and kill the whole import.
+    """
+    ours = _record('MESG', MASTER_MSG, 'TES4Msg_A', 'Hello')
+    writer = _writer({MASTER_MSG: _record('MESG', MASTER_MSG, 'TES4Msg_A', 'Hallo')})
+    writer.adoption.find('MESG', 'TES4Msg_A')
+    writer.add_record('MESG', ours)
+    writer.adoption.master_index.records.pop(MASTER_MSG)
+    assert writer.adoption.finalize(writer) == (1, 0)
+    assert list(writer.top_records()) == [ours]
+    assert 'has no master record' in capsys.readouterr().out
+
+
 def test_queued_copy_yields_to_a_record_already_written():
     """A renamed copy ships only where nothing else wrote that FormID."""
     written = _record('MGEF', MASTER_MGEF_COPY, 'TES4REHEFFSelf', 'Restore Life')
