@@ -1265,8 +1265,12 @@ def mod_run_argv(app, runs, pack_with, pack_steps, out_dir, *, rebuild=False,
     texture_owner = next((name for name in members if name.lower().endswith('.esm')),
                          members[0] if members else None)
     cmds = []
-    import uuid
-    mesh_reuse_token = uuid.uuid4().hex
+    # Stable token, shared with the CLI default ('imported-mod'): the reuse
+    # cache on disk loads only on token match, so a per-run uuid started
+    # every mod run with an empty cache (33k needless reconversions) and then
+    # overwrote the file, poisoning the next run too. One constant keeps both
+    # the within-run sharing between members and the cross-run reuse.
+    mesh_reuse_token = 'imported-mod'
     shared_sounds_planned = False
     from core.gui.selection import imported_mod_optimizations_enabled
     optimized = imported_mod_optimizations_enabled(app)
