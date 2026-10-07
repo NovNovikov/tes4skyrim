@@ -730,7 +730,6 @@ def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypa
                           parallax_var=SimpleNamespace(get=lambda: True),
                           tex_only_var=SimpleNamespace(get=lambda: True))
     runs = [('A.esm', ['meshes', 'import_']), ('B.esp', ['meshes', 'import_'])]
-    previous_token = None
     for rebuild in (False, True):
         cmds = runner.mod_run_argv(app, runs, 'A.esm', ['pack'], 'output',
                                    rebuild=rebuild,
@@ -747,10 +746,10 @@ def test_mod_runs_finalize_textures_once_after_all_meshes_with_parallax(monkeypa
             assert args[i].parallax and args[i].textures_only
         assert all(args[i].plugin_assets_only for i in mesh_jobs)
         tokens = {args[i].mesh_reuse_token for i in mesh_jobs}
-        assert len(tokens) == 1 and None not in tokens
-        token = tokens.pop()
-        assert token != previous_token
-        previous_token = token
+        # One stable token within the run AND across runs: the on-disk reuse
+        # cache loads on token match, so a per-run uuid invalidated every
+        # cross-run hit (and overwrote the file for the next run too).
+        assert tokens == {'imported-mod'}
 
 
 def test_mod_runs_process_shared_effects_once_and_keep_each_plugins_voices(monkeypatch):
