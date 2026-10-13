@@ -413,6 +413,53 @@ def test_folder_import(tmp_path):
     assert source_registry.get(export, 'MyMod.esp')['kind'] == 'folder'
 
 
+@pytest.mark.parametrize('prefixes,selected', [
+    ([''], None),
+    (['Data/'], None),
+    (['Outer/Data/'], None),
+    (['00 Core/', '01 Patch/'], None),
+    (['00 Core/', '01 Patch/'], ['00 Core']),
+])
+def test_live_folder_payload_members_remain_available(tmp_path, prefixes, selected):
+    """Real folder ingest keeps live payload plugins visible and their scripts intact."""
+    from script_convert.ownership import owner_key, prune_removed_owners, write_owned
+
+    src, export = tmp_path / 'ExtractedMod', tmp_path / 'export'
+    for index, prefix in enumerate(prefixes):
+        for name, data in _mod_entries(prefix).items():
+            if selected is None and index and name.endswith('MyMod.esp'):
+                continue
+            p = src / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+    mod_ingest.ingest(src, export, subpackages=selected, log=lambda *a: None)
+    name = 'MyMod.esp'
+    records = source_registry.record_dir(export, name)
+    scripts = tmp_path / 'output' / 'Scripts' / 'Source'
+    scripts.mkdir(parents=True)
+    (scripts / 'Live.psc').write_text('live', encoding='utf-8')
+    (scripts.parent / 'Live.pex').write_bytes(b'live')
+    write_owned(scripts, owner_key(str(records)), ['Live'])
+    assert source_registry.source_available(export, name)
+    assert any(name in row.get('plugins', []) for row in source_registry.all_sources(export))
+    prune_removed_owners(scripts, records)
+    assert (scripts / 'Live.psc').is_file() and (scripts.parent / 'Live.pex').is_file()
+
+    active = selected if selected is not None else [p.rstrip('/') for p in prefixes]
+    for prefix in active:
+        (src / prefix / name).unlink(missing_ok=True)
+    if active != ['']:
+        # A same-named file outside the selected payload must not resurrect it.
+        (src / name).write_bytes(_tes4_plugin_bytes())
+    assert source_registry.plugin_binary(export, name).is_file()
+    assert not source_registry.source_available(export, name)
+    assert not any(name in row.get('plugins', []) for row in source_registry.all_sources(export))
+    prune_removed_owners(scripts, records)
+    assert not (scripts / 'Live.psc').exists() and not (scripts.parent / 'Live.pex').exists()
+    (src / active[0] / name).write_bytes(_tes4_plugin_bytes())
+    assert source_registry.source_available(export, name)
+
+
 def test_reingest_uses_retained_archive(tmp_path):
     arc = _zip(tmp_path / 'mod.zip', _mod_entries())
     export = tmp_path / 'export'

@@ -650,7 +650,13 @@ def source_available(export_dir, plugin: str) -> bool:
     original = entry.get('archive_original')
     if entry.get('kind') == 'folder' and original and Path(original).is_dir():
         member = entry.get('plugin_member') or entry['plugin']
-        return (Path(original) / member).is_file()
+        # Ingest strips Data/ or the selected BAIN roots from plugin_member.
+        # Search the same payload bases it copied, never an unselected package.
+        roots = entry.get('payload_root') or []
+        if isinstance(roots, str):
+            roots = [roots]
+        return any((Path(original) / root / member).is_file()
+                   for root in roots or [''])
     if plugin_binary(export_dir, plugin):
         return True
     if (record_dir(export_dir, plugin) / '_HEADER.txt').is_file():
