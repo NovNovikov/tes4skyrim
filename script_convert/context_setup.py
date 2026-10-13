@@ -134,10 +134,25 @@ def load_records(export_dir: str, sigs: tuple) -> dict:
     return out
 
 
-def service_menu_topics(by_type: dict) -> dict:
-    """DIAL FormID -> service menu name, for the service-typed menu topics."""
-    return {rec.get('FormID', ''): service_menu_kind(rec)
-            for rec in by_type.get('DIAL', []) if service_menu_kind(rec)}
+def service_menu_topics(by_type: dict, export_dir: str = None) -> dict:
+    """DIAL FormID -> service, including master topics in the child's id space.
+
+    Load the same master exports Import uses. The import is local because
+    override conversion and script setup both depend on the dialogue converter.
+    Own DIAL overrides replace inherited definitions, including non-services.
+    """
+    inherited, source_slot = {}, 0
+    if export_dir:
+        from tes5_import.overrides.nested import load_master_export
+        inherited = load_master_export(export_dir)
+        source_slot = next((i for i, name in enumerate(
+            masters_from_export_header(export_dir))
+            if name.casefold() == 'oblivion.esm'), 0)
+    topics = {fid: dict(rec, FormID=fid) for fid, rec in inherited.items()
+              if rec.get('Signature') == 'DIAL'}
+    topics.update({rec.get('FormID', ''): rec for rec in by_type.get('DIAL', [])})
+    return {fid: service_menu_kind(rec, source_slot)
+            for fid, rec in topics.items() if service_menu_kind(rec, source_slot)}
 
 
 def topic_unlock_globals(by_type: dict, unlock_plan: dict) -> dict:

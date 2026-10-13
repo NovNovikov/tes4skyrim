@@ -2304,6 +2304,60 @@ class TestServiceConversion:
                    and v[0] == 0 and struct.unpack_from('<f', v, 4)[0] == 1
                    for v in conditions)
 
+    @pytest.mark.parametrize('slot', [0, 1, 2])
+    @pytest.mark.parametrize('kind,topic', [('barter', 0x10F), ('training', 0x113)])
+    def test_inherited_service_vmad_has_a_generated_script(
+            self, tmp_path, monkeypatch, slot, kind, topic):
+        """A master service INFO's VMAD binds a file emitted by the real Scripts stage."""
+        from types import SimpleNamespace
+        from script_convert.pipeline import convert_all_scripts
+        from tes5_import.base import text_reader
+        from tes5_import.overrides.nested import _convert_nested, load_master_export
+        from tes5_import.record_types import actor_common
+
+        def dump(folder, sig, recs):
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / (sig + '.txt')).write_text(''.join(
+                '---RECORD_BEGIN---\n' + '\n'.join(f'{k}={v}' for k, v in rec.items())
+                + '\n---RECORD_END---\n' for rec in recs), encoding='utf-8')
+
+        root = tmp_path / 'export'
+        names = [f'Before{i}.esm' for i in range(slot)] + ['Oblivion.esm']
+        for name in names:
+            (root / name).mkdir(parents=True)
+            (root / name / '_HEADER.txt').write_text('', encoding='utf-8')
+        dump(root / 'Oblivion.esm', 'DIAL', [{
+            'Signature': 'DIAL', 'FormID': f'{topic:08X}',
+            'EditorID': kind.title(), 'DATA.Type': '5'}])
+        patch = root / 'Addon.esp'
+        patch.mkdir()
+        (patch / '_HEADER.txt').write_text(''.join(
+            f'Master[{i}]={name}\n' for i, name in enumerate(names)), encoding='utf-8')
+        parent = f'{(slot << 24) | topic:08X}'
+        own_parent = f'{((slot + 1) << 24) | topic:08X}'
+        fid = f'{((slot + 1) << 24) | 0x601:08X}'
+        info = {'Signature': 'INFO', 'FormID': fid, 'ParentDIAL': parent,
+                'RecordFlags': '0', 'DATA.Flags': '0', 'ResponseCount': '1',
+                'Response[0].ResponseNumber': '1', 'Response[0].ResponseText': 'A service.'}
+        other_fid = f'{((slot + 1) << 24) | 0x602:08X}'
+        dump(patch, 'INFO', [info, dict(info, FormID=other_fid, ParentDIAL=own_parent)])
+        dump(patch, 'DIAL', [{'Signature': 'DIAL', 'FormID': own_parent,
+                             'EditorID': 'OtherService', 'DATA.Type': '5'}])
+        monkeypatch.setattr(text_reader, '_formid_index_offset', 0)
+        monkeypatch.setattr(actor_common, '_origin_faction_fid', 0)
+        monkeypatch.setattr(actor_common, '_merchant_marker_faction_fid', 0x1000)
+        monkeypatch.setattr(actor_common, '_trainer_faction_fid', 0x1001)
+        ctx = SimpleNamespace(master_export=load_master_export(str(patch)),
+                              export_dir=str(patch))
+        data, _ = _convert_nested('INFO', info, ctx, int(parent, 16), (), [])
+        record = next(reader_records(data, b'INFO', span=(0, len(data))))
+        out = tmp_path / 'output' / 'Addon.esp' / 'Scripts' / 'Source'
+        stats = convert_all_scripts(str(patch), str(out), workers=1)
+        script = out / f'TES4_TIF__{fid}.psc'
+        assert stats['info_err'] == 0 and script.is_file()
+        assert script.stem.encode('ascii') in record.sub(b'VMAD')
+        assert not (out / f'TES4_TIF__{other_fid}.psc').exists()
+
     def test_greeting_choice_to_menu_topic_is_not_a_tclt(self):
         """A generic greeting whose Choice is a menu topic (Oblivion's SE
         greetings -> INFOGENERAL, which a script AddTopics) keeps no TCLT, so the

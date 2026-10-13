@@ -32,7 +32,8 @@ from .builder import (RECONVERT_KEYS, apply_changes, join_subrecords,
                       split_subrecords)
 from .master_index import load_master_index
 from ..actors.outfits import split_inventory
-from ..dialogue.converter import convert_INFO
+from ..dialogue.converter import convert_INFO, service_menu_kind
+from ..dialogue.groups import service_gate
 from ..record_types.actor_common import origin_gate, read_items
 from ..record_types.magic_variants import copy_editor_ids
 from ..record_types.world import convert_ACHR, convert_REFR, restamp_wrld_mnam
@@ -988,14 +989,15 @@ def _convert_nested(sig: str, rec: dict, ctx: OverrideContext, parent_out: int,
     """
     label = struct.pack('<I', parent_out)
     if sig == 'INFO':
-        from ..dialogue.converter import service_menu_kind
-        from ..dialogue.groups import _service_gate
-        parent = (ctx.master_export or {}).get(
-            (rec.get('ParentDIAL') or '').upper(), {})
-        service = service_menu_kind(parent)
+        parent_fid = (rec.get('ParentDIAL') or '').upper()
+        parent = (ctx.master_export or {}).get(parent_fid, {})
+        source_slot = next((i for i, name in enumerate(
+            masters_from_export_header(getattr(ctx, 'export_dir', '')))
+            if name.casefold() == 'oblivion.esm'), 0)
+        service = service_menu_kind(dict(parent, FormID=parent_fid or '0'), source_slot)
         gates = origin_gate(rec)
         if service:
-            service_gates = _service_gate(service)
+            service_gates = service_gate(service)
             if not service_gates:
                 return b'', ()
             gates = service_gates + gates

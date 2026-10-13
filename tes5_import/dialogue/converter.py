@@ -341,20 +341,22 @@ SERVICE_MENU_TOPICS = {
 }
 
 
-def service_menu_entry(rec: dict) -> tuple:
+def service_menu_entry(rec: dict, source_slot: int = 0) -> tuple:
     """(kind, prompt) for the two Service topics that open a menu, else ('', '').
 
     See: docs/commentary/tes5_import_dialogue.md#service-topics-by-formid
     """
     if get_int(rec, 'DATA.Type') != DIAL_TYPE_SERVICE:
         return ('', '')
-    return SERVICE_MENU_TOPICS.get(int(get_str(rec, 'FormID', '0'), 16),
-                                   ('', ''))
+    fid = int(get_str(rec, 'FormID', '0'), 16)
+    if fid >> 24 != source_slot:
+        return ('', '')
+    return SERVICE_MENU_TOPICS.get(fid & 0xFFFFFF, ('', ''))
 
 
-def service_menu_kind(rec: dict) -> str:
+def service_menu_kind(rec: dict, source_slot: int = 0) -> str:
     """'barter' / 'training' for the two convertible Service topics, else ''."""
-    return service_menu_entry(rec)[0]
+    return service_menu_entry(rec, source_slot)[0]
 
 
 #: Type-1 topics that are NOT NPC-to-NPC chatter, so they survive the drop.

@@ -269,7 +269,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
         print(f'    Button menus: {sum(len(v) for v in message_menus.values())} '
               f'MessageBox sites in {len(message_menus)} scripts')
     initargs = (xref, output_dir, unlock_plan['info_reveals'],
-                service_menu_topics(by_type),
+                service_menu_topics(by_type, export_dir),
                 unlock_plan['stage_reveals'], say_durations,
                 quest_script_vars, quest_edids_by_fid(by_type),
                 topic_unlock_globals(by_type, unlock_plan), message_menus,

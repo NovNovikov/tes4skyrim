@@ -598,6 +598,12 @@ lines on the origin factions of its explicitly listed masters: its own empty
 faction cannot qualify any speaker. Original quest/INFO conditions and service
 audience gates still apply. Inherited masters are excluded in both cases.
 
+For replies added under a master's Barter or Training topic, Import and Scripts
+resolve the same master exports in the add-on's FormID space. Scripts emits the
+fragment named by the INFO's VMAD even when the add-on has no service DIAL of its
+own. The Oblivion master can occupy a nonzero slot; matching low IDs from another
+plugin do not become service topics.
+
 A plugin's actors join its own and every converted master's
 (`origin_memberships`, found by EditorID through
 `ChainedMasterIndex.find_all_by_edid`). For plugins adding their own actors,
